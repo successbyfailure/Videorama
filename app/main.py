@@ -6,19 +6,20 @@ import time
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
+import certifi
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-import certifi
 
 # Ensure the runtime always has a CA bundle to prevent SSL failures, even in
-# slim containers where the OS certificates may be missing. This must happen
-# before importing libraries such as yt-dlp so that their networking stack
-# picks up the correct SSL context settings.
+# slim containers where the OS certificates may be missing or a proxy injects
+# a custom CA path. We forcefully override the environment variables so that
+# Python's SSL module and any underlying libraries consistently rely on the
+# certifi bundle.
 CERT_BUNDLE = certifi.where()
-os.environ.setdefault("SSL_CERT_FILE", CERT_BUNDLE)
-os.environ.setdefault("REQUESTS_CA_BUNDLE", CERT_BUNDLE)
+os.environ["SSL_CERT_FILE"] = CERT_BUNDLE
+os.environ["REQUESTS_CA_BUNDLE"] = CERT_BUNDLE
 
 import yt_dlp
 
