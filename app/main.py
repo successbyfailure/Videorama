@@ -1,0 +1,215 @@
+import hashlib
+import json
+import os
+import re
+import time
+from pathlib import Path
+from typing import Dict, Optional, Tuple
+
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+import yt_dlp
+
+APP_TITLE = "Videorama"
+CACHE_DIR = Path(os.getenv("CACHE_DIR", "data/cache"))
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", 60 * 60 * 24))
+
+app = FastAPI(title=APP_TITLE, version="1.0.0")
+templates = Jinja2Templates(directory="templates")
+
+
+class DownloadError(RuntimeError):
+    """Raised when yt-dlp fails to download the requested media."""
+
+
+def slugify(value: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9]+", "-", value or "download")
+    safe = safe.strip("-")
+    return safe.lower() or "download"
+
+
+def cache_key(url: str, media_format: str) -> str:
+    raw = f"{url}|{media_format}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+def meta_path(key: str) -> Path:
+    return CACHE_DIR / f"{key}.json"
+
+
+def load_meta(key: str) -> Dict:
+    path = meta_path(key)
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def save_meta(key: str, payload: Dict) -> None:
+    with meta_path(key).open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+
+
+def remove_cache_entry(key: str) -> None:
+    data = load_meta(key)
+    filename = data.get("filename")
+    if filename:
+        media = CACHE_DIR / filename
+        if media.exists():
+            media.unlink(missing_ok=True)
+    meta_path(key).unlink(missing_ok=True)
+
+
+def is_expired(meta: Dict) -> bool:
+    downloaded_at = meta.get("downloaded_at", 0)
+    return (time.time() - downloaded_at) > CACHE_TTL_SECONDS
+
+
+def purge_expired_entries() -> None:
+    for meta_file in CACHE_DIR.glob("*.json"):
+        key = meta_file.stem
+        data = load_meta(key)
+        if not data:
+            meta_file.unlink(missing_ok=True)
+            continue
+        if is_expired(data):
+            remove_cache_entry(key)
+
+
+def fetch_cached_file(key: str) -> Tuple[Optional[Path], Dict]:
+    data = load_meta(key)
+    if not data:
+        return None, {}
+    if is_expired(data):
+        remove_cache_entry(key)
+        return None, {}
+    filename = data.get("filename")
+    if not filename:
+        remove_cache_entry(key)
+        return None, {}
+    filepath = CACHE_DIR / filename
+    if not filepath.exists():
+        remove_cache_entry(key)
+        return None, {}
+    return filepath, data
+
+
+def build_download_name(title: str, filepath: Path) -> str:
+    ext = filepath.suffix.lstrip(".") or "bin"
+    return f"{slugify(title)}.{ext}"
+
+
+def download_media(url: str, media_format: str) -> Tuple[Path, Dict]:
+    key = cache_key(url, media_format)
+    purge_expired_entries()
+    cached_path, cached_meta = fetch_cached_file(key)
+    if cached_path:
+        return cached_path, cached_meta
+
+    outtmpl = str(CACHE_DIR / f"{key}.%(ext)s")
+    base_opts = {
+        "outtmpl": outtmpl,
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+    }
+
+    if media_format == "audio":
+        ydl_opts = {
+            **base_opts,
+            "format": "bestaudio/best",
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }
+            ],
+        }
+    else:
+        ydl_opts = {
+            **base_opts,
+            "format": "bv*+ba/b",
+            "merge_output_format": "mp4",
+        }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+    except Exception as exc:  # pragma: no cover - yt-dlp errors are direct
+        raise DownloadError(str(exc)) from exc
+
+    requested = info.get("requested_downloads") or []
+    if requested:
+        filepath = Path(requested[0]["filepath"])  # type: ignore[index]
+    else:
+        filepath = Path(ydl.prepare_filename(info))  # type: ignore[name-defined]
+    if not filepath.exists():
+        raise DownloadError("No se pudo localizar el archivo descargado")
+
+    title = info.get("title") or "video"
+    metadata = {
+        "title": title,
+        "filename": filepath.name,
+        "source_url": url,
+        "media_format": media_format,
+        "downloaded_at": time.time(),
+    }
+    save_meta(key, metadata)
+    return filepath, metadata
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse("index.html", {"request": request, "app_name": APP_TITLE})
+
+
+@app.get("/api/health")
+async def health() -> Dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/api/download")
+async def download_endpoint(
+    request: Request,
+    url: str = Query(..., description="URL del video a descargar"),
+    media_format: str = Query("video", pattern="^(video|audio)$", alias="format"),
+):
+    format_value = media_format.lower()
+    if format_value not in {"video", "audio"}:
+        raise HTTPException(status_code=400, detail="Formato inválido. Usa 'video' o 'audio'.")
+
+    try:
+        file_path, metadata = await run_in_threadpool(download_media, url, format_value)
+    except DownloadError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    download_name = build_download_name(metadata.get("title", "videorama"), file_path)
+    media_type = "audio/mpeg" if format_value == "audio" else "video/mp4"
+    return FileResponse(
+        path=file_path,
+        filename=download_name,
+        media_type=media_type,
+    )
+
+
+@app.get("/api/cache", response_class=JSONResponse)
+async def cache_status() -> Dict:
+    purge_expired_entries()
+    entries = []
+    for meta_file in CACHE_DIR.glob("*.json"):
+        with meta_file.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if not is_expired(data):
+            entries.append(
+                {
+                    "title": data.get("title"),
+                    "media_format": data.get("media_format"),
+                    "age_seconds": max(0, int(time.time() - data.get("downloaded_at", 0))),
+                }
+            )
+    return {"items": entries, "ttl_seconds": CACHE_TTL_SECONDS}
+
