@@ -137,7 +137,11 @@ def build_ydl_options(
         "quiet": True,
         "noprogress": True,
         "noplaylist": True,
-        "nocheckcertificate": True,
+        # Force yt-dlp to rely on the bundled CA certificates instead of the
+        # (possibly missing) system store. This avoids SSL failures when the
+        # container lacks CA data or a proxy injects a custom CA path.
+        "nocheckcertificate": False,
+        "ca_certs": CERT_BUNDLE,
         "outtmpl": str(CACHE_DIR / f"{cache_key_value}.%(ext)s"),
         "overwrites": True,
         "retries": 3,
