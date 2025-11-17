@@ -31,6 +31,9 @@ El servicio quedará disponible en `http://localhost:8000` con la interfaz web y
 | --- | --- | --- |
 | `CACHE_TTL_SECONDS` | Tiempo de vida de cada descarga en caché | `86400` (24h) |
 | `CACHE_DIR` | Ruta interna donde se guarda la caché | `data/cache` |
+| `YTDLP_PROXY` | Proxy HTTP(S) usado por yt-dlp | _(vacío)_ |
+| `YTDLP_COOKIES_FILE` | Ruta a un archivo de cookies (por ejemplo, exportado con la extensión «Get cookies.txt»). Útil para proveedores que requieren sesión como Instagram. | _(vacío)_ |
+| `YTDLP_USER_AGENT` | User-Agent personalizado enviado en cada petición de yt-dlp. Útil para evitar bloqueos/403. | Cadena UA moderna de Chrome |
 
 Puedes sobrescribirlas en `docker-compose.yml` o al ejecutar `docker compose`.
 
