@@ -10,8 +10,17 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-import yt_dlp
 import certifi
+
+# Ensure the runtime always has a CA bundle to prevent SSL failures, even in
+# slim containers where the OS certificates may be missing. This must happen
+# before importing libraries such as yt-dlp so that their networking stack
+# picks up the correct SSL context settings.
+CERT_BUNDLE = certifi.where()
+os.environ.setdefault("SSL_CERT_FILE", CERT_BUNDLE)
+os.environ.setdefault("REQUESTS_CA_BUNDLE", CERT_BUNDLE)
+
+import yt_dlp
 
 APP_TITLE = "Videorama"
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "data/cache"))
@@ -31,12 +40,6 @@ SUPPORTED_SERVICES = [
 ]
 YTDLP_PROXY = os.getenv("YTDLP_PROXY")
 YTDLP_COOKIES_FILE = os.getenv("YTDLP_COOKIES_FILE")
-
-# Ensure the runtime always has a CA bundle to prevent SSL failures, even in
-# slim containers where the OS certificates may be missing.
-CERT_BUNDLE = certifi.where()
-os.environ.setdefault("SSL_CERT_FILE", CERT_BUNDLE)
-os.environ.setdefault("REQUESTS_CA_BUNDLE", CERT_BUNDLE)
 
 YTDLP_USER_AGENT = os.getenv(
     "YTDLP_USER_AGENT",
