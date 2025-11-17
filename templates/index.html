@@ -82,6 +82,35 @@
         min-height: 1.25rem;
         font-size: 0.9rem;
       }
+      .services {
+        margin: 1.5rem 0 0;
+        padding: 1.25rem;
+        border-radius: 16px;
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        background: rgba(30, 41, 59, 0.55);
+      }
+      .services-title {
+        margin: 0 0 0.75rem;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #cbd5f5;
+      }
+      .services-list {
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        list-style: none;
+      }
+      .service-chip {
+        padding: 0.35rem 0.75rem;
+        border-radius: 999px;
+        background: rgba(59, 130, 246, 0.18);
+        border: 1px solid rgba(96, 165, 250, 0.6);
+        font-size: 0.85rem;
+      }
     </style>
   </head>
   <body>
@@ -95,6 +124,14 @@
       <p class="hint">
         Los archivos se mantienen en caché durante 24 horas para acelerar las descargas repetidas.
       </p>
+      <section class="services">
+        <p class="services-title">Servicios soportados</p>
+        <ul class="services-list">
+          {% for service in supported_services %}
+          <li class="service-chip">{{ service }}</li>
+          {% endfor %}
+        </ul>
+      </section>
       <form id="download-form">
         <div>
           <label for="url">URL del video</label>
