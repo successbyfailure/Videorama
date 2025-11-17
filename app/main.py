@@ -29,6 +29,113 @@ SUPPORTED_SERVICES = [
     "Reddit",
 ]
 YTDLP_PROXY = os.getenv("YTDLP_PROXY")
+YTDLP_COOKIES_FILE = os.getenv("YTDLP_COOKIES_FILE")
+YTDLP_USER_AGENT = os.getenv(
+    "YTDLP_USER_AGENT",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+)
+
+app = FastAPI(title=APP_TITLE)
+templates = Jinja2Templates(directory="templates")
+
+
+class DownloadError(RuntimeError):
+    """Error amigable para fallos de descarga."""
+
+
+def cache_key(url: str, media_format: str) -> str:
+    normalized = f"{url.strip()}::{media_format.strip().lower()}"
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+
+
+def meta_path(key: str) -> Path:
+    return CACHE_DIR / f"{key}.json"
+
+
+def is_expired(meta: Dict) -> bool:
+    downloaded_at = meta.get("downloaded_at") or 0
+    return (time.time() - float(downloaded_at)) > CACHE_TTL_SECONDS
+
+
+def build_download_name(title: str, file_path: Path) -> str:
+    base = title.strip().lower() or "videorama"
+    safe = re.sub(r"[^a-z0-9\-_.]+", "_", base)
+    safe = re.sub(r"_+", "_", safe).strip("._") or "videorama"
+    extension = file_path.suffix or ".bin"
+    return f"{safe}{extension}"
+
+
+def load_meta(key: str) -> Optional[Dict]:
+    path = meta_path(key)
+    if not path.exists():
+        return None
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def delete_cache_entry(key: str, metadata: Optional[Dict] = None) -> None:
+    meta = metadata or load_meta(key) or {}
+    data_file = meta.get("filename")
+    if data_file:
+        stored_file = CACHE_DIR / data_file
+        if stored_file.exists():
+            stored_file.unlink(missing_ok=True)
+    meta_path(key).unlink(missing_ok=True)
+
+
+def fetch_cached_file(key: str) -> Tuple[Optional[Path], Optional[Dict]]:
+    metadata = load_meta(key)
+    if not metadata:
+        return None, None
+    if is_expired(metadata):
+        delete_cache_entry(key, metadata)
+        return None, None
+
+    filename = metadata.get("filename")
+    if not filename:
+        delete_cache_entry(key, metadata)
+        return None, None
+
+    file_path = CACHE_DIR / filename
+    if not file_path.exists():
+        delete_cache_entry(key, metadata)
+        return None, None
+
+    return file_path, metadata
+
+
+def purge_expired_entries() -> None:
+    for meta_file in CACHE_DIR.glob("*.json"):
+        with meta_file.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if is_expired(data):
+            delete_cache_entry(meta_file.stem, data)
+
+
+def save_meta(key: str, metadata: Dict) -> None:
+    with meta_path(key).open("w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, ensure_ascii=False, indent=2)
+
+
+def build_ydl_options(
+    media_format: str, *, cache_key_value: str, force_no_proxy: bool = False
+) -> Dict:
+    base_opts: Dict = {
+        "quiet": True,
+        "noprogress": True,
+        "noplaylist": True,
+        "nocheckcertificate": True,
+        "outtmpl": str(CACHE_DIR / f"{cache_key_value}.%(ext)s"),
+        "overwrites": True,
+        "retries": 3,
+        "http_headers": {"User-Agent": YTDLP_USER_AGENT},
+    }
+
+    if not force_no_proxy and YTDLP_PROXY:
+        base_opts["proxy"] = YTDLP_PROXY
+    if YTDLP_COOKIES_FILE:
+        base_opts["cookiefile"] = YTDLP_COOKIES_FILE
 
     if media_format == "audio":
         return {
@@ -60,10 +167,12 @@ def download_media(url: str, media_format: str) -> Tuple[Path, Dict]:
     purge_expired_entries()
     cached_path, cached_meta = fetch_cached_file(key)
     if cached_path:
-        return cached_path, cached_meta
+        return cached_path, cached_meta or {}
 
     def extract(force_no_proxy: bool = False) -> Dict:
-        ydl_opts = build_ydl_options(media_format, cache_key_value=key, force_no_proxy=force_no_proxy)
+        ydl_opts = build_ydl_options(
+            media_format, cache_key_value=key, force_no_proxy=force_no_proxy
+        )
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 return ydl.extract_info(url, download=True)
@@ -77,8 +186,11 @@ def download_media(url: str, media_format: str) -> Tuple[Path, Dict]:
     requested = info.get("requested_downloads") or []
     if requested:
         filepath = Path(requested[0]["filepath"])  # type: ignore[index]
+    elif info.get("_filename"):
+        filepath = Path(info["_filename"])  # type: ignore[index]
     else:
-        filepath = Path(ydl.prepare_filename(info))  # type: ignore[name-defined]
+        raise DownloadError("No se pudo localizar el archivo descargado")
+
     if not filepath.exists():
         raise DownloadError("No se pudo localizar el archivo descargado")
 
@@ -151,4 +263,3 @@ async def cache_status() -> Dict:
                 }
             )
     return {"items": entries, "ttl_seconds": CACHE_TTL_SECONDS}
-
