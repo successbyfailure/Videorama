@@ -1,0 +1,10 @@
+services:
+  videorama:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - CACHE_TTL_SECONDS=86400
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
