@@ -5,10 +5,10 @@ videos o pistas de audio y mantener un caché local durante 24 horas.
 
 ## Características
 
-- Interfaz web simple (SPA) para solicitar descargas de video (MP4) o audio (MP3) en dos calidades (192 kbps y 96 kbps para archivos más ligeros).
+- Interfaz web simple (SPA) para solicitar descargas de video (MP4), audio (MP3 en dos calidades) o transcripciones en texto plano utilizando la API de OpenAI.
 - API REST en `/api` con endpoints:
   - `GET /api/health`: verificación rápida del servicio.
-- `GET /api/download?url=...&format=video|audio|audio_low`: genera y devuelve el archivo.
+- `GET /api/download?url=...&format=video|audio|audio_low|transcripcion`: genera y devuelve el archivo (o transcripción).
   - `GET /api/cache`: listado informativo del contenido en caché.
 - Caché de descargas en disco durante 24h (configurable mediante `CACHE_TTL_SECONDS`).
 - Basado en FastAPI + yt-dlp para aprovechar todos los proveedores soportados.
@@ -34,6 +34,9 @@ El servicio quedará disponible en `http://localhost:8000` con la interfaz web y
 | `YTDLP_PROXY` | Proxy HTTP(S) usado por yt-dlp | _(vacío)_ |
 | `YTDLP_COOKIES_FILE` | Ruta a un archivo de cookies (por ejemplo, exportado con la extensión «Get cookies.txt»). Útil para proveedores que requieren sesión como Instagram. | _(vacío)_ |
 | `YTDLP_USER_AGENT` | User-Agent personalizado enviado en cada petición de yt-dlp. Útil para evitar bloqueos/403. | Cadena UA moderna de Chrome |
+| `TRANSCRIPTION_ENDPOINT` | Endpoint compatible con la librería de OpenAI para generar transcripciones. | `https://api.openai.com/v1` |
+| `TRANSCRIPTION_API_KEY` | Clave API usada para autenticar contra el endpoint de transcripción. | _(vacío)_ |
+| `TRANSCRIPTION_MODEL` | Modelo usado para transcribir (por ejemplo, `gpt-4o-mini-transcribe`). | `gpt-4o-mini-transcribe` |
 
 Puedes sobrescribirlas en `docker-compose.yml` o al ejecutar `docker compose`.
 
