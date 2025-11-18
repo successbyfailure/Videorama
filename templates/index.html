@@ -21,7 +21,7 @@
         padding: 2rem;
       }
       .card {
-        width: min(520px, 100%);
+        width: min(720px, 100%);
         background: rgba(15, 23, 42, 0.85);
         border-radius: 18px;
         padding: 2.5rem;
@@ -111,6 +111,84 @@
         border: 1px solid rgba(96, 165, 250, 0.6);
         font-size: 0.85rem;
       }
+      .dashboard {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        margin-top: 2rem;
+      }
+      .panel {
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(15, 23, 42, 0.75);
+        padding: 1.5rem;
+      }
+      .panel h2 {
+        margin: 0;
+        font-size: 1.2rem;
+      }
+      .panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+      .ghost-button {
+        background: transparent;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        color: inherit;
+        border-radius: 10px;
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+      }
+      .cache-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin-top: 1rem;
+      }
+      .cache-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        padding: 0.85rem;
+        border-radius: 12px;
+        background: rgba(30, 41, 59, 0.65);
+      }
+      .cache-item strong {
+        font-size: 1rem;
+      }
+      .cache-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        font-size: 0.85rem;
+        color: #cbd5f5;
+      }
+      .cache-actions {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        margin-top: 0.5rem;
+      }
+      .panel-status {
+        font-size: 0.85rem;
+        color: #facc15;
+        min-height: 1rem;
+        margin-top: 0.5rem;
+      }
+      .chart-wrapper {
+        margin-top: 1rem;
+      }
+      canvas {
+        width: 100% !important;
+      }
+      @media (max-width: 640px) {
+        .card {
+          padding: 1.5rem;
+        }
+      }
     </style>
   </head>
   <body>
@@ -150,20 +228,64 @@
         <button type="submit">Descargar</button>
         <p class="status" id="status"></p>
       </form>
+      <section class="dashboard">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Descargas en caché</h2>
+              <p class="hint">
+                Reutiliza archivos descargados previamente mientras no expiren (TTL: 24 h por defecto).
+              </p>
+            </div>
+            <button class="ghost-button" id="refresh-cache">Actualizar</button>
+          </div>
+          <div id="cache-content" class="cache-list">
+            <p class="hint">Cargando caché…</p>
+          </div>
+          <p class="panel-status" id="cache-status"></p>
+        </section>
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Actividad de la última semana</h2>
+              <p class="hint">Descargas totales frente a aciertos de caché.</p>
+            </div>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="usage-chart" height="180"></canvas>
+          </div>
+          <p class="panel-status" id="usage-status"></p>
+        </section>
+      </section>
     </main>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
       const form = document.getElementById('download-form');
       const statusEl = document.getElementById('status');
+      const cacheContent = document.getElementById('cache-content');
+      const cacheStatusEl = document.getElementById('cache-status');
+      const refreshCacheBtn = document.getElementById('refresh-cache');
+      const usageStatusEl = document.getElementById('usage-status');
+      const usageCanvas = document.getElementById('usage-chart');
+      let usageChart;
 
-      form.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        statusEl.textContent = 'Preparando tu archivo…';
-        const params = new URLSearchParams(new FormData(form));
+      function triggerBlobDownload(blob, filename) {
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      }
+
+      async function downloadFromEndpoint(endpoint, statusTarget) {
         try {
-          const response = await fetch(`/api/download?${params.toString()}`);
+          const response = await fetch(endpoint);
           if (!response.ok) {
             const errorPayload = await response.json().catch(() => ({}));
-            throw new Error(errorPayload.detail || 'Error al generar la descarga');
+            throw new Error(errorPayload.detail || 'Error al preparar el archivo');
           }
           const blob = await response.blob();
           const disposition = response.headers.get('Content-Disposition');
@@ -171,19 +293,179 @@
           if (disposition && disposition.includes('filename=')) {
             filename = disposition.split('filename=')[1].replace(/"/g, '');
           }
-          const url = window.URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = filename;
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          window.URL.revokeObjectURL(url);
-          statusEl.textContent = '¡Listo! La descarga debería comenzar automáticamente.';
+          triggerBlobDownload(blob, filename);
+          if (statusTarget) {
+            statusTarget.textContent = 'Descarga lista.';
+          }
         } catch (error) {
-          statusEl.textContent = error.message;
+          if (statusTarget) {
+            statusTarget.textContent = error.message;
+          }
         }
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        statusEl.textContent = 'Preparando tu archivo…';
+        const params = new URLSearchParams(new FormData(form));
+        await downloadFromEndpoint(`/api/download?${params.toString()}`, statusEl);
       });
+
+      function formatBytes(bytes) {
+        if (!Number.isFinite(bytes)) return '—';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let index = 0;
+        let value = bytes;
+        while (value >= 1024 && index < units.length - 1) {
+          value /= 1024;
+          index += 1;
+        }
+        return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+      }
+
+      function formatAge(ageSeconds) {
+        const minutes = Math.floor(ageSeconds / 60);
+        if (minutes < 1) return 'recién descargado';
+        if (minutes < 60) return `${minutes} min`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours} h`;
+        const days = Math.floor(hours / 24);
+        return `${days} d`;
+      }
+
+      function renderCacheEntries(payload) {
+        cacheContent.innerHTML = '';
+        if (!payload.items.length) {
+          const empty = document.createElement('p');
+          empty.className = 'hint';
+          empty.textContent = 'No hay elementos recientes en la caché.';
+          cacheContent.appendChild(empty);
+          return;
+        }
+        payload.items.forEach((item) => {
+          const entry = document.createElement('div');
+          entry.className = 'cache-item';
+          entry.innerHTML = `
+            <strong>${item.title || 'Descarga'}</strong>
+            <div class="cache-meta">
+              <span>Formato: ${item.media_format}</span>
+              <span>Peso: ${formatBytes(item.filesize_bytes)}</span>
+              <span>Edad: ${formatAge(item.age_seconds)}</span>
+            </div>
+          `;
+          const actions = document.createElement('div');
+          actions.className = 'cache-actions';
+          const downloadBtn = document.createElement('button');
+          downloadBtn.className = 'ghost-button';
+          downloadBtn.textContent = 'Volver a descargar';
+          downloadBtn.addEventListener('click', () => {
+            cacheStatusEl.textContent = 'Obteniendo archivo desde la caché…';
+            downloadFromEndpoint(item.download_url, cacheStatusEl);
+          });
+          const openBtn = document.createElement('a');
+          openBtn.href = item.source_url;
+          openBtn.target = '_blank';
+          openBtn.rel = 'noreferrer';
+          openBtn.className = 'ghost-button';
+          openBtn.textContent = 'Ver origen';
+          actions.append(downloadBtn, openBtn);
+          entry.appendChild(actions);
+          cacheContent.appendChild(entry);
+        });
+      }
+
+      async function loadCachePanel() {
+        cacheContent.innerHTML = '<p class="hint">Actualizando…</p>';
+        cacheStatusEl.textContent = '';
+        try {
+          const response = await fetch('/api/cache');
+          if (!response.ok) {
+            throw new Error('No se pudo obtener la caché');
+          }
+          const payload = await response.json();
+          renderCacheEntries(payload);
+          cacheStatusEl.textContent = `Elementos: ${payload.items.length}`;
+        } catch (error) {
+          cacheContent.innerHTML = '';
+          cacheStatusEl.textContent = error.message;
+        }
+      }
+
+      async function loadUsageChart() {
+        usageStatusEl.textContent = 'Calculando actividad…';
+        try {
+          const response = await fetch('/api/stats/usage');
+          if (!response.ok) {
+            throw new Error('No se pudo obtener la actividad');
+          }
+          const payload = await response.json();
+          const labels = payload.points.map((point) => {
+            const date = new Date(point.date);
+            return date.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
+          });
+          const downloads = payload.points.map((point) => point.downloads);
+          const cacheHits = payload.points.map((point) => point.cache_hits);
+          if (usageChart) {
+            usageChart.data.labels = labels;
+            usageChart.data.datasets[0].data = downloads;
+            usageChart.data.datasets[1].data = cacheHits;
+            usageChart.update();
+          } else if (window.Chart) {
+            usageChart = new Chart(usageCanvas, {
+              type: 'line',
+              data: {
+                labels,
+                datasets: [
+                  {
+                    label: 'Descargas',
+                    data: downloads,
+                    borderColor: '#f97316',
+                    backgroundColor: 'rgba(249, 115, 22, 0.2)',
+                    tension: 0.3,
+                    fill: true,
+                  },
+                  {
+                    label: 'Aciertos caché',
+                    data: cacheHits,
+                    borderColor: '#22d3ee',
+                    backgroundColor: 'rgba(34, 211, 238, 0.2)',
+                    tension: 0.3,
+                    fill: true,
+                  },
+                ],
+              },
+              options: {
+                plugins: {
+                  legend: {
+                    labels: { color: '#e2e8f0' },
+                  },
+                },
+                scales: {
+                  x: {
+                    ticks: { color: '#94a3b8' },
+                    grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                  },
+                  y: {
+                    ticks: { color: '#94a3b8', precision: 0 },
+                    beginAtZero: true,
+                    grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                  },
+                },
+              },
+            });
+          }
+          usageStatusEl.textContent = `Total semana: ${payload.total} descargas · ${payload.cache_hits} desde caché.`;
+        } catch (error) {
+          usageStatusEl.textContent = error.message;
+        }
+      }
+
+      refreshCacheBtn.addEventListener('click', () => {
+        loadCachePanel();
+      });
+
+      loadCachePanel();
+      loadUsageChart();
     </script>
   </body>
 </html>
