@@ -4,7 +4,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import certifi
 from dotenv import load_dotenv
@@ -62,7 +62,12 @@ AUDIO_FORMAT_PROFILES = {
     "audio": {"codec": "mp3", "preferred_quality": "192"},
     "audio_low": {"codec": "mp3", "preferred_quality": "96"},
 }
-SUPPORTED_MEDIA_FORMATS = {"video", *AUDIO_FORMAT_PROFILES, "transcripcion"}
+SUPPORTED_MEDIA_FORMATS = {
+    "video",
+    *AUDIO_FORMAT_PROFILES,
+    "transcripcion",
+    "transcripcion_txt",
+}
 MEDIA_FORMAT_PATTERN = f"^({'|'.join(sorted(SUPPORTED_MEDIA_FORMATS))})$"
 
 app = FastAPI(title=APP_TITLE)
@@ -91,7 +96,8 @@ FORMAT_EXTENSIONS = {
     "video": ".mp4",
     "audio": ".mp3",
     "audio_low": ".mp3",
-    "transcripcion": ".txt",
+    "transcripcion": ".json",
+    "transcripcion_txt": ".txt",
 }
 
 
@@ -259,7 +265,31 @@ def ensure_transcription_ready() -> None:
         )
 
 
-def transcribe_audio_file(file_path: Path) -> str:
+def _normalize_transcription_payload(payload: Any) -> Dict[str, Any]:
+    if hasattr(payload, "model_dump"):
+        data = payload.model_dump()
+    elif isinstance(payload, dict):
+        data = payload
+    elif isinstance(payload, str):
+        try:
+            parsed = json.loads(payload)
+            data = parsed if isinstance(parsed, dict) else {"text": payload.strip()}
+        except json.JSONDecodeError:
+            data = {"text": payload.strip()}
+    else:
+        text_value = getattr(payload, "text", None)
+        if text_value is not None:
+            data = {"text": str(text_value)}
+        else:
+            data = {"text": str(payload)}
+
+    text_field = data.get("text")
+    if isinstance(text_field, str):
+        data["text"] = text_field.strip()
+    return data
+
+
+def transcribe_audio_file(file_path: Path) -> Dict[str, Any]:
     ensure_transcription_ready()
     client = OpenAI(api_key=TRANSCRIPTION_API_KEY, base_url=TRANSCRIPTION_ENDPOINT)
     try:
@@ -267,36 +297,44 @@ def transcribe_audio_file(file_path: Path) -> str:
             response = client.audio.transcriptions.create(
                 model=TRANSCRIPTION_MODEL,
                 file=audio_stream,
-                response_format="text",
+                response_format="verbose_json",
             )
     except Exception as exc:  # pragma: no cover - dep is external
         raise DownloadError(f"No se pudo transcribir el audio: {exc}") from exc
 
-    if isinstance(response, str):
-        return response.strip()
-    text = getattr(response, "text", None)
-    if text:
-        return str(text).strip()
-    return str(response).strip()
+    return _normalize_transcription_payload(response)
 
 
-def generate_transcription(url: str) -> Tuple[Path, Dict]:
-    key = cache_key(url, "transcripcion")
+def generate_transcription_file(url: str, media_format: str) -> Tuple[Path, Dict]:
+    if media_format not in {"transcripcion", "transcripcion_txt"}:
+        raise DownloadError("Formato de transcripción no soportado")
+    key = cache_key(url, media_format)
     purge_expired_entries()
     cached_path, cached_meta = fetch_cached_file(key)
     if cached_path:
         return cached_path, cached_meta or {}
 
     audio_path, audio_meta = download_media(url, "audio_low")
-    transcript = transcribe_audio_file(audio_path)
-    transcript_path = CACHE_DIR / f"{key}.txt"
-    transcript_path.write_text(transcript, encoding="utf-8")
+    transcript_payload = transcribe_audio_file(audio_path)
+
+    if media_format == "transcripcion":
+        transcript_path = CACHE_DIR / f"{key}.json"
+        transcript_path.write_text(
+            json.dumps(transcript_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    else:
+        text_only = transcript_payload.get("text") or ""
+        if not isinstance(text_only, str):
+            text_only = str(text_only)
+        transcript_path = CACHE_DIR / f"{key}.txt"
+        transcript_path.write_text(text_only.strip(), encoding="utf-8")
 
     metadata = {
         "title": audio_meta.get("title") or "transcripcion",
         "filename": transcript_path.name,
         "source_url": url,
-        "media_format": "transcripcion",
+        "media_format": media_format,
         "downloaded_at": time.time(),
     }
     save_meta(key, metadata)
@@ -334,8 +372,10 @@ async def download_endpoint(
         )
 
     try:
-        if format_value == "transcripcion":
-            file_path, metadata = await run_in_threadpool(generate_transcription, url)
+        if format_value in {"transcripcion", "transcripcion_txt"}:
+            file_path, metadata = await run_in_threadpool(
+                generate_transcription_file, url, format_value
+            )
         else:
             file_path, metadata = await run_in_threadpool(
                 download_media, url, format_value
@@ -347,6 +387,8 @@ async def download_endpoint(
         metadata.get("title", "videorama"), file_path, format_value
     )
     if format_value == "transcripcion":
+        media_type = "application/json"
+    elif format_value == "transcripcion_txt":
         media_type = "text/plain"
     elif format_value in AUDIO_FORMAT_PROFILES:
         media_type = "audio/mpeg"
