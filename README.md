@@ -40,6 +40,10 @@ El servicio quedará disponible en `http://localhost:8000` con la interfaz web y
 
 Puedes sobrescribirlas en `docker-compose.yml` o al ejecutar `docker compose`.
 
+Si quieres mantener tus ajustes localmente, crea un archivo `.env` (puedes
+partir de `example.env`) y define ahí las variables necesarias; la aplicación lo
+cargará automáticamente al iniciar.
+
 ## Ejecución local (sin Docker)
 
 ```bash

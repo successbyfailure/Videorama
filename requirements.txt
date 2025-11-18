@@ -5,3 +5,4 @@ jinja2
 python-multipart
 certifi
 openai
+python-dotenv
