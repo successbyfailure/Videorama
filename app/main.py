@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import certifi
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -20,6 +21,11 @@ from fastapi.templating import Jinja2Templates
 CERT_BUNDLE = certifi.where()
 os.environ["SSL_CERT_FILE"] = CERT_BUNDLE
 os.environ["REQUESTS_CA_BUNDLE"] = CERT_BUNDLE
+
+# Cargar variables definidas en un archivo .env si está presente. Esto permite
+# configurar claves (como la de transcripción) sin depender del entorno del
+# sistema o del orquestador.
+load_dotenv()
 
 import yt_dlp
 from openai import OpenAI
