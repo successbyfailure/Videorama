@@ -87,11 +87,19 @@ def is_expired(meta: Dict) -> bool:
     return (time.time() - float(downloaded_at)) > CACHE_TTL_SECONDS
 
 
-def build_download_name(title: str, file_path: Path) -> str:
+FORMAT_EXTENSIONS = {
+    "video": ".mp4",
+    "audio": ".mp3",
+    "audio_low": ".mp3",
+    "transcripcion": ".txt",
+}
+
+
+def build_download_name(title: str, file_path: Path, media_format: str) -> str:
     base = title.strip().lower() or "videorama"
     safe = re.sub(r"[^a-z0-9\-_.]+", "_", base)
     safe = re.sub(r"_+", "_", safe).strip("._") or "videorama"
-    extension = file_path.suffix or ".bin"
+    extension = FORMAT_EXTENSIONS.get(media_format, file_path.suffix or ".bin")
     return f"{safe}{extension}"
 
 
@@ -335,7 +343,9 @@ async def download_endpoint(
     except DownloadError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    download_name = build_download_name(metadata.get("title", "videorama"), file_path)
+    download_name = build_download_name(
+        metadata.get("title", "videorama"), file_path, format_value
+    )
     if format_value == "transcripcion":
         media_type = "text/plain"
     elif format_value in AUDIO_FORMAT_PROFILES:
