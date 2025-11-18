@@ -6,3 +6,4 @@ python-multipart
 certifi
 openai
 python-dotenv
+requests

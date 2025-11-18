@@ -82,6 +82,36 @@
         min-height: 1.25rem;
         font-size: 0.9rem;
       }
+      .progress {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        margin-top: 0.25rem;
+      }
+      .progress[hidden] {
+        display: none;
+      }
+      .progress-bar {
+        width: 100%;
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.2);
+        overflow: hidden;
+      }
+      .progress-fill {
+        height: 100%;
+        width: 0%;
+        border-radius: inherit;
+        background: linear-gradient(120deg, #22d3ee, #6366f1);
+        transition: width 0.3s ease;
+      }
+      .progress-fill.error {
+        background: #f87171;
+      }
+      .progress-label {
+        font-size: 0.85rem;
+        color: #cbd5f5;
+      }
       .services {
         margin: 1.5rem 0 0;
         padding: 1.25rem;
@@ -142,6 +172,10 @@
         padding: 0.5rem 1rem;
         cursor: pointer;
       }
+      .ghost-button.danger {
+        border-color: rgba(248, 113, 113, 0.6);
+        color: #fecaca;
+      }
       .cache-list {
         display: flex;
         flex-direction: column;
@@ -195,12 +229,12 @@
     <main class="card">
       <h1>{{ app_name }}</h1>
       <p>
-        Envoltorio ligero sobre
+        Herramienta ligera basada en
         <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noreferrer">yt-dlp</a>
-        para descargar videos o pistas de audio desde cualquier proveedor soportado.
+        para bajar video, audio y transcripciones sin pasos extra.
       </p>
       <p class="hint">
-        Los archivos se mantienen en caché durante 24 horas para acelerar las descargas repetidas.
+        Las descargas permanecen en caché durante 24 horas para reusar archivos y evitar conversiones repetidas.
       </p>
       <section class="services">
         <p class="services-title">Servicios soportados</p>
@@ -223,18 +257,37 @@
             <option value="audio_low">Audio ligero (MP3 96 kbps)</option>
             <option value="transcripcion">Transcripción completa (JSON vía OpenAI)</option>
             <option value="transcripcion_txt">Transcripción (solo texto TXT)</option>
+            <option value="transcripcion_srt">Subtítulos SRT generados desde la transcripción</option>
           </select>
         </div>
         <button type="submit">Descargar</button>
+        <div class="progress" id="progress" hidden>
+          <p class="progress-label" id="progress-label">Preparando…</p>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+        </div>
         <p class="status" id="status"></p>
       </form>
       <section class="dashboard">
         <section class="panel">
           <div class="panel-header">
             <div>
+              <h2>Actividad de la última semana</h2>
+              <p class="hint">Mantén a la vista cuántas descargas y aciertos de caché llevas.</p>
+            </div>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="usage-chart" height="180"></canvas>
+          </div>
+          <p class="panel-status" id="usage-status"></p>
+        </section>
+        <section class="panel">
+          <div class="panel-header">
+            <div>
               <h2>Descargas en caché</h2>
               <p class="hint">
-                Reutiliza archivos descargados previamente mientras no expiren (TTL: 24 h por defecto).
+                Reutiliza archivos recientes mientras no expiren. Puedes eliminarlos cuando ya no los necesites.
               </p>
             </div>
             <button class="ghost-button" id="refresh-cache">Actualizar</button>
@@ -243,18 +296,6 @@
             <p class="hint">Cargando caché…</p>
           </div>
           <p class="panel-status" id="cache-status"></p>
-        </section>
-        <section class="panel">
-          <div class="panel-header">
-            <div>
-              <h2>Actividad de la última semana</h2>
-              <p class="hint">Descargas totales frente a aciertos de caché.</p>
-            </div>
-          </div>
-          <div class="chart-wrapper">
-            <canvas id="usage-chart" height="180"></canvas>
-          </div>
-          <p class="panel-status" id="usage-status"></p>
         </section>
       </section>
     </main>
@@ -267,7 +308,69 @@
       const refreshCacheBtn = document.getElementById('refresh-cache');
       const usageStatusEl = document.getElementById('usage-status');
       const usageCanvas = document.getElementById('usage-chart');
+      const progressContainer = document.getElementById('progress');
+      const progressLabel = document.getElementById('progress-label');
+      const progressFill = document.getElementById('progress-fill');
       let usageChart;
+
+      const PROGRESS_STEPS = {
+        default: ['Preparando solicitud…', 'Descargando archivo…', 'Completando descarga…'],
+        transcription: [
+          'Preparando audio…',
+          'Solicitando transcripción…',
+          'Construyendo subtítulos…',
+          'Empaquetando archivo final…',
+        ],
+      };
+
+      const progressTracker = (() => {
+        let steps = [];
+        let current = 0;
+        function reset() {
+          steps = [];
+          current = 0;
+          progressFill.style.width = '0%';
+          progressFill.classList.remove('error');
+          progressContainer.hidden = true;
+        }
+        function start(stepList) {
+          steps = stepList;
+          current = 0;
+          progressFill.classList.remove('error');
+          progressContainer.hidden = false;
+          progressFill.style.width = steps.length ? '5%' : '0%';
+          progressLabel.textContent = steps[0] || 'Procesando…';
+        }
+        function advance(message) {
+          if (!steps.length) {
+            return;
+          }
+          current = Math.min(current + 1, steps.length);
+          const percent = Math.max((current / steps.length) * 100, 10);
+          progressFill.style.width = `${percent}%`;
+          if (message) {
+            progressLabel.textContent = message;
+          } else {
+            const fallbackIndex = Math.min(current, steps.length - 1);
+            progressLabel.textContent = steps[fallbackIndex] || 'Procesando…';
+          }
+        }
+        function complete(message) {
+          progressFill.classList.remove('error');
+          progressFill.style.width = '100%';
+          progressLabel.textContent = message || 'Descarga completada.';
+          setTimeout(() => {
+            progressContainer.hidden = true;
+          }, 1500);
+        }
+        function fail(message) {
+          progressContainer.hidden = false;
+          progressFill.classList.add('error');
+          progressFill.style.width = '100%';
+          progressLabel.textContent = message;
+        }
+        return { reset, start, advance, complete, fail };
+      })();
 
       function triggerBlobDownload(blob, filename) {
         const url = window.URL.createObjectURL(blob);
@@ -280,35 +383,54 @@
         window.URL.revokeObjectURL(url);
       }
 
-      async function downloadFromEndpoint(endpoint, statusTarget) {
+      async function downloadFromEndpoint(endpoint, options = {}) {
+        const { statusTarget, progress } = options;
         try {
+          progress?.advance('Conectando con el servidor…');
           const response = await fetch(endpoint);
           if (!response.ok) {
             const errorPayload = await response.json().catch(() => ({}));
             throw new Error(errorPayload.detail || 'Error al preparar el archivo');
           }
+          progress?.advance('Descargando datos…');
           const blob = await response.blob();
+          progress?.advance('Listando archivo para descarga…');
           const disposition = response.headers.get('Content-Disposition');
           let filename = 'videorama-download';
           if (disposition && disposition.includes('filename=')) {
             filename = disposition.split('filename=')[1].replace(/"/g, '');
           }
           triggerBlobDownload(blob, filename);
-          if (statusTarget) {
-            statusTarget.textContent = 'Descarga lista.';
-          }
+          statusTarget && (statusTarget.textContent = 'Descarga lista.');
+          progress?.complete('Archivo listo para guardar.');
         } catch (error) {
+          progress?.fail(error.message);
           if (statusTarget) {
             statusTarget.textContent = error.message;
           }
+          throw error;
         }
       }
 
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
-        statusEl.textContent = 'Preparando tu archivo…';
-        const params = new URLSearchParams(new FormData(form));
-        await downloadFromEndpoint(`/api/download?${params.toString()}`, statusEl);
+        const formData = new FormData(form);
+        const format = String(formData.get('format') || 'video');
+        const steps = format.startsWith('transcripcion')
+          ? PROGRESS_STEPS.transcription
+          : PROGRESS_STEPS.default;
+        progressTracker.reset();
+        progressTracker.start(steps);
+        statusEl.textContent = steps[0];
+        const params = new URLSearchParams(formData);
+        try {
+          await downloadFromEndpoint(`/api/download?${params.toString()}`, {
+            statusTarget: statusEl,
+            progress: progressTracker,
+          });
+        } catch (error) {
+          console.error(error);
+        }
       });
 
       function formatBytes(bytes) {
@@ -331,6 +453,21 @@
         if (hours < 24) return `${hours} h`;
         const days = Math.floor(hours / 24);
         return `${days} d`;
+      }
+
+      async function deleteCacheItem(item) {
+        cacheStatusEl.textContent = `Eliminando «${item.title || item.cache_key}»…`;
+        try {
+          const response = await fetch(item.delete_url, { method: 'DELETE' });
+          if (!response.ok) {
+            const errorPayload = await response.json().catch(() => ({}));
+            throw new Error(errorPayload.detail || 'No se pudo eliminar el archivo de la caché');
+          }
+          cacheStatusEl.textContent = 'Elemento eliminado.';
+          await loadCachePanel();
+        } catch (error) {
+          cacheStatusEl.textContent = error.message;
+        }
       }
 
       function renderCacheEntries(payload) {
@@ -358,9 +495,13 @@
           const downloadBtn = document.createElement('button');
           downloadBtn.className = 'ghost-button';
           downloadBtn.textContent = 'Volver a descargar';
-          downloadBtn.addEventListener('click', () => {
+          downloadBtn.addEventListener('click', async () => {
             cacheStatusEl.textContent = 'Obteniendo archivo desde la caché…';
-            downloadFromEndpoint(item.download_url, cacheStatusEl);
+            try {
+              await downloadFromEndpoint(item.download_url, { statusTarget: cacheStatusEl });
+            } catch (error) {
+              console.error(error);
+            }
           });
           const openBtn = document.createElement('a');
           openBtn.href = item.source_url;
@@ -368,7 +509,11 @@
           openBtn.rel = 'noreferrer';
           openBtn.className = 'ghost-button';
           openBtn.textContent = 'Ver origen';
-          actions.append(downloadBtn, openBtn);
+          const deleteBtn = document.createElement('button');
+          deleteBtn.className = 'ghost-button danger';
+          deleteBtn.textContent = 'Eliminar caché';
+          deleteBtn.addEventListener('click', () => deleteCacheItem(item));
+          actions.append(downloadBtn, openBtn, deleteBtn);
           entry.appendChild(actions);
           cacheContent.appendChild(entry);
         });
@@ -384,7 +529,10 @@
           }
           const payload = await response.json();
           renderCacheEntries(payload);
-          cacheStatusEl.textContent = `Elementos: ${payload.items.length}`;
+          const ttlHours = payload.ttl_seconds ? Math.round(payload.ttl_seconds / 3600) : 0;
+          cacheStatusEl.textContent = `Elementos: ${payload.items.length} · ${formatBytes(
+            payload.total_bytes,
+          )} en caché · TTL ${ttlHours} h`;
         } catch (error) {
           cacheContent.innerHTML = '';
           cacheStatusEl.textContent = error.message;
@@ -454,7 +602,7 @@
               },
             });
           }
-          usageStatusEl.textContent = `Total semana: ${payload.total} descargas · ${payload.cache_hits} desde caché.`;
+          usageStatusEl.textContent = `Últimos ${payload.days} días: ${payload.total} descargas · ${payload.cache_hits} desde caché.`;
         } catch (error) {
           usageStatusEl.textContent = error.message;
         }
