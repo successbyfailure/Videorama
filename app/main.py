@@ -3,8 +3,9 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import certifi
 from dotenv import load_dotenv
@@ -33,7 +34,11 @@ from openai import OpenAI
 APP_TITLE = "Videorama"
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "data/cache"))
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+META_DIR = CACHE_DIR / "_meta"
+META_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", 60 * 60 * 24))
+USAGE_LOG_PATH = Path(os.getenv("USAGE_LOG_PATH", "data/usage_log.jsonl"))
+USAGE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 SUPPORTED_SERVICES = [
     "YouTube",
     "Vimeo",
@@ -84,6 +89,10 @@ def cache_key(url: str, media_format: str) -> str:
 
 
 def meta_path(key: str) -> Path:
+    return META_DIR / f"{key}.json"
+
+
+def legacy_meta_path(key: str) -> Path:
     return CACHE_DIR / f"{key}.json"
 
 
@@ -100,6 +109,77 @@ FORMAT_EXTENSIONS = {
     "transcripcion_txt": ".txt",
 }
 
+TRANSCRIPTION_FILE_SUFFIX = ".transcript.json"
+
+
+def media_type_for_format(media_format: str) -> str:
+    if media_format == "transcripcion":
+        return "application/json"
+    if media_format == "transcripcion_txt":
+        return "text/plain"
+    if media_format in AUDIO_FORMAT_PROFILES:
+        return "audio/mpeg"
+    return "video/mp4"
+
+
+def record_download_event(media_format: str, cache_hit: bool) -> None:
+    event = {
+        "timestamp": time.time(),
+        "media_format": media_format,
+        "cache_hit": bool(cache_hit),
+    }
+    with USAGE_LOG_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
+def summarize_usage(days: int = 7) -> Dict[str, Any]:
+    if not USAGE_LOG_PATH.exists():
+        points = []
+    else:
+        points = []
+        with USAGE_LOG_PATH.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    points.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+
+    now = datetime.now(tz=timezone.utc)
+    cutoff = now - timedelta(days=days - 1)
+    aggregates: Dict[str, Dict[str, int]] = {}
+    for idx in range(days):
+        day = (now - timedelta(days=days - idx - 1)).date()
+        aggregates[day.isoformat()] = {"downloads": 0, "cache_hits": 0}
+
+    total_downloads = 0
+    total_cache_hits = 0
+    for event in points:
+        timestamp = event.get("timestamp")
+        if timestamp is None:
+            continue
+        event_dt = datetime.fromtimestamp(float(timestamp), tz=timezone.utc)
+        if event_dt < cutoff:
+            continue
+        day_key = event_dt.date().isoformat()
+        if day_key not in aggregates:
+            continue
+        aggregates[day_key]["downloads"] += 1
+        if event.get("cache_hit"):
+            aggregates[day_key]["cache_hits"] += 1
+        total_downloads += 1
+        if event.get("cache_hit"):
+            total_cache_hits += 1
+
+    series = [
+        {"date": day, **aggregates[day]} for day in sorted(aggregates.keys())
+    ]
+    return {
+        "points": series,
+        "total": total_downloads,
+        "cache_hits": total_cache_hits,
+        "days": days,
+    }
+
 
 def build_download_name(title: str, file_path: Path, media_format: str) -> str:
     base = title.strip().lower() or "videorama"
@@ -110,11 +190,24 @@ def build_download_name(title: str, file_path: Path, media_format: str) -> str:
 
 
 def load_meta(key: str) -> Optional[Dict]:
-    path = meta_path(key)
-    if not path.exists():
+    primary_path = meta_path(key)
+    if primary_path.exists():
+        with primary_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        data.setdefault("cache_key", key)
+        return data
+
+    legacy_path = legacy_meta_path(key)
+    if not legacy_path.exists():
         return None
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+
+    with legacy_path.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    data.setdefault("cache_key", key)
+    # Migrar a la nueva ubicación para evitar conflictos con archivos de datos.
+    save_meta(key, data)
+    legacy_path.unlink(missing_ok=True)
+    return data
 
 
 def delete_cache_entry(key: str, metadata: Optional[Dict] = None) -> None:
@@ -125,6 +218,7 @@ def delete_cache_entry(key: str, metadata: Optional[Dict] = None) -> None:
         if stored_file.exists():
             stored_file.unlink(missing_ok=True)
     meta_path(key).unlink(missing_ok=True)
+    legacy_meta_path(key).unlink(missing_ok=True)
 
 
 def fetch_cached_file(key: str) -> Tuple[Optional[Path], Optional[Dict]]:
@@ -145,11 +239,12 @@ def fetch_cached_file(key: str) -> Tuple[Optional[Path], Optional[Dict]]:
         delete_cache_entry(key, metadata)
         return None, None
 
-    return file_path, metadata
+    cached_meta = {**metadata, "_cache_hit": True}
+    return file_path, cached_meta
 
 
 def purge_expired_entries() -> None:
-    for meta_file in CACHE_DIR.glob("*.json"):
+    for meta_file in META_DIR.glob("*.json"):
         with meta_file.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
         if is_expired(data):
@@ -157,8 +252,10 @@ def purge_expired_entries() -> None:
 
 
 def save_meta(key: str, metadata: Dict) -> None:
+    sanitized = {k: v for k, v in metadata.items() if not k.startswith("_")}
+    sanitized["cache_key"] = key
     with meta_path(key).open("w", encoding="utf-8") as handle:
-        json.dump(metadata, handle, ensure_ascii=False, indent=2)
+        json.dump(sanitized, handle, ensure_ascii=False, indent=2)
 
 
 def build_ydl_options(
@@ -249,7 +346,9 @@ def download_media(url: str, media_format: str) -> Tuple[Path, Dict]:
         "source_url": url,
         "media_format": media_format,
         "downloaded_at": time.time(),
+        "cache_key": key,
     }
+    metadata["_cache_hit"] = False
     save_meta(key, metadata)
     return filepath, metadata
 
@@ -318,7 +417,7 @@ def generate_transcription_file(url: str, media_format: str) -> Tuple[Path, Dict
     transcript_payload = transcribe_audio_file(audio_path)
 
     if media_format == "transcripcion":
-        transcript_path = CACHE_DIR / f"{key}.json"
+        transcript_path = CACHE_DIR / f"{key}{TRANSCRIPTION_FILE_SUFFIX}"
         transcript_path.write_text(
             json.dumps(transcript_payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -336,7 +435,9 @@ def generate_transcription_file(url: str, media_format: str) -> Tuple[Path, Dict
         "source_url": url,
         "media_format": media_format,
         "downloaded_at": time.time(),
+        "cache_key": key,
     }
+    metadata["_cache_hit"] = False
     save_meta(key, metadata)
     return transcript_path, metadata
 
@@ -386,35 +487,91 @@ async def download_endpoint(
     download_name = build_download_name(
         metadata.get("title", "videorama"), file_path, format_value
     )
-    if format_value == "transcripcion":
-        media_type = "application/json"
-    elif format_value == "transcripcion_txt":
-        media_type = "text/plain"
-    elif format_value in AUDIO_FORMAT_PROFILES:
-        media_type = "audio/mpeg"
-    else:
-        media_type = "video/mp4"
-    return FileResponse(
+    media_type = media_type_for_format(format_value)
+    response = FileResponse(
         path=file_path,
         filename=download_name,
         media_type=media_type,
     )
+    await run_in_threadpool(
+        record_download_event, format_value, bool(metadata.get("_cache_hit"))
+    )
+    return response
 
 
 @app.get("/api/cache", response_class=JSONResponse)
 async def cache_status() -> Dict:
     purge_expired_entries()
-    entries = []
-    for meta_file in CACHE_DIR.glob("*.json"):
+    entries: List[Dict[str, Any]] = []
+    total_bytes = 0
+    for meta_file in META_DIR.glob("*.json"):
         with meta_file.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
-        if not is_expired(data):
-            entries.append(
-                {
-                    "title": data.get("title"),
-                    "media_format": data.get("media_format"),
-                    "age_seconds": max(0, int(time.time() - data.get("downloaded_at", 0))),
-                }
-            )
-    return {"items": entries, "ttl_seconds": CACHE_TTL_SECONDS}
+        if is_expired(data):
+            delete_cache_entry(meta_file.stem, data)
+            continue
+        key = data.get("cache_key") or meta_file.stem
+        filename = data.get("filename")
+        if not filename:
+            delete_cache_entry(key, data)
+            continue
+        file_path = CACHE_DIR / filename
+        if not file_path.exists():
+            delete_cache_entry(key, data)
+            continue
+        downloaded_at = float(data.get("downloaded_at") or 0)
+        age_seconds = max(0, int(time.time() - downloaded_at))
+        size = file_path.stat().st_size
+        total_bytes += size
+        iso_timestamp = (
+            datetime.fromtimestamp(downloaded_at, tz=timezone.utc).isoformat()
+            if downloaded_at
+            else None
+        )
+        entries.append(
+            {
+                "cache_key": key,
+                "title": data.get("title") or "descarga",
+                "media_format": data.get("media_format"),
+                "source_url": data.get("source_url"),
+                "filename": filename,
+                "filesize_bytes": size,
+                "age_seconds": age_seconds,
+                "downloaded_at": downloaded_at,
+                "downloaded_at_iso": iso_timestamp,
+                "download_url": f"/api/cache/{key}/download",
+            }
+        )
+
+    entries.sort(key=lambda item: item.get("downloaded_at", 0), reverse=True)
+    return {
+        "items": entries,
+        "ttl_seconds": CACHE_TTL_SECONDS,
+        "total_bytes": total_bytes,
+    }
+
+
+@app.get("/api/cache/{cache_key}/download")
+async def download_cached_entry(cache_key: str):
+    purge_expired_entries()
+    file_path, metadata = fetch_cached_file(cache_key)
+    if not file_path or not metadata:
+        raise HTTPException(status_code=404, detail="Entrada de caché no disponible")
+
+    title = metadata.get("title", "videorama")
+    media_format = metadata.get("media_format", "video")
+    download_name = build_download_name(title, file_path, media_format)
+    media_type = media_type_for_format(media_format)
+    response = FileResponse(
+        path=file_path,
+        filename=download_name,
+        media_type=media_type,
+    )
+    await run_in_threadpool(record_download_event, media_format, True)
+    return response
+
+
+@app.get("/api/stats/usage", response_class=JSONResponse)
+async def usage_stats() -> Dict[str, Any]:
+    return summarize_usage()
 
