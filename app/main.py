@@ -48,6 +48,13 @@ YTDLP_USER_AGENT = os.getenv(
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 )
 
+AUDIO_FORMAT_PROFILES = {
+    "audio": {"codec": "mp3", "preferred_quality": "192"},
+    "audio_low": {"codec": "mp3", "preferred_quality": "96"},
+}
+SUPPORTED_MEDIA_FORMATS = {"video", *AUDIO_FORMAT_PROFILES}
+MEDIA_FORMAT_PATTERN = f"^({'|'.join(sorted(SUPPORTED_MEDIA_FORMATS))})$"
+
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")
 
@@ -153,15 +160,16 @@ def build_ydl_options(
     if YTDLP_COOKIES_FILE:
         base_opts["cookiefile"] = YTDLP_COOKIES_FILE
 
-    if media_format == "audio":
+    if media_format in AUDIO_FORMAT_PROFILES:
+        profile = AUDIO_FORMAT_PROFILES[media_format]
         return {
             **base_opts,
             "format": "bestaudio/best",
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
+                    "preferredcodec": profile["codec"],
+                    "preferredquality": profile["preferred_quality"],
                 }
             ],
         }
@@ -243,11 +251,14 @@ async def health() -> Dict[str, str]:
 async def download_endpoint(
     request: Request,
     url: str = Query(..., description="URL del video a descargar"),
-    media_format: str = Query("video", pattern="^(video|audio)$", alias="format"),
+    media_format: str = Query("video", pattern=MEDIA_FORMAT_PATTERN, alias="format"),
 ):
     format_value = media_format.lower()
-    if format_value not in {"video", "audio"}:
-        raise HTTPException(status_code=400, detail="Formato inválido. Usa 'video' o 'audio'.")
+    if format_value not in SUPPORTED_MEDIA_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail="Formato inválido. Usa 'video', 'audio' o 'audio_low'.",
+        )
 
     try:
         file_path, metadata = await run_in_threadpool(download_media, url, format_value)
@@ -255,7 +266,7 @@ async def download_endpoint(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     download_name = build_download_name(metadata.get("title", "videorama"), file_path)
-    media_type = "audio/mpeg" if format_value == "audio" else "video/mp4"
+    media_type = "audio/mpeg" if format_value in AUDIO_FORMAT_PROFILES else "video/mp4"
     return FileResponse(
         path=file_path,
         filename=download_name,

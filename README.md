@@ -5,10 +5,10 @@ videos o pistas de audio y mantener un caché local durante 24 horas.
 
 ## Características
 
-- Interfaz web simple (SPA) para solicitar descargas de video (MP4) o audio (MP3).
+- Interfaz web simple (SPA) para solicitar descargas de video (MP4) o audio (MP3) en dos calidades (192 kbps y 96 kbps para archivos más ligeros).
 - API REST en `/api` con endpoints:
   - `GET /api/health`: verificación rápida del servicio.
-  - `GET /api/download?url=...&format=video|audio`: genera y devuelve el archivo.
+- `GET /api/download?url=...&format=video|audio|audio_low`: genera y devuelve el archivo.
   - `GET /api/cache`: listado informativo del contenido en caché.
 - Caché de descargas en disco durante 24h (configurable mediante `CACHE_TTL_SECONDS`).
 - Basado en FastAPI + yt-dlp para aprovechar todos los proveedores soportados.
@@ -48,7 +48,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ## Flujo de trabajo
 
-1. Introduce la URL de cualquier proveedor soportado por yt-dlp y elige si deseas video o audio.
+1. Introduce la URL de cualquier proveedor soportado por yt-dlp y elige si deseas video o audio (normal o ligero).
 2. El backend busca en caché, descarga en caso necesario y devuelve el archivo.
 3. Las descargas se guardan durante 24h para acelerar solicitudes repetidas y reducir el uso de red.
 
