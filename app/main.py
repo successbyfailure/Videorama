@@ -28,6 +28,7 @@ os.environ["REQUESTS_CA_BUNDLE"] = CERT_BUNDLE
 # sistema o del orquestador.
 load_dotenv()
 
+import requests
 import yt_dlp
 from openai import OpenAI
 
@@ -62,6 +63,8 @@ YTDLP_USER_AGENT = os.getenv(
 TRANSCRIPTION_ENDPOINT = os.getenv("TRANSCRIPTION_ENDPOINT", "https://api.openai.com/v1")
 TRANSCRIPTION_API_KEY = os.getenv("TRANSCRIPTION_API_KEY")
 TRANSCRIPTION_MODEL = os.getenv("TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")
+WHISPER_ASR_URL = os.getenv("WHISPER_ASR_URL")
+WHISPER_ASR_TIMEOUT = int(os.getenv("WHISPER_ASR_TIMEOUT", "600"))
 
 AUDIO_FORMAT_PROFILES = {
     "audio": {"codec": "mp3", "preferred_quality": "192"},
@@ -72,6 +75,7 @@ SUPPORTED_MEDIA_FORMATS = {
     *AUDIO_FORMAT_PROFILES,
     "transcripcion",
     "transcripcion_txt",
+    "transcripcion_srt",
 }
 MEDIA_FORMAT_PATTERN = f"^({'|'.join(sorted(SUPPORTED_MEDIA_FORMATS))})$"
 
@@ -107,6 +111,7 @@ FORMAT_EXTENSIONS = {
     "audio_low": ".mp3",
     "transcripcion": ".json",
     "transcripcion_txt": ".txt",
+    "transcripcion_srt": ".srt",
 }
 
 TRANSCRIPTION_FILE_SUFFIX = ".transcript.json"
@@ -115,7 +120,7 @@ TRANSCRIPTION_FILE_SUFFIX = ".transcript.json"
 def media_type_for_format(media_format: str) -> str:
     if media_format == "transcripcion":
         return "application/json"
-    if media_format == "transcripcion_txt":
+    if media_format in {"transcripcion_txt", "transcripcion_srt"}:
         return "text/plain"
     if media_format in AUDIO_FORMAT_PROFILES:
         return "audio/mpeg"
@@ -354,14 +359,13 @@ def download_media(url: str, media_format: str) -> Tuple[Path, Dict]:
 
 
 def ensure_transcription_ready() -> None:
-    if not TRANSCRIPTION_API_KEY:
-        raise DownloadError(
-            "La transcripción no está disponible. Configura TRANSCRIPTION_API_KEY."
-        )
-    if not TRANSCRIPTION_MODEL:
-        raise DownloadError(
-            "La transcripción no está disponible. Configura TRANSCRIPTION_MODEL."
-        )
+    if TRANSCRIPTION_API_KEY and TRANSCRIPTION_MODEL:
+        return
+    if WHISPER_ASR_URL:
+        return
+    raise DownloadError(
+        "La transcripción no está disponible. Configura TRANSCRIPTION_API_KEY y TRANSCRIPTION_MODEL o un WHISPER_ASR_URL."
+    )
 
 
 def _normalize_transcription_payload(payload: Any) -> Dict[str, Any]:
@@ -388,24 +392,101 @@ def _normalize_transcription_payload(payload: Any) -> Dict[str, Any]:
     return data
 
 
-def transcribe_audio_file(file_path: Path) -> Dict[str, Any]:
-    ensure_transcription_ready()
-    client = OpenAI(api_key=TRANSCRIPTION_API_KEY, base_url=TRANSCRIPTION_ENDPOINT)
-    try:
-        with file_path.open("rb") as audio_stream:
-            response = client.audio.transcriptions.create(
-                model=TRANSCRIPTION_MODEL,
-                file=audio_stream,
-                response_format="verbose_json",
-            )
-    except Exception as exc:  # pragma: no cover - dep is external
-        raise DownloadError(f"No se pudo transcribir el audio: {exc}") from exc
+def _format_srt_timestamp(seconds: float) -> str:
+    total_ms = max(0, int(float(seconds) * 1000))
+    hours, remainder = divmod(total_ms, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    secs, millis = divmod(remainder, 1_000)
+    return f"{hours:02}:{minutes:02}:{secs:02},{millis:03}"
 
+
+def transcription_payload_to_srt(payload: Dict[str, Any]) -> str:
+    segments = payload.get("segments") or []
+    if isinstance(segments, dict):
+        segments = list(segments.values())
+    if not isinstance(segments, list) or not segments:
+        text_value = payload.get("text") or ""
+        text_str = text_value.strip() if isinstance(text_value, str) else str(text_value)
+        return "1\n00:00:00,000 --> 00:00:00,000\n" + text_str + "\n"
+
+    entries: List[str] = []
+    for index, segment in enumerate(segments, start=1):
+        start = segment.get("start")
+        end = segment.get("end")
+        text_value = (
+            segment.get("text")
+            or segment.get("transcript")
+            or segment.get("caption")
+            or ""
+        )
+        if not isinstance(text_value, str):
+            text_value = str(text_value)
+        start_ts = _format_srt_timestamp(float(start or 0))
+        end_ts = _format_srt_timestamp(float(end or start or 0))
+        cleaned = text_value.strip()
+        entries.append(f"{index}\n{start_ts} --> {end_ts}\n{cleaned}\n")
+    return "\n".join(entries).strip() + "\n"
+
+
+def _call_openai_transcription(file_path: Path) -> Dict[str, Any]:
+    client = OpenAI(api_key=TRANSCRIPTION_API_KEY, base_url=TRANSCRIPTION_ENDPOINT)
+    with file_path.open("rb") as audio_stream:
+        response = client.audio.transcriptions.create(
+            model=TRANSCRIPTION_MODEL,
+            file=audio_stream,
+            response_format="verbose_json",
+        )
     return _normalize_transcription_payload(response)
 
 
+def _call_whisper_asr(file_path: Path) -> Dict[str, Any]:
+    if not WHISPER_ASR_URL:
+        raise DownloadError("Servicio whisper-asr no configurado")
+    base = WHISPER_ASR_URL.rstrip("/")
+    endpoint = f"{base}/asr"
+    with file_path.open("rb") as audio_stream:
+        response = requests.post(
+            endpoint,
+            params={"output": "json", "task": "transcribe"},
+            files={"audio_file": (file_path.name, audio_stream, "application/octet-stream")},
+            timeout=WHISPER_ASR_TIMEOUT,
+        )
+    if response.status_code >= 400:
+        raise DownloadError(
+            f"whisper-asr respondió con un error HTTP {response.status_code}: {response.text.strip()}"
+        )
+    try:
+        payload = response.json()
+    except ValueError as exc:  # pragma: no cover - depends on remote service
+        raise DownloadError("whisper-asr devolvió un JSON inválido") from exc
+    return _normalize_transcription_payload(payload)
+
+
+def transcribe_audio_file(file_path: Path) -> Dict[str, Any]:
+    ensure_transcription_ready()
+    errors: List[str] = []
+    if TRANSCRIPTION_API_KEY and TRANSCRIPTION_MODEL:
+        try:
+            return _call_openai_transcription(file_path)
+        except Exception as exc:  # pragma: no cover - depende de SDK externo
+            errors.append(str(exc))
+
+    if WHISPER_ASR_URL:
+        try:
+            return _call_whisper_asr(file_path)
+        except Exception as exc:  # pragma: no cover - servicio externo
+            errors.append(str(exc))
+
+    joined = "; ".join(errors)
+    raise DownloadError(f"No se pudo transcribir el audio: {joined or 'error desconocido'}")
+
+
 def generate_transcription_file(url: str, media_format: str) -> Tuple[Path, Dict]:
-    if media_format not in {"transcripcion", "transcripcion_txt"}:
+    if media_format not in {
+        "transcripcion",
+        "transcripcion_txt",
+        "transcripcion_srt",
+    }:
         raise DownloadError("Formato de transcripción no soportado")
     key = cache_key(url, media_format)
     purge_expired_entries()
@@ -422,6 +503,10 @@ def generate_transcription_file(url: str, media_format: str) -> Tuple[Path, Dict
             json.dumps(transcript_payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+    elif media_format == "transcripcion_srt":
+        transcript_path = CACHE_DIR / f"{key}.srt"
+        srt_content = transcription_payload_to_srt(transcript_payload)
+        transcript_path.write_text(srt_content, encoding="utf-8")
     else:
         text_only = transcript_payload.get("text") or ""
         if not isinstance(text_only, str):
@@ -469,7 +554,10 @@ async def download_endpoint(
     if format_value not in SUPPORTED_MEDIA_FORMATS:
         raise HTTPException(
             status_code=400,
-            detail="Formato inválido. Usa 'video', 'audio', 'audio_low' o 'transcripcion'.",
+            detail=(
+                "Formato inválido. Usa 'video', 'audio', 'audio_low', 'transcripcion', "
+                "'transcripcion_txt' o 'transcripcion_srt'."
+            ),
         )
 
     try:
@@ -540,6 +628,7 @@ async def cache_status() -> Dict:
                 "downloaded_at": downloaded_at,
                 "downloaded_at_iso": iso_timestamp,
                 "download_url": f"/api/cache/{key}/download",
+                "delete_url": f"/api/cache/{key}",
             }
         )
 
@@ -569,6 +658,16 @@ async def download_cached_entry(cache_key: str):
     )
     await run_in_threadpool(record_download_event, media_format, True)
     return response
+
+
+@app.delete("/api/cache/{cache_key}", response_class=JSONResponse)
+async def remove_cached_entry(cache_key: str) -> Dict[str, Any]:
+    purge_expired_entries()
+    metadata = load_meta(cache_key)
+    if not metadata:
+        raise HTTPException(status_code=404, detail="Entrada de caché no disponible")
+    await run_in_threadpool(delete_cache_entry, cache_key, metadata)
+    return {"status": "deleted", "cache_key": cache_key}
 
 
 @app.get("/api/stats/usage", response_class=JSONResponse)
