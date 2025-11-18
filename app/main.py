@@ -22,6 +22,7 @@ os.environ["SSL_CERT_FILE"] = CERT_BUNDLE
 os.environ["REQUESTS_CA_BUNDLE"] = CERT_BUNDLE
 
 import yt_dlp
+from openai import OpenAI
 
 APP_TITLE = "Videorama"
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "data/cache"))
@@ -47,12 +48,15 @@ YTDLP_USER_AGENT = os.getenv(
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 )
+TRANSCRIPTION_ENDPOINT = os.getenv("TRANSCRIPTION_ENDPOINT", "https://api.openai.com/v1")
+TRANSCRIPTION_API_KEY = os.getenv("TRANSCRIPTION_API_KEY")
+TRANSCRIPTION_MODEL = os.getenv("TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")
 
 AUDIO_FORMAT_PROFILES = {
     "audio": {"codec": "mp3", "preferred_quality": "192"},
     "audio_low": {"codec": "mp3", "preferred_quality": "96"},
 }
-SUPPORTED_MEDIA_FORMATS = {"video", *AUDIO_FORMAT_PROFILES}
+SUPPORTED_MEDIA_FORMATS = {"video", *AUDIO_FORMAT_PROFILES, "transcripcion"}
 MEDIA_FORMAT_PATTERN = f"^({'|'.join(sorted(SUPPORTED_MEDIA_FORMATS))})$"
 
 app = FastAPI(title=APP_TITLE)
@@ -230,6 +234,61 @@ def download_media(url: str, media_format: str) -> Tuple[Path, Dict]:
     return filepath, metadata
 
 
+def ensure_transcription_ready() -> None:
+    if not TRANSCRIPTION_API_KEY:
+        raise DownloadError(
+            "La transcripción no está disponible. Configura TRANSCRIPTION_API_KEY."
+        )
+    if not TRANSCRIPTION_MODEL:
+        raise DownloadError(
+            "La transcripción no está disponible. Configura TRANSCRIPTION_MODEL."
+        )
+
+
+def transcribe_audio_file(file_path: Path) -> str:
+    ensure_transcription_ready()
+    client = OpenAI(api_key=TRANSCRIPTION_API_KEY, base_url=TRANSCRIPTION_ENDPOINT)
+    try:
+        with file_path.open("rb") as audio_stream:
+            response = client.audio.transcriptions.create(
+                model=TRANSCRIPTION_MODEL,
+                file=audio_stream,
+                response_format="text",
+            )
+    except Exception as exc:  # pragma: no cover - dep is external
+        raise DownloadError(f"No se pudo transcribir el audio: {exc}") from exc
+
+    if isinstance(response, str):
+        return response.strip()
+    text = getattr(response, "text", None)
+    if text:
+        return str(text).strip()
+    return str(response).strip()
+
+
+def generate_transcription(url: str) -> Tuple[Path, Dict]:
+    key = cache_key(url, "transcripcion")
+    purge_expired_entries()
+    cached_path, cached_meta = fetch_cached_file(key)
+    if cached_path:
+        return cached_path, cached_meta or {}
+
+    audio_path, audio_meta = download_media(url, "audio_low")
+    transcript = transcribe_audio_file(audio_path)
+    transcript_path = CACHE_DIR / f"{key}.txt"
+    transcript_path.write_text(transcript, encoding="utf-8")
+
+    metadata = {
+        "title": audio_meta.get("title") or "transcripcion",
+        "filename": transcript_path.name,
+        "source_url": url,
+        "media_format": "transcripcion",
+        "downloaded_at": time.time(),
+    }
+    save_meta(key, metadata)
+    return transcript_path, metadata
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
@@ -257,16 +316,26 @@ async def download_endpoint(
     if format_value not in SUPPORTED_MEDIA_FORMATS:
         raise HTTPException(
             status_code=400,
-            detail="Formato inválido. Usa 'video', 'audio' o 'audio_low'.",
+            detail="Formato inválido. Usa 'video', 'audio', 'audio_low' o 'transcripcion'.",
         )
 
     try:
-        file_path, metadata = await run_in_threadpool(download_media, url, format_value)
+        if format_value == "transcripcion":
+            file_path, metadata = await run_in_threadpool(generate_transcription, url)
+        else:
+            file_path, metadata = await run_in_threadpool(
+                download_media, url, format_value
+            )
     except DownloadError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     download_name = build_download_name(metadata.get("title", "videorama"), file_path)
-    media_type = "audio/mpeg" if format_value in AUDIO_FORMAT_PROFILES else "video/mp4"
+    if format_value == "transcripcion":
+        media_type = "text/plain"
+    elif format_value in AUDIO_FORMAT_PROFILES:
+        media_type = "audio/mpeg"
+    else:
+        media_type = "video/mp4"
     return FileResponse(
         path=file_path,
         filename=download_name,
@@ -290,3 +359,4 @@ async def cache_status() -> Dict:
                 }
             )
     return {"items": entries, "ttl_seconds": CACHE_TTL_SECONDS}
+
