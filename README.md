@@ -1,96 +1,170 @@
 # Videorama · VHS Suite
 
- Videorama evoluciona hacia una pequeña suite de tres servicios que pueden convivir en
- el mismo `docker compose` o desplegarse por separado:
+Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil: un **API de captura y transformación (VHS)**, una **biblioteca web retro** y un **bot opcional de Telegram**. Todos comparten la misma base de dependencias y pueden convivir en un único `docker compose` o desplegarse por separado.
 
-- **VHS (Video Harvester Service)**: el servicio FastAPI que ya conocías, ahora
-  enfocado en capturar vídeos, generar audios/transcripciones y ejecutar
-  transformaciones rápidas con `ffmpeg`.
-- **Videorama Retro Library**: una biblioteca personal tipo YouTube de los años
-  2000. Usa la API de VHS para adquirir contenido, clasificarlo automáticamente
-  y ofrecer comandos básicos para gestionarlo.
-- **VideoramaBot**: robot de Telegram opcional para interactuar con Videorama
-  desde cualquier chat usando comandos `/add` y `/list`.
+## Tabla de contenido
 
-Ambos servicios comparten la misma imagen de Docker e instalación de
-dependencias, por lo que es sencillo mantenerlos sincronizados.
+- [Componentes](#componentes)
+- [Arquitectura y flujo](#arquitectura-y-flujo)
+- [Requisitos previos](#requisitos-previos)
+- [Configuración](#configuración)
+- [Puesta en marcha con Docker Compose](#puesta-en-marcha-con-docker-compose)
+- [Ejecución local](#ejecución-local)
+- [Endpoints y funcionalidades clave](#endpoints-y-funcionalidades-clave)
+- [Flujos de trabajo habituales](#flujos-de-trabajo-habituales)
+- [Mantenimiento y despliegues continuos](#mantenimiento-y-despliegues-continuos)
+- [Estructura del proyecto](#estructura-del-proyecto)
+- [Resolución de problemas](#resolución-de-problemas)
+- [Licencia](#licencia)
 
-## Características principales
+## Componentes
 
-### VHS · Video Harvester Service
+### VHS · Video Harvester Service (FastAPI)
 
-- Descarga de vídeo y audio apoyada en [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-  con caché en disco y control de caducidad.
-- Conversión directa de audio a texto usando OpenAI o un servicio compatible con
-  whisper-asr.
-- **Tareas rápidas de `ffmpeg`** sobre el material descargado (por ejemplo,
-  extraer audio WAV/MP3 o generar copias comprimidas a 720p/480p).
-- Endpoint `/api/probe` para inspeccionar cualquier URL soportada sin necesidad
-  de descargarla.
-- Panel web minimalista y páginas HTML (`/` y `/docs/api`) para uso manual.
+- Descarga vídeo/audio con [yt-dlp](https://github.com/yt-dlp/yt-dlp), guardando caché en disco con control de caducidad.
+- Transcribe audio a texto mediante OpenAI o servicios compatibles con `whisper-asr`.
+- Ejecuta **perfiles rápidos de `ffmpeg`** (audio, 1080p/720p/480p, etc.) sobre material descargado o subido.
+- Endpoint `/api/probe` para inspeccionar URLs soportadas sin necesidad de bajarlas.
+- Panel web minimalista (`/` y `/docs/api`) para pruebas manuales.
 
-### Videorama Retro Library
+### Videorama Retro Library (FastAPI)
 
-- API propia (`/api/library`) para guardar, consultar y eliminar elementos de la
-  colección.
-- Clasificación automática en base al proveedor, duración y etiquetas devueltas
-  por VHS.
-- Sincroniza automáticamente nuevas entradas con VHS para que el contenido quede
-  precacheado en segundo plano.
-- Almacena los datos en una base SQLite (`data/videorama/library.db` por
-  defecto) y migra automáticamente bibliotecas antiguas en JSON.
-- Gestor visual para listas estáticas/dinámicas y categorías sin salir de la
-  biblioteca principal.
-- Panel web "VHS" en `/import` con formulario, iconografía retro, vista previa
-  y confirmaciones instantáneas.
-- Guarda la URL original y los metadatos completos devueltos por VHS para cada
-  vídeo, manteniendo la biblioteca lista para auditorías futuras.
-- Bot de Telegram opcional (`videorama/telegram_bot.py`) con comandos `/add` y
-  `/list` para gestionar la biblioteca desde cualquier chat, además de menús de
-  texto y soporte para subir/convertir archivos multimedia.
+- API `/api/library` para guardar, consultar o eliminar elementos de la colección.
+- Clasificación automática por proveedor, duración y etiquetas devueltas por VHS.
+- Sincroniza nuevas entradas con VHS para precachear en segundo plano.
+- Guarda datos en SQLite (`data/videorama/library.db`) y migra bibliotecas antiguas en JSON.
+- Panel web retro en `/import` con formulario, vista previa y confirmaciones instantáneas.
+- Gestor de listas estáticas/dinámicas y categorías directamente desde la biblioteca.
 
-## Ejecución con Docker Compose
+### VideoramaBot (Telegram)
+
+- Comandos `/add` y `/list` para operar la biblioteca desde cualquier chat.
+- Menús rápidos de texto y soporte para subir/convertir archivos multimedia.
+- Reutiliza los presets de `ffmpeg` definidos en VHS (`TELEGRAM_VHS_PRESET`).
+
+## Arquitectura y flujo
+
+- **Puertos**: VHS expone `:8601`, Videorama `:8600`. El bot consume la API de Videorama.
+- **Datos**: todo lo que se descarga o sube vive bajo `data/` (montado como volumen en Docker). Las rutas clave se configuran con variables de entorno.
+- **Cacheo y precarga**: Videorama solicita a VHS que precargue contenido con el formato por defecto definido en `VIDEORAMA_DEFAULT_FORMAT`.
+- **Imágenes**: un único `Dockerfile` sirve a los tres servicios; el `docker-compose.yml` arranca contenedores separados reutilizando la misma imagen.
+
+## Requisitos previos
+
+- Docker y Docker Compose (para el flujo recomendado).
+- Python 3.11+ y `ffmpeg` instalados en el PATH si optas por ejecución local.
+- Token de bot de Telegram (opcional) para `videorama/telegram_bot.py`.
+
+## Configuración
+
+1. Copia el archivo de ejemplo y ajústalo a tu entorno:
+
+   ```bash
+   cp example.env .env
+   # Edita los valores según tus claves y rutas locales
+   ```
+
+2. Variables destacadas:
+
+   | Variable | Descripción | Servicio | Valor por defecto |
+   | --- | --- | --- | --- |
+   | `CACHE_TTL_SECONDS` | Tiempo de vida de los ficheros en caché | VHS | `86400` |
+   | `CACHE_DIR` | Carpeta donde VHS guarda caché | VHS | `data/cache` |
+   | `USAGE_LOG_PATH` | Log JSONL para estadísticas | VHS | `data/usage_log.jsonl` |
+   | `FFMPEG_BINARY` | Binario usado para conversiones | VHS | `ffmpeg` |
+   | `TRANSCRIPTION_*` / `WHISPER_ASR_*` | Configuración del endpoint de transcripción | VHS | Ver `example.env` |
+   | `VHS_BASE_URL` | URL que Videorama usa para hablar con VHS | Videorama | `http://localhost:8601` |
+   | `VIDEORAMA_UPLOADS_DIR` | Carpeta para archivos subidos | Videorama | `data/videorama/uploads` |
+   | `VIDEORAMA_DB_PATH` | Ruta del fichero SQLite de la biblioteca | Videorama | `data/videorama/library.db` |
+   | `VIDEORAMA_DEFAULT_FORMAT` | Formato que Videorama pedirá a VHS al precachear | Videorama | `video_high` |
+   | `VIDEORAMA_API_URL` | URL que usará el bot para hablar con Videorama | Bot | `http://localhost:8600` |
+   | `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram | Bot | _(vacío)_ |
+   | `TELEGRAM_VHS_PRESET` | Perfil de `ffmpeg` para conversiones vía bot | Bot | `ffmpeg_720p` |
+
+## Puesta en marcha con Docker Compose
+
+1. Inicia los servicios (construyendo la imagen si es necesario):
+
+   ```bash
+   docker compose up --build
+   ```
+
+2. Una vez arriba:
+   - VHS: <http://localhost:8601>
+   - Videorama: <http://localhost:8600>
+   - El bot se conectará automáticamente si `TELEGRAM_BOT_TOKEN` está definido.
+
+3. El contexto de construcción excluye `data/` y cualquier `*.env`, evitando subir datos o credenciales a la imagen final.
+
+> Usa `docker compose logs -f <servicio>` para inspeccionar los procesos y `docker compose down` para detenerlos conservando los volúmenes.
+
+## Ejecución local
 
 ```bash
-docker compose up --build
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Terminal 1: VHS
+uvicorn vhs.main:app --reload --host 0.0.0.0 --port 8601
+
+# Terminal 2: Videorama
+uvicorn videorama.main:app --reload --host 0.0.0.0 --port 8600
+
+# (Opcional) Bot de Telegram en el mismo entorno
+export TELEGRAM_BOT_TOKEN="<tu token>"
+export VIDEORAMA_API_URL="http://localhost:8600"
+python -m videorama.telegram_bot
 ```
 
-- Antes de levantar los servicios asegúrate de tener un fichero `.env` (puedes
-  copiar `example.env`) en la raíz del repositorio. `docker compose` lo cargará
-  automáticamente gracias a la directiva `env_file` y las variables estarán
-  disponibles para los tres contenedores.
-- El contexto de construcción excluye tanto el directorio `data/` como cualquier
-  archivo `*.env`, evitando que se empaqueten datos generados por volúmenes o
-  credenciales locales en la imagen final.
+## Endpoints y funcionalidades clave
 
-- VHS quedará disponible en `http://localhost:8601`.
-- Videorama responderá en `http://localhost:8600`.
-- VideoramaBot se conectará automáticamente a la API de Videorama usando las
-  variables de entorno definidas en `.env` (necesita `TELEGRAM_BOT_TOKEN`).
+### VHS
 
-Puedes seguir usando solo algunos de los servicios si lo prefieres; basta con
-eliminar la entrada correspondiente del `docker-compose.yml` o ajustar el comando
-que ejecuta cada contenedor.
+- `GET /api/health`: estado del servicio.
+- `GET /api/probe?url=...`: inspecciona metadatos sin descargar.
+- `GET /api/download?url=...&format=...`: descarga/convierte en formatos `video_*`, `audio_*` o `transcripcion_*`.
+- `POST /api/transcribe/upload`: sube un fichero y devuelve subtítulos en JSON/TXT/SRT.
+- `POST /api/ffmpeg/upload`: aplica un perfil `ffmpeg_*` sobre un archivo subido y devuelve la conversión.
+- `GET /api/cache`: lista la caché (incluye endpoints para descargar o eliminar).
+- `GET /api/stats/usage`: métricas de descargas, recodificaciones y transcripciones.
 
-### Monitorización automática y redeploy
+### Videorama
 
-El script `scripts/auto_update.sh` comprueba periódicamente si hay cambios en el
-repositorio remoto, sincroniza nuevas variables de `example.env` hacia `.env` y
-reinicia los servicios con `docker compose` si detecta novedades. Uso básico:
+- `GET /api/library`: listado completo con recuento.
+- `POST /api/library`: añade una URL, consulta `/api/probe` y dispara descargas opcionales en VHS.
+- `POST /api/library/upload`: sube un archivo local (audio/vídeo) y genera entrada lista para compartir.
+- `DELETE /api/library/{id}`: elimina un elemento.
+- `GET /media/{entry_id}/{filename}`: expone archivos subidos para reproducir o descargar.
+- `GET /api/playlists` · `POST /api/playlists` · `DELETE /api/playlists/{id}`: CRUD de listas personalizadas.
+- `GET /api/category-settings` · `PUT /api/category-settings`: alias/visibilidad de categorías.
+- `GET /api/health`: estado del servicio.
+
+### Bot de Telegram
+
+- `/add <url>`: agrega un vídeo y lanza precacheo en VHS.
+- `/list`: muestra las últimas 5 entradas.
+- `/menu`: despliega los botones principales.
+- Reenvía un archivo y el bot ofrecerá subirlo a la biblioteca o convertirlo con el preset `TELEGRAM_VHS_PRESET` usando `/api/ffmpeg/upload`.
+
+## Flujos de trabajo habituales
+
+1. **Agregar un vídeo remoto**: envía la URL a `/api/library` (o usa `/add` en el bot). Videorama consultará VHS, clasificará la entrada y puede lanzar la descarga.
+2. **Subir un archivo local**: usa `/api/library/upload` para alojarlo en `VIDEORAMA_UPLOADS_DIR` y obtener un enlace reproducible vía `/media/...`.
+3. **Convertir un archivo puntual**: manda el fichero a `/api/ffmpeg/upload` indicando el perfil `ffmpeg_*` deseado; útil para obtener audio/MP3 o copias comprimidas.
+4. **Gestionar la colección**: consulta `/api/playlists` y `/api/category-settings` para crear vistas dinámicas o categorizar por duración/proveedor.
+
+## Mantenimiento y despliegues continuos
+
+El script `scripts/auto_update.sh` comprueba periódicamente el repositorio remoto, sincroniza nuevas variables de `example.env` hacia `.env` y reinicia los servicios si detecta cambios.
+
+Uso básico:
 
 ```bash
 INTERVAL_SECONDS=300 ./scripts/auto_update.sh
 ```
 
-- `INTERVAL_SECONDS` define el intervalo de sondeo en segundos (por defecto
-  `300`).
-- El script infiere la rama remota a partir de la `upstream` configurada; puedes
-  forzarlo con `UPSTREAM_REF=origin/main`.
-- Si hay nuevas variables en `example.env`, se añaden a `.env` conservando los
-  valores que ya tuvieses definidos.
-
-También puedes ejecutarlo en un contenedor que tenga acceso al socket de Docker
-del host y a este repositorio, por ejemplo:
+Ejemplo en contenedor (requiere socket de Docker y el repo montado):
 
 ```bash
 docker run --rm \
@@ -102,100 +176,28 @@ docker run --rm \
   sh -c "apk add --no-cache git && ./scripts/auto_update.sh"
 ```
 
-## Variables de entorno destacadas
+## Estructura del proyecto
 
-| Variable | Descripción | Servicio | Valor por defecto |
-| --- | --- | --- | --- |
-| `CACHE_TTL_SECONDS` | Tiempo de vida de los ficheros en caché | VHS | `86400` |
-| `CACHE_DIR` | Carpeta de trabajo donde VHS guarda la caché | VHS | `data/cache` |
-| `USAGE_LOG_PATH` | Ruta del log JSONL para estadísticas | VHS | `data/usage_log.jsonl` |
-| `FFMPEG_BINARY` | Binario usado para las tareas de conversión | VHS | `ffmpeg` |
-| `TRANSCRIPTION_*` | Configuración del endpoint usado para transcribir | VHS | Ver `example.env` |
-| `WHISPER_ASR_*` | Endpoint alternativo compatible con whisper-asr | VHS | _(vacío)_ |
-| `VHS_BASE_URL` | URL que usa Videorama para hablar con VHS | Videorama | `http://localhost:8601` |
-| `VIDEORAMA_LIBRARY_PATH` | Ruta del fichero JSON legado (solo importación) | Videorama | `data/videorama/library.json` |
-| `VIDEORAMA_UPLOADS_DIR` | Carpeta donde se almacenan los archivos subidos | Videorama | `data/videorama/uploads` |
-| `VIDEORAMA_DB_PATH` | Ruta del fichero SQLite que almacena la biblioteca | Videorama | `data/videorama/library.db` |
-| `VIDEORAMA_DEFAULT_FORMAT` | Formato que Videorama pedirá a VHS al precachear | Videorama | `video_high` |
-| `VIDEORAMA_API_URL` | URL que utilizará el bot de Telegram | Bot | `http://localhost:8600` |
-| `TELEGRAM_BOT_TOKEN` | Token de tu bot para `videorama/telegram_bot.py` | Bot | _(vacío)_ |
-| `TELEGRAM_VHS_PRESET` | Perfil de ffmpeg usado para las conversiones del bot | Bot | `ffmpeg_720p` |
-
-Clona `example.env`, renómbralo a `.env` y ajusta los valores según tu entorno.
-
-## Endpoints relevantes
-
-### VHS
-
-- `GET /api/health`: verificación del servicio.
-- `GET /api/probe?url=...`: inspecciona metadatos sin descargar nada.
-- `GET /api/download?url=...&format=...`: descarga/codifica contenido remoto en
-  formatos `video_*`, `audio_*` o `transcripcion_*`.
-- `POST /api/transcribe/upload`: sube un fichero local para obtener subtítulos en
-  JSON/TXT/SRT.
-- `POST /api/ffmpeg/upload`: aplica cualquiera de los perfiles `ffmpeg_*`
-  (`ffmpeg_audio`, `ffmpeg_1080p`, etc.) sobre un archivo que subas desde tu
-  equipo y devuelve la conversión.
-- `GET /api/cache`: lista los elementos en caché (con endpoints para descargar o
-  eliminar cada uno).
-- `GET /api/stats/usage`: descargas, recodificaciones, formatos populares y
-  métricas de transcripción.
-
-### Videorama
-
-- `GET /api/library`: devuelve todas las entradas guardadas junto al recuento.
-- `POST /api/library`: añade una nueva URL, consulta `/api/probe` en VHS y, si
-  se solicita, dispara una descarga remota para precachear el contenido.
-- `POST /api/library/upload`: recibe un archivo local (audio o vídeo), lo
-  almacena en `VIDEORAMA_UPLOADS_DIR` y genera una entrada lista para compartir.
-- `DELETE /api/library/{id}`: elimina un elemento.
-- `GET /media/{entry_id}/{filename}`: expone los archivos subidos para que
-  puedas reproducirlos o descargarlos.
-- `GET /api/playlists`: playlists personalizadas guardadas en SQLite.
-- `POST /api/playlists`: crea una lista estática (con IDs) o dinámica (con
-  reglas por etiqueta/categoría/duración).
-- `DELETE /api/playlists/{id}`: elimina una lista personalizada.
-- `GET /api/category-settings`: devuelve alias/visibilidad de categorías.
-- `PUT /api/category-settings`: guarda las preferencias de categorías.
-- `GET /api/health`: estado básico del servicio.
-
-## Bot de Telegram
-
-El bot es opcional y vive en `videorama/telegram_bot.py`. Para ejecutarlo:
-
-```bash
-export TELEGRAM_BOT_TOKEN="<tu token>"
-export VIDEORAMA_API_URL="http://localhost:8600"
-python -m videorama.telegram_bot
+```
+assets/                 Recursos estáticos y arte ASCII.
+data/                   Caché, base de datos y ficheros subidos (montados como volumen en Docker).
+scripts/                Utilidades de mantenimiento (incluye auto_update.sh).
+templates/              Plantillas HTML para los paneles web.
+vhs/                    Código del servicio VHS (FastAPI, descargas y ffmpeg).
+videorama/              Código del servicio Videorama y bot de Telegram.
+docker-compose.yml      Orquestación de los tres servicios.
+Dockerfile              Imagen base compartida para VHS/Videorama/Bot.
+requirements.txt        Dependencias Python.
 ```
 
-Comandos disponibles:
+## Resolución de problemas
 
-- `/add <url>`: añade el vídeo a la biblioteca y dispara el precacheo en VHS.
-- `/list`: muestra las últimas 5 entradas disponibles.
-- `/menu`: despliega los botones principales.
-
-Además:
-
-- Si le reenvías un archivo de audio o vídeo, el bot te ofrecerá un menú para
-  subirlo directamente a Videorama (usando la API `/api/library/upload`) o
-  pedirle a VHS que lo convierta con el preset definido en `TELEGRAM_VHS_PRESET`.
-- Las conversiones usan el endpoint `/api/ffmpeg/upload` de VHS, y el resultado
-  llega de vuelta al chat como documento adjunto.
-
-## Ejecución local (sin Docker)
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn vhs.main:app --reload --host 0.0.0.0 --port 8601  # VHS
-uvicorn videorama.main:app --reload --host 0.0.0.0 --port 8600  # Videorama
-```
-
-Lanza cada servicio en una terminal distinta o usa `tmux`/`foreman`. El bot de
-Telegram también puede ejecutarse en el mismo entorno virtual.
+- **No se descargan vídeos**: revisa permisos de red y que `yt-dlp` soporte la URL; consulta `/api/probe` para ver si el proveedor es compatible.
+- **Errores de `ffmpeg`**: asegúrate de que `FFMPEG_BINARY` apunta a un ejecutable válido y que el preset solicitado existe en la configuración.
+- **El bot no responde**: verifica `TELEGRAM_BOT_TOKEN` y que `VIDEORAMA_API_URL` sea accesible desde la red de Telegram.
+- **Caché crece demasiado**: ajusta `CACHE_TTL_SECONDS` o limpia con los endpoints de `/api/cache`.
 
 ## Licencia
 
-MIT
+Consulta el archivo de licencia asociado al proyecto o las condiciones proporcionadas por el equipo mantenedor.
+
