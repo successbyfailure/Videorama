@@ -17,6 +17,7 @@ from telegram import (
     Update,
 )
 from telegram.constants import ChatAction
+from telegram.error import TelegramError
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
@@ -27,6 +28,7 @@ from telegram.ext import (
 )
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 VIDEORAMA_API_URL = os.getenv("VIDEORAMA_API_URL", "http://localhost:8600").rstrip("/")
 VHS_API_URL = (os.getenv("VHS_API_URL") or os.getenv("VHS_BASE_URL") or "http://localhost:8601").rstrip(
@@ -34,6 +36,9 @@ VHS_API_URL = (os.getenv("VHS_API_URL") or os.getenv("VHS_BASE_URL") or "http://
 )
 DEFAULT_VHS_PRESET = os.getenv("TELEGRAM_VHS_PRESET", "ffmpeg_720p")
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_DOWNLOAD_LIMIT_BYTES = int(
+    os.getenv("TELEGRAM_DOWNLOAD_LIMIT_BYTES", 20 * 1024 * 1024)
+)
 
 MEDIA_FILTER = filters.Document.ALL | filters.VIDEO | filters.AUDIO
 
@@ -45,6 +50,21 @@ MAIN_MENU = ReplyKeyboardMarkup(
     resize_keyboard=True,
     one_time_keyboard=False,
 )
+
+
+class TelegramDownloadError(RuntimeError):
+    """Señala que Telegram rechazó la descarga del archivo."""
+
+
+def format_filesize(num_bytes: int) -> str:
+    size = float(num_bytes)
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if size < 1024 or unit == "TB":
+            if unit == "B":
+                return f"{int(size)} {unit}"
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{int(num_bytes)} B"
 
 
 def build_absolute_url(path: str) -> str:
@@ -69,12 +89,16 @@ def parse_content_disposition(headers: Dict[str, str], fallback: str) -> str:
 
 
 async def download_to_tempfile(context: ContextTypes.DEFAULT_TYPE, file_id: str) -> Path:
-    telegram_file = await context.bot.get_file(file_id)
-    temp_handle = tempfile.NamedTemporaryFile(delete=False)
-    temp_path = Path(temp_handle.name)
-    temp_handle.close()
-    await telegram_file.download_to_drive(custom_path=str(temp_path))
-    return temp_path
+    try:
+        telegram_file = await context.bot.get_file(file_id)
+        temp_handle = tempfile.NamedTemporaryFile(delete=False)
+        temp_path = Path(temp_handle.name)
+        temp_handle.close()
+        await telegram_file.download_to_drive(custom_path=str(temp_path))
+        return temp_path
+    except TelegramError as exc:  # pragma: no cover - depende de Telegram
+        logger.warning("Error al descargar archivo %s: %s", file_id, exc)
+        raise TelegramDownloadError(str(exc)) from exc
 
 
 async def upload_file_to_videorama(
@@ -221,6 +245,17 @@ async def handle_media_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if not file_obj:
         await update.message.reply_text("Solo puedo manejar archivos de audio o vídeo.")
         return
+    file_size = getattr(file_obj, "file_size", None)
+    if file_size and TELEGRAM_DOWNLOAD_LIMIT_BYTES and file_size > TELEGRAM_DOWNLOAD_LIMIT_BYTES:
+        max_size = format_filesize(TELEGRAM_DOWNLOAD_LIMIT_BYTES)
+        await update.message.reply_text(
+            (
+                "El archivo pesa "
+                f"{format_filesize(file_size)} y supera el límite de {max_size} que permite Telegram para los bots.\n"
+                "Súbelo como enlace o usa el importador web desde Videorama."
+            )
+        )
+        return
     unique_id = file_obj.file_unique_id
     mime_type = getattr(file_obj, "mime_type", None)
     extension = ".mp3" if mime_type and mime_type.startswith("audio/") else ".mp4"
@@ -266,8 +301,11 @@ async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_
     await context.bot.send_chat_action(chat_id=query.message.chat_id, action=ChatAction.UPLOAD_DOCUMENT)
     try:
         temp_path = await download_to_tempfile(context, file_info["file_id"])
-    except Exception:
-        await query.message.reply_text("No pude descargar el archivo desde Telegram.")
+    except TelegramDownloadError as exc:
+        detail = f" ({exc})" if str(exc) else ""
+        await query.message.reply_text(
+            "No pude descargar el archivo desde Telegram." + detail
+        )
         return
 
     try:
