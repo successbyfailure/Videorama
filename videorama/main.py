@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Literal, Optional
 import requests
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, validator
 
@@ -213,6 +213,125 @@ def sanitize_filename(name: str) -> str:
     return cleaned or "videorama.bin"
 
 
+def _download_filename(entry: Dict[str, Any]) -> str:
+    metadata = entry.get("metadata") or {}
+    file_name = metadata.get("file_name")
+    if isinstance(file_name, str) and file_name.strip():
+        return sanitize_filename(file_name)
+    title = str(entry.get("title") or entry.get("id") or "videorama")
+    safe_title = sanitize_filename(title) or "videorama"
+    ext = metadata.get("ext")
+    if isinstance(ext, str):
+        cleaned_ext = ext.strip().lstrip(".")
+        if cleaned_ext:
+            return f"{safe_title}.{cleaned_ext}"
+    return safe_title
+
+
+def _resolve_local_media(entry: Dict[str, Any]) -> Optional[Path]:
+    url = str(entry.get("url") or "")
+    if not url.startswith("/media/"):
+        return None
+    entry_id = entry.get("id")
+    if not entry_id:
+        return None
+    metadata = entry.get("metadata") or {}
+    file_name = metadata.get("file_name") or Path(url).name
+    safe_name = sanitize_filename(str(file_name))
+    file_path = (UPLOADS_DIR / entry_id / safe_name).resolve()
+    uploads_root = UPLOADS_DIR.resolve()
+    if uploads_root not in file_path.parents:
+        return None
+    if not file_path.exists():
+        return None
+    return file_path
+
+
+def _stream_local_file(entry: Dict[str, Any], file_path: Path, as_attachment: bool) -> StreamingResponse:
+    metadata = entry.get("metadata") or {}
+    media_type = str(metadata.get("mime_type") or "application/octet-stream")
+    headers = {
+        "Content-Length": str(file_path.stat().st_size),
+        "Content-Disposition": (
+            f"{'attachment' if as_attachment else 'inline'}; filename=\"{_download_filename(entry)}\""
+        ),
+    }
+
+    def file_iterator():
+        with file_path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1 << 20)
+                if not chunk:
+                    break
+                yield chunk
+
+    return StreamingResponse(file_iterator(), media_type=media_type, headers=headers)
+
+
+def _build_vhs_request(entry: Dict[str, Any], media_format: Optional[str]):
+    preferred = str(entry.get("preferred_format") or DEFAULT_VHS_FORMAT)
+    preferred = preferred.strip() or DEFAULT_VHS_FORMAT
+    target_format = str(media_format or preferred).strip() or preferred
+    if entry.get("vhs_cache_key") and target_format == preferred:
+        endpoint = f"{VHS_BASE_URL}/api/cache/{entry['vhs_cache_key']}/download"
+        return endpoint, None
+    source_url = entry.get("original_url") or entry.get("url")
+    if not source_url:
+        raise HTTPException(status_code=400, detail="La entrada no tiene URL de origen")
+    endpoint = f"{VHS_BASE_URL}/api/download"
+    params = {"url": source_url, "format": target_format}
+    return endpoint, params
+
+
+def _proxy_vhs_stream(entry: Dict[str, Any], media_format: Optional[str], as_attachment: bool) -> StreamingResponse:
+    endpoint, params = _build_vhs_request(entry, media_format)
+    try:
+        response = requests.get(endpoint, params=params, stream=True, timeout=30)
+    except requests.RequestException as exc:  # pragma: no cover - network errors
+        raise HTTPException(status_code=502, detail=f"VHS no respondió: {exc}") from exc
+    if response.status_code >= 400:
+        try:
+            detail = response.json().get("detail")
+        except ValueError:
+            detail = response.text
+        response.close()
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    content_type = response.headers.get("content-type") or "application/octet-stream"
+    headers: Dict[str, str] = {}
+    content_length = response.headers.get("content-length")
+    if content_length:
+        headers["Content-Length"] = content_length
+    if as_attachment:
+        upstream_disposition = response.headers.get("content-disposition")
+        if upstream_disposition:
+            headers["Content-Disposition"] = upstream_disposition
+        else:
+            headers["Content-Disposition"] = f'attachment; filename="{_download_filename(entry)}"'
+    else:
+        headers["Content-Disposition"] = f'inline; filename="{_download_filename(entry)}"'
+
+    def iterator():
+        try:
+            for chunk in response.iter_content(1 << 20):
+                if chunk:
+                    yield chunk
+        finally:
+            response.close()
+
+    return StreamingResponse(iterator(), media_type=content_type, headers=headers)
+
+
+def stream_entry_content(entry: Dict[str, Any], media_format: Optional[str], as_attachment: bool) -> StreamingResponse:
+    url = str(entry.get("url") or "")
+    if url.startswith("/media/"):
+        file_path = _resolve_local_media(entry)
+        if not file_path:
+            raise HTTPException(status_code=404, detail="Archivo local no disponible")
+        return _stream_local_file(entry, file_path, as_attachment)
+    return _proxy_vhs_stream(entry, media_format, as_attachment)
+
+
 async def store_upload(entry_id: str, upload: UploadFile) -> Dict[str, Any]:
     safe_name = sanitize_filename(upload.filename or "upload.bin")
     target_dir = UPLOADS_DIR / entry_id
@@ -373,7 +492,7 @@ async def probe_import(url: str) -> Dict[str, Any]:
         "duration": metadata.get("duration"),
         "uploader": metadata.get("uploader"),
         "category": classify_entry(metadata),
-        "tags": sorted(set(safe_list(metadata.get("tags")))),
+        "tags": [],
         "notes": None,
         "thumbnail": metadata.get("thumbnail"),
         "extractor": metadata.get("extractor_key") or metadata.get("extractor"),
@@ -411,6 +530,28 @@ async def delete_entry(entry_id: str) -> Dict[str, Any]:
     return {"status": "deleted", "id": entry_id}
 
 
+@app.get("/api/library/{entry_id}/stream")
+async def stream_entry(entry_id: str, format: Optional[str] = None) -> StreamingResponse:
+    stored_entry = store.get_entry(entry_id)
+    if not stored_entry:
+        raise HTTPException(status_code=404, detail="Entrada no encontrada")
+    normalized = normalize_entry(stored_entry)
+    if not normalized:
+        raise HTTPException(status_code=404, detail="Entrada no disponible")
+    return stream_entry_content(normalized, format, as_attachment=False)
+
+
+@app.get("/api/library/{entry_id}/download")
+async def download_entry(entry_id: str, format: Optional[str] = None) -> StreamingResponse:
+    stored_entry = store.get_entry(entry_id)
+    if not stored_entry:
+        raise HTTPException(status_code=404, detail="Entrada no encontrada")
+    normalized = normalize_entry(stored_entry)
+    if not normalized:
+        raise HTTPException(status_code=404, detail="Entrada no disponible")
+    return stream_entry_content(normalized, format, as_attachment=True)
+
+
 @app.post("/api/library", status_code=201)
 async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     metadata = fetch_vhs_metadata(payload.url)
@@ -421,6 +562,14 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
 
     title = payload.title or metadata.get("title") or payload.url
 
+    user_tags = sorted(
+        {
+            tag.strip()
+            for tag in payload.tags
+            if isinstance(tag, str) and tag.strip()
+        }
+    )
+
     entry = {
         "id": entry_id,
         "url": payload.url,
@@ -429,7 +578,7 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
         "duration": metadata.get("duration"),
         "uploader": metadata.get("uploader"),
         "category": category,
-        "tags": sorted(set(payload.tags + safe_list(metadata.get("tags")))),
+        "tags": user_tags,
         "notes": payload.notes,
         "thumbnail": metadata.get("thumbnail"),
         "extractor": metadata.get("extractor_key") or metadata.get("extractor"),
@@ -463,7 +612,6 @@ async def home(request: Request) -> HTMLResponse:
         "app_name": APP_TITLE,
         "library_count": len(entries),
         "preview_categories": preview_categories,
-        "vhs_base_url": VHS_BASE_URL,
         "default_format": DEFAULT_VHS_FORMAT,
     }
     return templates.TemplateResponse("videorama.html", context)

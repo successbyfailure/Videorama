@@ -478,9 +478,6 @@
         if (entry.category) {
           categoryInput.value = entry.category;
         }
-        if (entry.tags && entry.tags.length) {
-          tagInput.value = entry.tags.join(', ');
-        }
         previewTitle.textContent = entry.title || entry.url;
         const details = [entry.uploader, entry.extractor].filter(Boolean).join(' · ');
         previewDetails.textContent = details;
