@@ -47,8 +47,16 @@ dependencias, por lo que es sencillo mantenerlos sincronizados.
 docker compose up --build
 ```
 
-- VHS quedará disponible en `http://localhost:8000`.
-- Videorama responderá en `http://localhost:8100`.
+- Antes de levantar los servicios asegúrate de tener un fichero `.env` (puedes
+  copiar `example.env`) en la raíz del repositorio. `docker compose` lo cargará
+  automáticamente gracias a la directiva `env_file` y las variables estarán
+  disponibles para los tres contenedores.
+- El contexto de construcción excluye tanto el directorio `data/` como cualquier
+  archivo `*.env`, evitando que se empaqueten datos generados por volúmenes o
+  credenciales locales en la imagen final.
+
+- VHS quedará disponible en `http://localhost:8601`.
+- Videorama responderá en `http://localhost:8600`.
 - VideoramaBot se conectará automáticamente a la API de Videorama usando las
   variables de entorno definidas en `.env` (necesita `TELEGRAM_BOT_TOKEN`).
 
@@ -66,10 +74,10 @@ que ejecuta cada contenedor.
 | `FFMPEG_BINARY` | Binario usado para las tareas de conversión | VHS | `ffmpeg` |
 | `TRANSCRIPTION_*` | Configuración del endpoint usado para transcribir | VHS | Ver `example.env` |
 | `WHISPER_ASR_*` | Endpoint alternativo compatible con whisper-asr | VHS | _(vacío)_ |
-| `VHS_BASE_URL` | URL que usa Videorama para hablar con VHS | Videorama | `http://localhost:8000` |
+| `VHS_BASE_URL` | URL que usa Videorama para hablar con VHS | Videorama | `http://localhost:8601` |
 | `VIDEORAMA_LIBRARY_PATH` | Ruta del fichero JSON de la biblioteca | Videorama | `data/videorama/library.json` |
 | `VIDEORAMA_DEFAULT_FORMAT` | Formato que Videorama pedirá a VHS al precachear | Videorama | `video_low` |
-| `VIDEORAMA_API_URL` | URL que utilizará el bot de Telegram | Bot | `http://localhost:8100` |
+| `VIDEORAMA_API_URL` | URL que utilizará el bot de Telegram | Bot | `http://localhost:8600` |
 | `TELEGRAM_BOT_TOKEN` | Token de tu bot para `videorama/telegram_bot.py` | Bot | _(vacío)_ |
 
 Clona `example.env`, renómbralo a `.env` y ajusta los valores según tu entorno.
@@ -107,7 +115,7 @@ El bot es opcional y vive en `videorama/telegram_bot.py`. Para ejecutarlo:
 
 ```bash
 export TELEGRAM_BOT_TOKEN="<tu token>"
-export VIDEORAMA_API_URL="http://localhost:8100"
+export VIDEORAMA_API_URL="http://localhost:8600"
 python -m videorama.telegram_bot
 ```
 
@@ -122,8 +130,8 @@ Comandos disponibles:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn vhs.main:app --reload --host 0.0.0.0 --port 8000  # VHS
-uvicorn videorama.main:app --reload --host 0.0.0.0 --port 8001  # Videorama
+uvicorn vhs.main:app --reload --host 0.0.0.0 --port 8601  # VHS
+uvicorn videorama.main:app --reload --host 0.0.0.0 --port 8600  # Videorama
 ```
 
 Lanza cada servicio en una terminal distinta o usa `tmux`/`foreman`. El bot de

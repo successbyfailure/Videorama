@@ -16,7 +16,7 @@ from telegram.ext import (
 
 logging.basicConfig(level=logging.INFO)
 
-VIDEORAMA_API_URL = os.getenv("VIDEORAMA_API_URL", "http://localhost:8100").rstrip("/")
+VIDEORAMA_API_URL = os.getenv("VIDEORAMA_API_URL", "http://localhost:8600").rstrip("/")
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 
