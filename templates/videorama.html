@@ -335,6 +335,30 @@
         flex-wrap: wrap;
         gap: 0.5rem;
       }
+      .player-actions {
+        margin-top: 1.5rem;
+        display: flex;
+        justify-content: flex-end;
+      }
+      .danger-button {
+        background: #b91c1c;
+        border: none;
+        color: #fff;
+        padding: 0.6rem 1.5rem;
+        border-radius: 999px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+      }
+      .danger-button:hover:not(:disabled) {
+        opacity: 0.9;
+        transform: translateY(-1px);
+      }
+      .danger-button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
       .format-select {
         flex: 1;
         min-width: 150px;
@@ -826,11 +850,13 @@
             </div>
           </div>
         </details>
+        <div class="player-actions">
+          <button class="danger-button" id="player-delete" type="button">Eliminar video</button>
+        </div>
       </div>
     </div>
 
     <script>
-      const VHS_BASE_URL = {{ vhs_base_url | tojson }};
       const DEFAULT_FORMAT = {{ default_format | tojson }};
       const libraryState = {
         entries: [],
@@ -1024,8 +1050,12 @@
         playerElements.downloadLink = document.getElementById('player-download');
         playerElements.sourceLink = document.getElementById('player-source');
         playerElements.downloadMenu = document.getElementById('player-download-menu');
+        playerElements.deleteButton = document.getElementById('player-delete');
         if (playerElements.formatSelect) {
           playerElements.formatSelect.addEventListener('change', updatePlayerDownloadLink);
+        }
+        if (playerElements.deleteButton) {
+          playerElements.deleteButton.addEventListener('click', handlePlayerDelete);
         }
       }
 
@@ -1058,7 +1088,11 @@
         if (playerElements.downloadMenu) {
           playerElements.downloadMenu.open = false;
         }
-        const streamUrl = buildDownloadUrl(entry, entry.preferred_format || DEFAULT_FORMAT);
+        if (playerElements.deleteButton) {
+          playerElements.deleteButton.disabled = false;
+          playerElements.deleteButton.textContent = 'Eliminar video';
+        }
+        const streamUrl = buildStreamUrl(entry, entry.preferred_format || DEFAULT_FORMAT);
         if (playerElements.video) {
           playerElements.video.src = streamUrl;
           playerElements.video.poster = entry.thumbnail || '';
@@ -1113,10 +1147,20 @@
         if (!playerElements.metadata) {
           return;
         }
-        const entries = Object.entries(metadata || {})
-          .slice(0, 10)
+        const normalized = metadata && !Array.isArray(metadata) && typeof metadata === 'object' ? metadata : {};
+        const prioritized = [];
+        if (Array.isArray(normalized.tags) && normalized.tags.length) {
+          prioritized.push({ label: 'Etiquetas originales', value: metadataValueToString(normalized.tags) });
+        }
+        const remaining = Object.entries(normalized)
+          .filter(([label]) => label !== 'tags')
+          .slice(0, Math.max(0, 10 - prioritized.length))
           .map(([label, value]) => ({ label, value: metadataValueToString(value) }));
-        renderDefinitionList(playerElements.metadata, entries, 'Sin metadatos disponibles.');
+        renderDefinitionList(
+          playerElements.metadata,
+          [...prioritized, ...remaining],
+          'Sin metadatos disponibles.',
+        );
       }
 
       function renderDefinitionList(container, items, emptyMessage) {
@@ -1182,6 +1226,50 @@
         const format = playerElements.formatSelect.value || playerState.currentEntry.preferred_format || DEFAULT_FORMAT;
         const href = buildDownloadUrl(playerState.currentEntry, format);
         playerElements.downloadLink.href = href;
+      }
+
+      async function handlePlayerDelete() {
+        if (!playerElements.deleteButton || !playerState.currentEntry) {
+          return;
+        }
+        const entry = playerState.currentEntry;
+        const confirmed = window.confirm(
+          `¿Seguro que deseas eliminar "${entry.title || 'este video'}" de la biblioteca? Esta acción no se puede deshacer.`,
+        );
+        if (!confirmed) {
+          return;
+        }
+        const originalLabel = playerElements.deleteButton.textContent;
+        playerElements.deleteButton.disabled = true;
+        playerElements.deleteButton.textContent = 'Eliminando…';
+        try {
+          const response = await fetch(`/api/library/${entry.id}`, { method: 'DELETE' });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.detail || 'No se pudo eliminar el video.');
+          }
+          removeEntryFromLibrary(entry.id);
+          stopPlayer();
+          if (playerElements.modal) {
+            closeModal(playerElements.modal);
+          }
+        } catch (error) {
+          alert(error.message);
+        } finally {
+          playerElements.deleteButton.disabled = false;
+          playerElements.deleteButton.textContent = originalLabel;
+        }
+      }
+
+      function removeEntryFromLibrary(entryId) {
+        if (!entryId) {
+          return;
+        }
+        libraryState.entries = libraryState.entries.filter((item) => item.id !== entryId);
+        libraryState.favorites.delete(entryId);
+        buildCategories();
+        buildPlaylists();
+        applyFilters();
       }
 
       function stopPlayer() {
@@ -1506,17 +1594,27 @@
       }
 
       function buildDownloadUrl(entry, format) {
-        const url = new URL(`${VHS_BASE_URL}/api/download`);
-        url.searchParams.set('url', entry.url);
-        url.searchParams.set('format', format || entry.preferred_format || DEFAULT_FORMAT);
-        return url.toString();
+        if (!entry || !entry.id) {
+          return '#';
+        }
+        const params = new URLSearchParams();
+        if (format) {
+          params.set('format', format);
+        }
+        const query = params.toString();
+        return `/api/library/${entry.id}/download${query ? `?${query}` : ''}`;
       }
 
-      function buildStreamUrl(entry) {
-        if (entry.vhs_cache_key) {
-          return `${VHS_BASE_URL}/api/cache/${entry.vhs_cache_key}/download`;
+      function buildStreamUrl(entry, format) {
+        if (!entry || !entry.id) {
+          return '';
         }
-        return buildDownloadUrl(entry, entry.preferred_format || DEFAULT_FORMAT);
+        const params = new URLSearchParams();
+        if (format) {
+          params.set('format', format);
+        }
+        const query = params.toString();
+        return `/api/library/${entry.id}/stream${query ? `?${query}` : ''}`;
       }
 
       function resetInlinePlayer(card) {
@@ -1557,7 +1655,10 @@
         if (thumb) {
           thumb.setAttribute('aria-hidden', 'true');
         }
-        const attemptPlayback = (sourceUrl, isFallback = false) => {
+        const primaryFormat = entry.preferred_format || DEFAULT_FORMAT;
+        const fallbackFormat = primaryFormat === DEFAULT_FORMAT ? null : DEFAULT_FORMAT;
+        const attemptPlayback = (formatToUse, isFallback = false) => {
+          const sourceUrl = buildStreamUrl(entry, formatToUse);
           if (!sourceUrl) {
             resetInlinePlayer(card);
             openPlayer(entry);
@@ -1570,8 +1671,8 @@
             .play()
             .catch((error) => {
               console.warn('No se pudo iniciar la reproducción inline', error);
-              if (!isFallback) {
-                attemptPlayback(buildDownloadUrl(entry, entry.preferred_format || DEFAULT_FORMAT), true);
+              if (!isFallback && fallbackFormat) {
+                attemptPlayback(fallbackFormat, true);
               } else {
                 resetInlinePlayer(card);
                 openPlayer(entry);
@@ -1586,12 +1687,17 @@
             return;
           }
           player.dataset.fallbackTried = '1';
-          attemptPlayback(buildDownloadUrl(entry, entry.preferred_format || DEFAULT_FORMAT), true);
+          if (fallbackFormat) {
+            attemptPlayback(fallbackFormat, true);
+          } else {
+            resetInlinePlayer(card);
+            openPlayer(entry);
+          }
         };
         player.onended = () => {
           resetInlinePlayer(card);
         };
-        attemptPlayback(buildStreamUrl(entry));
+        attemptPlayback(primaryFormat);
       }
 
       function formatDuration(seconds) {
