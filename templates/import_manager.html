@@ -121,6 +121,35 @@
         flex-direction: column;
         gap: 1rem;
       }
+      .tab-switcher {
+        display: inline-flex;
+        background: rgba(148, 163, 184, 0.12);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .tab-switcher button {
+        border: none;
+        padding: 0.65rem 1rem;
+        background: transparent;
+        color: inherit;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+      .tab-switcher button.active {
+        background: linear-gradient(120deg, #6366f1, #ec4899);
+        color: white;
+      }
+      .tab-panel {
+        display: none;
+        flex-direction: column;
+        gap: 0.85rem;
+      }
+      .tab-panel.active {
+        display: flex;
+      }
       label {
         text-transform: uppercase;
         letter-spacing: 0.08em;
@@ -266,6 +295,39 @@
         font-size: 0.8rem;
         color: #cbd5f5;
       }
+      .search-results {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 0.75rem;
+      }
+      .search-card {
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 14px;
+        padding: 0.75rem;
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 0.75rem;
+        background: rgba(2, 6, 23, 0.6);
+      }
+      .search-card img {
+        width: 100%;
+        height: 80px;
+        object-fit: cover;
+        border-radius: 10px;
+        background: #0b1224;
+      }
+      .search-card h3 {
+        margin: 0 0 0.35rem;
+        font-size: 1rem;
+      }
+      .search-card .meta {
+        font-size: 0.9rem;
+        color: #94a3b8;
+      }
+      .search-card button {
+        margin-top: 0.35rem;
+        width: 100%;
+      }
       .steps-label {
         font-size: 0.85rem;
         text-transform: uppercase;
@@ -300,16 +362,47 @@
       </header>
       <div class="panels">
         <section class="panel" id="probe-panel">
-          <p class="steps-label">Paso 1 · pegar URL</p>
-          <h2>Obtener metadatos</h2>
-          <form id="probe-form">
-            <label for="probe-url">URL del video</label>
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
-              <input id="probe-url" type="url" placeholder="https://..." required style="flex: 1 1 220px" />
-              <button type="submit" style="flex: 0 0 auto">Analizar</button>
+          <p class="steps-label">Paso 1 · elegir fuente</p>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap">
+            <h2 style="margin: 0">Obtener metadatos</h2>
+            <div class="tab-switcher" role="tablist" aria-label="Modo de captura">
+              <button type="button" class="active" data-tab-target="tab-url" role="tab">Pegar URL</button>
+              <button type="button" data-tab-target="tab-search" role="tab">Buscar</button>
             </div>
-          </form>
-          <div class="status-line" id="probe-status"></div>
+          </div>
+
+          <div class="tab-panel active" id="tab-url" role="tabpanel">
+            <form id="probe-form">
+              <label for="probe-url">URL del video</label>
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+                <input id="probe-url" type="url" placeholder="https://..." required style="flex: 1 1 220px" />
+                <button type="submit" style="flex: 0 0 auto">Analizar</button>
+              </div>
+            </form>
+            <div class="status-line" id="probe-status"></div>
+          </div>
+
+          <div class="tab-panel" id="tab-search" role="tabpanel" aria-hidden="true">
+            <form id="search-form">
+              <label for="search-query">Buscar en plataformas soportadas</label>
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+                <input
+                  id="search-query"
+                  type="search"
+                  name="query"
+                  placeholder="título, canal o palabra clave"
+                  autocomplete="off"
+                  required
+                  style="flex: 1 1 220px"
+                />
+                <button type="submit" style="flex: 0 0 auto">Buscar</button>
+              </div>
+            </form>
+            <div class="status-line" id="search-status"></div>
+            <p class="hint" id="search-services"></p>
+            <div class="search-results" id="search-results"></div>
+          </div>
+
           <div class="metadata-preview hidden" id="metadata-preview">
             <img id="preview-thumb" src="/assets/LogoVHS.png" alt="Miniatura" />
             <div class="meta-text">
@@ -320,7 +413,7 @@
           </div>
           <p class="hint">
             VHS pregunta al importador remoto, detecta duración, extractor, etiquetas y prepara el registro antes de que lo
-            guardes definitivamente.
+            guardes definitivamente. También puedes buscar y elegir vídeos sin salir de esta pantalla.
           </p>
         </section>
         <section class="panel">
@@ -435,6 +528,14 @@
       const previewMeta = document.getElementById('preview-meta');
       const previewThumb = document.getElementById('preview-thumb');
 
+      const tabButtons = Array.from(document.querySelectorAll('[data-tab-target]'));
+      const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
+      const searchForm = document.getElementById('search-form');
+      const searchQueryInput = document.getElementById('search-query');
+      const searchStatus = document.getElementById('search-status');
+      const searchResults = document.getElementById('search-results');
+      const searchServices = document.getElementById('search-services');
+
       const importForm = document.getElementById('import-form');
       const urlInput = document.getElementById('url-input');
       const titleInput = document.getElementById('title-input');
@@ -457,12 +558,27 @@
 
       let currentEntry = null;
       let currentMetadata = {};
+      let lastSearchServices = [];
 
       function mergeMetadata(extra) {
         if (!extra || typeof extra !== 'object') {
           return;
         }
         currentMetadata = { ...(currentMetadata || {}), ...extra };
+      }
+
+      function setActiveTab(targetId) {
+        tabButtons.forEach((button) => {
+          const isActive = button.dataset.tabTarget === targetId;
+          button.classList.toggle('active', isActive);
+          button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+
+        tabPanels.forEach((panel) => {
+          const isActive = panel.id === targetId;
+          panel.classList.toggle('active', isActive);
+          panel.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+        });
       }
 
       function resetEditor() {
@@ -487,12 +603,92 @@
         }
       }
 
+      function renderSupportedServices(services) {
+        if (!searchServices) {
+          return;
+        }
+        if (!services || !services.length) {
+          searchServices.textContent = '';
+          return;
+        }
+        lastSearchServices = services;
+        searchServices.textContent = `Plataformas soportadas: ${services.join(', ')}`;
+      }
+
+      function renderSearchResults(items) {
+        if (!searchResults) {
+          return;
+        }
+        searchResults.innerHTML = '';
+        if (!items || !items.length) {
+          const empty = document.createElement('p');
+          empty.className = 'hint';
+          empty.textContent = 'Sin coincidencias. Intenta con otro término o amplía la búsqueda.';
+          searchResults.appendChild(empty);
+          return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        items.forEach((item) => {
+          const card = document.createElement('article');
+          card.className = 'search-card';
+          card.innerHTML = `
+            <img src="${item.thumbnail || '/assets/LogoVHS.png'}" alt="Miniatura" />
+            <div>
+              <h3>${item.title || 'Resultado sin título'}</h3>
+              <div class="meta">${[item.uploader, item.extractor].filter(Boolean).join(' · ')}</div>
+              <div class="meta">${item.duration ? formatDuration(item.duration) : 'Duración desconocida'}</div>
+            </div>
+          `;
+
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = 'Usar este enlace';
+          button.addEventListener('click', () => {
+            probeUrlInput.value = item.url;
+            setActiveTab('tab-url');
+            runProbe(item.url);
+          });
+
+          card.querySelector('div').appendChild(button);
+          fragment.appendChild(card);
+        });
+
+        searchResults.appendChild(fragment);
+      }
+
       function formatDuration(seconds) {
         if (!seconds || Number.isNaN(Number(seconds))) {
           return '—';
         }
         const minutes = Math.round(Number(seconds) / 60);
         return `${minutes} min`;
+      }
+
+      async function runProbe(rawUrl) {
+        const url = (rawUrl || '').trim();
+        if (!url) {
+          probeStatus.textContent = 'Introduce una URL válida.';
+          return;
+        }
+        resetEditor();
+        probeUrlInput.value = url;
+        probeStatus.textContent = 'Consultando metadatos…';
+        try {
+          const response = await fetch(`/api/import/probe?${new URLSearchParams({ url })}`);
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.detail || 'No se pudo analizar la URL');
+          }
+          if (!payload.entry) {
+            throw new Error('Respuesta incompleta del servidor');
+          }
+          populatePreview(payload.entry);
+          statusLine.textContent = '';
+          probeStatus.textContent = 'Metadatos listos, revisa el formulario.';
+        } catch (error) {
+          probeStatus.textContent = `⚠️ ${error.message}`;
+        }
       }
 
       function populatePreview(entry) {
@@ -527,27 +723,32 @@
 
       probeForm.addEventListener('submit', async (event) => {
         event.preventDefault();
-        const url = probeUrlInput.value.trim();
-        if (!url) {
-          probeStatus.textContent = 'Introduce una URL válida.';
+        runProbe(probeUrlInput.value);
+      });
+
+      tabButtons.forEach((button) => {
+        button.addEventListener('click', () => setActiveTab(button.dataset.tabTarget));
+      });
+
+      searchForm?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const query = searchQueryInput.value.trim();
+        if (query.length < 3) {
+          searchStatus.textContent = 'Escribe al menos 3 caracteres.';
           return;
         }
-        resetEditor();
-        probeStatus.textContent = 'Consultando metadatos…';
+        searchStatus.textContent = 'Buscando…';
         try {
-          const response = await fetch(`/api/import/probe?${new URLSearchParams({ url })}`);
+          const response = await fetch(`/api/import/search?${new URLSearchParams({ query })}`);
           const payload = await response.json();
           if (!response.ok) {
-            throw new Error(payload.detail || 'No se pudo analizar la URL');
+            throw new Error(payload.detail || 'No se pudo completar la búsqueda');
           }
-          if (!payload.entry) {
-            throw new Error('Respuesta incompleta del servidor');
-          }
-          populatePreview(payload.entry);
-          statusLine.textContent = '';
-          probeStatus.textContent = 'Metadatos listos, revisa el formulario.';
+          renderSupportedServices(payload.services || lastSearchServices);
+          renderSearchResults(payload.items || []);
+          searchStatus.textContent = `${payload.items?.length || 0} resultados para "${payload.query}".`;
         } catch (error) {
-          probeStatus.textContent = `⚠️ ${error.message}`;
+          searchStatus.textContent = `⚠️ ${error.message}`;
         }
       });
 
@@ -755,6 +956,7 @@
 
       renderTagSuggestions(popularTagSeeds);
       resetEditor();
+      setActiveTab('tab-url');
       renderRows(recentEntries);
       if (!recentEntries.length) {
         refreshEntries();
