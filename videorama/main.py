@@ -247,15 +247,55 @@ def _resolve_local_media(entry: Dict[str, Any]) -> Optional[Path]:
     return file_path
 
 
-def _stream_local_file(entry: Dict[str, Any], file_path: Path, as_attachment: bool) -> StreamingResponse:
+def _stream_local_file(
+    entry: Dict[str, Any], file_path: Path, as_attachment: bool, request: Optional[Request] = None
+) -> StreamingResponse:
     metadata = entry.get("metadata") or {}
     media_type = str(metadata.get("mime_type") or "application/octet-stream")
-    headers = {
-        "Content-Length": str(file_path.stat().st_size),
+    file_size = file_path.stat().st_size
+    range_header = request.headers.get("range") if request else None
+    headers: Dict[str, str] = {
+        "Accept-Ranges": "bytes",
         "Content-Disposition": (
             f"{'attachment' if as_attachment else 'inline'}; filename=\"{_download_filename(entry)}\""
         ),
     }
+
+    if range_header and range_header.startswith("bytes="):
+        try:
+            start_str, end_str = range_header.split("=", 1)[1].split("-", 1)
+            start = int(start_str) if start_str else 0
+            end = int(end_str) if end_str else file_size - 1
+        except ValueError:
+            raise HTTPException(status_code=416, detail="Rango inválido")
+        start = max(0, start)
+        end = min(file_size - 1, end)
+        if start >= file_size:
+            raise HTTPException(status_code=416, detail="Rango fuera de los límites")
+        content_length = end - start + 1
+        headers.update(
+            {
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Content-Length": str(content_length),
+            }
+        )
+
+        def ranged_file_iterator():
+            with file_path.open("rb") as handle:
+                handle.seek(start)
+                remaining = content_length
+                while remaining > 0:
+                    chunk = handle.read(min(1 << 20, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+
+        return StreamingResponse(
+            ranged_file_iterator(), media_type=media_type, headers=headers, status_code=206
+        )
+
+    headers["Content-Length"] = str(file_size)
 
     def file_iterator():
         with file_path.open("rb") as handle:
@@ -283,25 +323,42 @@ def _build_vhs_request(entry: Dict[str, Any], media_format: Optional[str]):
     return endpoint, params
 
 
-def _proxy_vhs_stream(entry: Dict[str, Any], media_format: Optional[str], as_attachment: bool) -> StreamingResponse:
+def _proxy_vhs_stream(
+    entry: Dict[str, Any], media_format: Optional[str], as_attachment: bool, request: Optional[Request]
+) -> StreamingResponse:
     endpoint, params = _build_vhs_request(entry, media_format)
+    request_headers = {}
+    if request and request.headers.get("range"):
+        request_headers["Range"] = request.headers["range"]
     try:
-        response = requests.get(endpoint, params=params, stream=True, timeout=30)
+        response = requests.get(
+            endpoint,
+            params=params,
+            stream=True,
+            timeout=30,
+            headers=request_headers or None,
+        )
     except requests.RequestException as exc:  # pragma: no cover - network errors
         raise HTTPException(status_code=502, detail=f"VHS no respondió: {exc}") from exc
-    if response.status_code >= 400:
+    if response.status_code >= 400 and response.status_code != 416:
         try:
             detail = response.json().get("detail")
         except ValueError:
             detail = response.text
         response.close()
         raise HTTPException(status_code=response.status_code, detail=detail)
-
+    if response.status_code == 416:
+        response.close()
+        raise HTTPException(status_code=416, detail="Rango fuera de los límites")
+    status_code = 206 if response.status_code == 206 else 200
     content_type = response.headers.get("content-type") or "application/octet-stream"
-    headers: Dict[str, str] = {}
+    headers: Dict[str, str] = {"Accept-Ranges": "bytes"}
     content_length = response.headers.get("content-length")
     if content_length:
         headers["Content-Length"] = content_length
+    content_range = response.headers.get("content-range")
+    if content_range:
+        headers["Content-Range"] = content_range
     if as_attachment:
         upstream_disposition = response.headers.get("content-disposition")
         if upstream_disposition:
@@ -319,17 +376,19 @@ def _proxy_vhs_stream(entry: Dict[str, Any], media_format: Optional[str], as_att
         finally:
             response.close()
 
-    return StreamingResponse(iterator(), media_type=content_type, headers=headers)
+    return StreamingResponse(iterator(), media_type=content_type, headers=headers, status_code=status_code)
 
 
-def stream_entry_content(entry: Dict[str, Any], media_format: Optional[str], as_attachment: bool) -> StreamingResponse:
+def stream_entry_content(
+    entry: Dict[str, Any], media_format: Optional[str], as_attachment: bool, request: Optional[Request] = None
+) -> StreamingResponse:
     url = str(entry.get("url") or "")
     if url.startswith("/media/"):
         file_path = _resolve_local_media(entry)
         if not file_path:
             raise HTTPException(status_code=404, detail="Archivo local no disponible")
-        return _stream_local_file(entry, file_path, as_attachment)
-    return _proxy_vhs_stream(entry, media_format, as_attachment)
+        return _stream_local_file(entry, file_path, as_attachment, request)
+    return _proxy_vhs_stream(entry, media_format, as_attachment, request)
 
 
 async def store_upload(entry_id: str, upload: UploadFile) -> Dict[str, Any]:
@@ -531,25 +590,25 @@ async def delete_entry(entry_id: str) -> Dict[str, Any]:
 
 
 @app.get("/api/library/{entry_id}/stream")
-async def stream_entry(entry_id: str, format: Optional[str] = None) -> StreamingResponse:
+async def stream_entry(request: Request, entry_id: str, format: Optional[str] = None) -> StreamingResponse:
     stored_entry = store.get_entry(entry_id)
     if not stored_entry:
         raise HTTPException(status_code=404, detail="Entrada no encontrada")
     normalized = normalize_entry(stored_entry)
     if not normalized:
         raise HTTPException(status_code=404, detail="Entrada no disponible")
-    return stream_entry_content(normalized, format, as_attachment=False)
+    return stream_entry_content(normalized, format, as_attachment=False, request=request)
 
 
 @app.get("/api/library/{entry_id}/download")
-async def download_entry(entry_id: str, format: Optional[str] = None) -> StreamingResponse:
+async def download_entry(request: Request, entry_id: str, format: Optional[str] = None) -> StreamingResponse:
     stored_entry = store.get_entry(entry_id)
     if not stored_entry:
         raise HTTPException(status_code=404, detail="Entrada no encontrada")
     normalized = normalize_entry(stored_entry)
     if not normalized:
         raise HTTPException(status_code=404, detail="Entrada no disponible")
-    return stream_entry_content(normalized, format, as_attachment=True)
+    return stream_entry_content(normalized, format, as_attachment=True, request=request)
 
 
 @app.post("/api/library", status_code=201)

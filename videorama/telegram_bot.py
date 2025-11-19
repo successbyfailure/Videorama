@@ -90,13 +90,19 @@ def parse_content_disposition(headers: Dict[str, str], fallback: str) -> str:
 
 async def download_to_tempfile(context: ContextTypes.DEFAULT_TYPE, file_id: str) -> Path:
     try:
-        telegram_file = await context.bot.get_file(file_id)
+        telegram_file = await context.bot.get_file(file_id, timeout=120)
         temp_handle = tempfile.NamedTemporaryFile(delete=False)
         temp_path = Path(temp_handle.name)
         temp_handle.close()
-        await telegram_file.download_to_drive(custom_path=str(temp_path))
+        await telegram_file.download_to_drive(
+            custom_path=str(temp_path),
+            timeout=600,
+            read_timeout=300,
+            write_timeout=300,
+            connect_timeout=60,
+        )
         return temp_path
-    except TelegramError as exc:  # pragma: no cover - depende de Telegram
+    except (TelegramError, asyncio.TimeoutError) as exc:  # pragma: no cover - depende de Telegram
         logger.warning("Error al descargar archivo %s: %s", file_id, exc)
         raise TelegramDownloadError(str(exc)) from exc
 
