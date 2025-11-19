@@ -14,6 +14,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, validator
+from openai import OpenAI
 
 from .storage import SQLiteStore
 
@@ -26,11 +27,122 @@ VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
 DEFAULT_VHS_FORMAT = os.getenv("VIDEORAMA_DEFAULT_FORMAT", "video_high")
 LIBRARY_DB_PATH = Path(os.getenv("VIDEORAMA_DB_PATH", "data/videorama/library.db"))
 DEFAULT_CATEGORY = "miscelánea"
+LLM_BASE_URL = (
+    os.getenv("VIDEORAMA_LLM_BASE_URL")
+    or os.getenv("OPENAI_BASE_URL")
+    or "https://api.openai.com/v1"
+)
+LLM_API_KEY = os.getenv("VIDEORAMA_LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+SUMMARY_MODEL = os.getenv("VIDEORAMA_SUMMARY_MODEL", "gpt-4o-mini")
+TAGS_MODEL = os.getenv("VIDEORAMA_TAGS_MODEL") or SUMMARY_MODEL
+SUMMARY_PROMPT = os.getenv(
+    "VIDEORAMA_SUMMARY_PROMPT",
+    (
+        "Eres un archivista conciso. Escribe un resumen en español de 2-3 frases "
+        "para este video usando los datos y la transcripción cuando esté presente."
+    ),
+)
+TAGS_PROMPT = os.getenv(
+    "VIDEORAMA_TAGS_PROMPT",
+    (
+        "Sugiere de 5 a 10 etiquetas en español, en formato de lista separada por comas, "
+        "con palabras cortas y sin duplicados ni signos de número."
+    ),
+)
 
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 store = SQLiteStore(LIBRARY_DB_PATH)
+
+
+def _llm_client() -> OpenAI:
+    if not LLM_API_KEY:
+        raise HTTPException(status_code=503, detail="Configura VIDEORAMA_LLM_API_KEY u OPENAI_API_KEY")
+    return OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
+
+
+def _format_prompt(template: str, context: str) -> str:
+    try:
+        return template.format(context=context)
+    except KeyError:
+        return f"{template}\n\nContexto:\n{context}"
+
+
+def _build_prompt_context(entry: Dict[str, Any], transcription: Optional[str]) -> str:
+    normalized = sanitize_metadata(entry)
+    parts = [
+        f"Título: {normalized.get('title') or entry.get('title')}",
+        f"URL: {entry.get('url')}",
+        f"Duración (s): {normalized.get('duration') or entry.get('duration')}",
+        f"Canal / autor: {normalized.get('uploader') or entry.get('uploader')}",
+        f"Categoría: {normalized.get('category') or entry.get('category')}",
+        f"Etiquetas existentes: {', '.join(normalized.get('tags') or entry.get('tags') or [])}",
+        f"Notas: {(entry.get('notes') or '').strip()}",
+    ]
+    description = normalized.get("description") or normalized.get("description_short")
+    if description:
+        parts.append(f"Descripción: {description}")
+    if transcription:
+        trimmed = transcription.strip()
+        if len(trimmed) > 6000:
+            trimmed = f"{trimmed[:6000]}…"
+        parts.append(f"Transcripción:\n{trimmed}")
+    return "\n".join(parts)
+
+
+def _compose_entry_context(url: str, title: Optional[str], notes: Optional[str], metadata: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "url": url,
+        "title": title or url,
+        "notes": notes,
+        "duration": metadata.get("duration"),
+        "uploader": metadata.get("uploader"),
+        "category": metadata.get("category"),
+        "tags": metadata.get("tags"),
+        "metadata": metadata,
+    }
+
+
+def _fetch_transcription_text(url: str) -> Optional[str]:
+    if not url:
+        return None
+    endpoint = f"{VHS_BASE_URL}/api/download"
+    try:
+        response = requests.get(
+            endpoint,
+            params={"url": url, "format": "transcripcion_txt"},
+            timeout=300,
+        )
+    except requests.RequestException:
+        return None
+    if response.status_code >= 400:
+        return None
+    text = response.text.strip()
+    return text or None
+
+
+def _extract_transcription(metadata: Dict[str, Any]) -> Optional[str]:
+    if not isinstance(metadata, dict):
+        return None
+    text = metadata.get("transcription") or metadata.get("transcription_text")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    return None
+
+
+def _llm_completion(prompt: str, model: str, context: str) -> str:
+    client = _llm_client()
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "system", "content": prompt}, {"role": "user", "content": context}],
+        max_tokens=256,
+        temperature=0.4,
+    )
+    if not response.choices:
+        raise HTTPException(status_code=502, detail="El modelo no devolvió respuesta")
+    content = response.choices[0].message.content or ""
+    return content.strip()
 
 
 def sanitize_metadata(metadata: Any) -> Dict[str, Any]:
@@ -460,6 +572,7 @@ class AddLibraryEntry(BaseModel):
     category: Optional[str] = Field(default=None, max_length=120)
     format: str = Field(default=DEFAULT_VHS_FORMAT)
     auto_download: bool = True
+    metadata: Optional[Dict[str, Any]] = None
 
     @validator("category")
     def strip_category(cls, value: Optional[str]) -> Optional[str]:
@@ -470,6 +583,28 @@ class AddLibraryEntry(BaseModel):
 
     @validator("title")
     def strip_title(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+class EnrichmentPayload(BaseModel):
+    url: str = Field(..., min_length=3, max_length=500)
+    title: Optional[str] = Field(default=None, max_length=300)
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    metadata: Optional[Dict[str, Any]] = None
+    prefer_transcription: bool = True
+
+    @validator("title")
+    def normalize_title(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @validator("notes")
+    def normalize_notes(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
         cleaned = value.strip()
@@ -561,6 +696,37 @@ async def probe_import(url: str) -> Dict[str, Any]:
     return {"entry": entry}
 
 
+@app.post("/api/import/auto-summary")
+async def auto_summary(payload: EnrichmentPayload) -> Dict[str, Any]:
+    metadata = sanitize_metadata(payload.metadata)
+    transcription = _extract_transcription(metadata)
+    if payload.prefer_transcription and not transcription:
+        transcription = _fetch_transcription_text(payload.url)
+        if transcription:
+            metadata["transcription_text"] = transcription
+    entry_context = _compose_entry_context(payload.url, payload.title, payload.notes, metadata)
+    context = _build_prompt_context(entry_context, transcription)
+    prompt = _format_prompt(SUMMARY_PROMPT, context)
+    summary = _llm_completion(prompt, SUMMARY_MODEL, context)
+    return {"summary": summary, "metadata": metadata}
+
+
+@app.post("/api/import/auto-tags")
+async def auto_tags(payload: EnrichmentPayload) -> Dict[str, Any]:
+    metadata = sanitize_metadata(payload.metadata)
+    transcription = _extract_transcription(metadata)
+    if payload.prefer_transcription and not transcription:
+        transcription = _fetch_transcription_text(payload.url)
+        if transcription:
+            metadata["transcription_text"] = transcription
+    entry_context = _compose_entry_context(payload.url, payload.title, payload.notes, metadata)
+    context = _build_prompt_context(entry_context, transcription)
+    prompt = _format_prompt(TAGS_PROMPT, context)
+    tag_text = _llm_completion(prompt, TAGS_MODEL, context)
+    suggested_tags = tags_from_string(tag_text)
+    return {"tags": suggested_tags, "metadata": metadata}
+
+
 @app.get("/api/health")
 async def health() -> Dict[str, Any]:
     entries = load_library()
@@ -617,6 +783,8 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     entry_id = entry_id_for_url(payload.url)
     now = time.time()
     metadata_blob = sanitize_metadata(metadata)
+    if payload.metadata:
+        metadata_blob.update(sanitize_metadata(payload.metadata))
     category = (payload.category or "").strip() or classify_entry(metadata)
 
     title = payload.title or metadata.get("title") or payload.url

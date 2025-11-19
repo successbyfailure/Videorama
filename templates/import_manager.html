@@ -356,6 +356,11 @@
             <div>
               <label for="notes-input">Notas</label>
               <textarea id="notes-input" name="notes" placeholder="Enlace, capítulo destacado, etc."></textarea>
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem">
+                <button type="button" id="auto-summary-btn">Auto resumen</button>
+                <button type="button" id="auto-tags-btn">Auto etiquetas</button>
+              </div>
+              <div class="status-line" id="llm-status"></div>
             </div>
             <div>
               <label for="format-input">Formato preferido</label>
@@ -436,6 +441,9 @@
       const autoDownloadInput = document.getElementById('auto-download');
       const submitButton = document.getElementById('submit-button');
       const statusLine = document.getElementById('form-status');
+      const llmStatusLine = document.getElementById('llm-status');
+      const autoSummaryButton = document.getElementById('auto-summary-btn');
+      const autoTagsButton = document.getElementById('auto-tags-btn');
 
       const searchInput = document.getElementById('search-input');
       const tableBody = document.getElementById('table-body');
@@ -444,9 +452,18 @@
       const popularTagSeeds = {{ popular_tags|tojson }};
 
       let currentEntry = null;
+      let currentMetadata = {};
+
+      function mergeMetadata(extra) {
+        if (!extra || typeof extra !== 'object') {
+          return;
+        }
+        currentMetadata = { ...(currentMetadata || {}), ...extra };
+      }
 
       function resetEditor() {
         currentEntry = null;
+        currentMetadata = {};
         urlInput.value = '';
         titleInput.value = '';
         categoryInput.value = '';
@@ -461,6 +478,9 @@
         previewThumb.src = '/assets/LogoVHS.png';
         submitButton.disabled = true;
         renderTagSuggestions(popularTagSeeds);
+        if (llmStatusLine) {
+          llmStatusLine.textContent = '';
+        }
       }
 
       function formatDuration(seconds) {
@@ -473,6 +493,7 @@
 
       function populatePreview(entry) {
         currentEntry = entry;
+        currentMetadata = entry.metadata || {};
         urlInput.value = entry.url || '';
         titleInput.value = entry.title || '';
         if (entry.category) {
@@ -543,6 +564,7 @@
           category: categoryInput.value.trim() || undefined,
           format: formatInput.value || defaultFormat,
           auto_download: autoDownloadInput.checked,
+          metadata: currentMetadata,
         };
         statusLine.textContent = 'Guardando…';
         try {
@@ -569,6 +591,61 @@
           statusLine.textContent = `⚠️ ${error.message}`;
         }
       });
+
+      async function requestLLMAssist(endpoint, onSuccess) {
+        if (!llmStatusLine) {
+          return;
+        }
+        if (!currentEntry) {
+          llmStatusLine.textContent = 'Primero analiza una URL.';
+          return;
+        }
+        const payload = {
+          url: urlInput.value || currentEntry.url,
+          title: titleInput.value.trim() || currentEntry.title,
+          notes: notesInput.value.trim() || undefined,
+          metadata: currentMetadata,
+        };
+        llmStatusLine.textContent = 'Consultando IA…';
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.detail || 'No se pudo generar la sugerencia');
+          }
+          mergeMetadata(data.metadata);
+          onSuccess(data);
+          llmStatusLine.textContent = 'Listo ✅';
+        } catch (error) {
+          llmStatusLine.textContent = `⚠️ ${error.message}`;
+        }
+      }
+
+      if (autoSummaryButton) {
+        autoSummaryButton.addEventListener('click', () =>
+          requestLLMAssist('/api/import/auto-summary', (data) => {
+            if (data.summary) {
+              notesInput.value = data.summary;
+              mergeMetadata({ llm_summary: data.summary });
+            }
+          }),
+        );
+      }
+
+      if (autoTagsButton) {
+        autoTagsButton.addEventListener('click', () =>
+          requestLLMAssist('/api/import/auto-tags', (data) => {
+            if (Array.isArray(data.tags)) {
+              tagInput.value = data.tags.join(', ');
+              renderTagSuggestions(data.tags);
+            }
+          }),
+        );
+      }
 
       function renderTagSuggestions(extraTags) {
         if (!tagSuggestionContainer) {
