@@ -88,36 +88,22 @@
         color: #94a3b8;
         margin: 0;
       }
-      .vhs-icon {
-        width: 96px;
-        height: 60px;
-        border-radius: 18px;
-        background: linear-gradient(135deg, #0ea5e9, #6366f1);
-        position: relative;
-        box-shadow: inset 0 -6px 15px rgba(2, 6, 23, 0.4);
-        border: 2px solid rgba(226, 232, 240, 0.2);
+      .vhs-logo {
+        width: 120px;
+        height: 120px;
+        border-radius: 22px;
+        background: rgba(2, 6, 23, 0.9);
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.75rem;
+        box-shadow: inset 0 0 20px rgba(15, 23, 42, 0.55);
       }
-      .vhs-icon::before,
-      .vhs-icon::after {
-        content: '';
-        position: absolute;
-        border-radius: 10px;
-        border: 2px solid rgba(15, 23, 42, 0.5);
-      }
-      .vhs-icon::before {
-        width: 36px;
-        height: 24px;
-        left: 14px;
-        top: 16px;
-        background: rgba(15, 23, 42, 0.15);
-      }
-      .vhs-icon::after {
-        width: 18px;
-        height: 18px;
-        right: 14px;
-        top: 20px;
-        background: rgba(2, 6, 23, 0.4);
-        box-shadow: inset 0 0 0 3px rgba(226, 232, 240, 0.5);
+      .vhs-logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
       }
       .panels {
         display: grid;
@@ -138,6 +124,21 @@
         letter-spacing: 0.08em;
         font-size: 0.8rem;
         color: #94a3b8;
+      }
+      .chip-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.35rem;
+      }
+      .chip-group .chip {
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        padding: 0.35rem 0.85rem;
+        font-size: 0.85rem;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
       }
       input,
       textarea,
@@ -240,7 +241,9 @@
     <div class="layout">
       <header>
         <div class="identity">
-          <div class="vhs-icon" aria-hidden="true"></div>
+          <div class="vhs-logo">
+            <img src="/assets/LogoVHS.png" alt="Logotipo de VHS" loading="lazy" />
+          </div>
           <div>
             <p class="eyebrow">Central de importación</p>
             <h1>VHS</h1>
@@ -262,6 +265,30 @@
             <div>
               <label for="tags-input">Etiquetas (separadas por comas)</label>
               <input id="tags-input" name="tags" type="text" placeholder="retro, demo, vhs" />
+            </div>
+            <div>
+              <label>Etiquetas populares</label>
+              <div class="chip-group popular-tags">
+                {% if popular_tags %}
+                  {% for tag in popular_tags %}
+                    <button type="button" class="chip popular-tag" data-tag="{{ tag }}">{{ tag }}</button>
+                  {% endfor %}
+                {% else %}
+                  <span class="hint">Todavía no hay suficientes datos.</span>
+                {% endif %}
+              </div>
+            </div>
+            <div>
+              <label for="category-input">Categoría sugerida</label>
+              <input
+                id="category-input"
+                name="category"
+                type="text"
+                list="category-options"
+                placeholder="documentales, entrevistas…"
+                autocomplete="off"
+              />
+              <small class="hint">Se autocompleta con las categorías existentes.</small>
             </div>
             <div>
               <label for="notes-input">Notas</label>
@@ -338,6 +365,11 @@
         </section>
       </div>
     </div>
+    <datalist id="category-options">
+      {% for category in categories %}
+        <option value="{{ category }}"></option>
+      {% endfor %}
+    </datalist>
     <script>
       const defaultFormat = "{{ default_format }}";
       const recentEntries = {{ recent_entries | tojson | safe }};
@@ -347,7 +379,11 @@
       const importForm = document.getElementById('import-form');
       const searchInput = document.getElementById('search-input');
       const formatInput = document.getElementById('format-input');
+      const tagInput = document.getElementById('tags-input');
       formatInput.value = defaultFormat;
+      document.querySelectorAll('.popular-tag').forEach((button) => {
+        button.addEventListener('click', () => addPopularTag(button.getAttribute('data-tag')));
+      });
 
       function renderRows(items) {
         tableBody.innerHTML = '';
@@ -426,6 +462,7 @@
             .map((tag) => tag.trim())
             .filter(Boolean),
           notes: formData.get('notes') || undefined,
+          category: formData.get('category') || undefined,
           format: formData.get('format') || defaultFormat,
           auto_download: formData.get('auto_download') === 'on',
         };
@@ -458,6 +495,21 @@
           }, 6000);
         }
       });
+
+      function addPopularTag(tag) {
+        if (!tag || !tagInput) {
+          return;
+        }
+        const current = tagInput.value
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean);
+        if (!current.includes(tag)) {
+          current.push(tag);
+        }
+        tagInput.value = current.join(', ');
+        tagInput.focus();
+      }
 
       renderRows(recentEntries);
       if (!recentEntries.length) {

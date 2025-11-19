@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -277,8 +278,16 @@ class AddLibraryEntry(BaseModel):
     url: str = Field(..., min_length=3, max_length=500)
     tags: List[str] = Field(default_factory=list)
     notes: Optional[str] = Field(default=None, max_length=2000)
+    category: Optional[str] = Field(default=None, max_length=120)
     format: str = Field(default=DEFAULT_VHS_FORMAT)
     auto_download: bool = True
+
+    @validator("category")
+    def strip_category(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
 
 class PlaylistRules(BaseModel):
@@ -375,6 +384,7 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     entry_id = entry_id_for_url(payload.url)
     now = time.time()
     metadata_blob = sanitize_metadata(metadata)
+    category = (payload.category or "").strip() or classify_entry(metadata)
 
     entry = {
         "id": entry_id,
@@ -383,7 +393,7 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
         "title": metadata.get("title") or payload.url,
         "duration": metadata.get("duration"),
         "uploader": metadata.get("uploader"),
-        "category": classify_entry(metadata),
+        "category": category,
         "tags": sorted(set(payload.tags + safe_list(metadata.get("tags")))),
         "notes": payload.notes,
         "thumbnail": metadata.get("thumbnail"),
@@ -428,6 +438,19 @@ async def home(request: Request) -> HTMLResponse:
 async def import_manager(request: Request) -> HTMLResponse:
     entries = load_library()
     recent_entries = store.list_recent_entries(50)
+    categories = sorted(
+        {
+            (entry.get("category") or DEFAULT_CATEGORY).strip() or DEFAULT_CATEGORY
+            for entry in entries
+        }
+    )
+    tag_counter: Counter[str] = Counter()
+    for entry in entries:
+        for raw_tag in entry.get("tags") or []:
+            tag = (raw_tag or "").strip()
+            if tag:
+                tag_counter[tag] += 1
+    popular_tags = [tag for tag, _ in tag_counter.most_common(5)]
     context = {
         "request": request,
         "app_name": APP_TITLE,
@@ -435,6 +458,8 @@ async def import_manager(request: Request) -> HTMLResponse:
         "recent_entries": recent_entries,
         "default_format": DEFAULT_VHS_FORMAT,
         "library_path": str(LIBRARY_PATH.resolve()),
+        "categories": categories,
+        "popular_tags": popular_tags,
     }
     return templates.TemplateResponse("import_manager.html", context)
 
