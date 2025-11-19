@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }} · Player externo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #020617;
+        color: #e2e8f0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at top, #0f172a, #020617 60%);
+        padding: clamp(1rem, 2vw, 2.5rem);
+      }
+      a {
+        color: inherit;
+      }
+      nav.top-nav {
+        max-width: 1200px;
+        margin: 0 auto 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1.5rem;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+      }
+      .brand {
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+      }
+      .nav-links {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .nav-links a,
+      .nav-links button {
+        text-decoration: none;
+        border-radius: 999px;
+        padding: 0.4rem 0.9rem;
+        background: rgba(99, 102, 241, 0.15);
+        font-weight: 600;
+        border: none;
+        color: inherit;
+        cursor: pointer;
+      }
+      .nav-links a.active,
+      .nav-links button.active {
+        background: rgba(236, 72, 153, 0.2);
+      }
+      .layout {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: grid;
+        gap: 1.5rem;
+      }
+      .hero {
+        background: rgba(15, 23, 42, 0.9);
+        border-radius: 22px;
+        padding: clamp(1.25rem, 3vw, 2.5rem);
+        border: 1px solid rgba(99, 102, 241, 0.35);
+        box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.6);
+      }
+      .hero h1 {
+        margin: 0 0 0.35rem;
+        font-size: clamp(2rem, 5vw, 3rem);
+      }
+      .hero p {
+        margin: 0;
+        color: #cbd5f5;
+      }
+      .panel {
+        border-radius: 20px;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        background: rgba(15, 23, 42, 0.85);
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      label {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.8rem;
+        color: #94a3b8;
+      }
+      .address-bar {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: 0.5rem;
+        align-items: center;
+        width: 100%;
+      }
+      input[type='url'] {
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(2, 6, 23, 0.8);
+        color: inherit;
+        padding: 0.95rem 1rem;
+        font-size: 1rem;
+      }
+      button.primary {
+        border: none;
+        border-radius: 14px;
+        padding: 0.95rem 1.3rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        cursor: pointer;
+        background: linear-gradient(120deg, #6366f1, #ec4899);
+        color: white;
+      }
+      button.secondary {
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        border-radius: 14px;
+        padding: 0.95rem 1.3rem;
+        font-weight: 700;
+        background: rgba(15, 23, 42, 0.7);
+        color: inherit;
+        cursor: pointer;
+      }
+      .hint {
+        color: #94a3b8;
+        font-size: 0.95rem;
+      }
+      .quick-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .quick-links button {
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(99, 102, 241, 0.12);
+        color: inherit;
+        padding: 0.45rem 0.85rem;
+        cursor: pointer;
+      }
+      .frame-wrapper {
+        border-radius: 18px;
+        overflow: hidden;
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        background: rgba(2, 6, 23, 0.7);
+        position: relative;
+        aspect-ratio: 16 / 9;
+      }
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: #0b1224;
+      }
+      .status-line {
+        font-weight: 600;
+        color: #cbd5f5;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="top-nav">
+      <span class="brand">{{ app_name }}</span>
+      <div class="nav-links">
+        <a href="/">Biblioteca</a>
+        <a href="/import">Importador</a>
+        <a href="/external-player" class="active">Player externo</a>
+        <a href="/stats">Estadísticas</a>
+      </div>
+    </nav>
+    <main class="layout">
+      <header class="hero">
+        <h1>Player externo</h1>
+        <p>
+          Navega plataformas de vídeo desde un navegador embebido, comprueba la reproducción y luego envía el enlace al
+          importador. Ideal para previsualizar antes de descargar.
+        </p>
+      </header>
+      <section class="panel">
+        <div>
+          <label for="address-input">Dirección o búsqueda</label>
+          <div class="address-bar">
+            <input id="address-input" type="url" placeholder="https://..." value="{{ default_url }}" />
+            <button class="secondary" type="button" id="preview-btn">Abrir</button>
+            <button class="primary" type="button" id="send-btn">Mandar a importar</button>
+          </div>
+          <p class="hint">
+            Suele funcionar mejor con instancias que permitan ser embebidas (por ejemplo, Piped o Archive). El reproductor
+            abre los vídeos en la derecha; si una web bloquea el iframe, prueba otra instancia.
+          </p>
+          <div class="quick-links">
+            <button type="button" data-url="https://piped.video">YouTube (Piped)</button>
+            <button type="button" data-url="https://archive.org/details/movies">Archive.org</button>
+            <button type="button" data-url="https://vimeo.com">Vimeo</button>
+            <button type="button" data-url="https://www.dailymotion.com">Dailymotion</button>
+          </div>
+        </div>
+        <div class="frame-wrapper">
+          <iframe
+            id="preview-frame"
+            src="{{ default_url }}"
+            title="Navegador embebido"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads"
+          ></iframe>
+        </div>
+        <p id="status-line" class="status-line"></p>
+      </section>
+    </main>
+    <script>
+      const addressInput = document.getElementById('address-input');
+      const previewFrame = document.getElementById('preview-frame');
+      const previewButton = document.getElementById('preview-btn');
+      const sendButton = document.getElementById('send-btn');
+      const quickLinkButtons = Array.from(document.querySelectorAll('[data-url]'));
+      const statusLine = document.getElementById('status-line');
+
+      function normalizeUrl(raw) {
+        const value = (raw || '').trim();
+        if (!value) return '';
+        if (value.startsWith('http://') || value.startsWith('https://')) {
+          return value;
+        }
+        try {
+          const built = new URL(value, 'https://');
+          return built.href;
+        } catch (error) {
+          return `https://${value}`;
+        }
+      }
+
+      function loadInFrame(raw) {
+        const url = normalizeUrl(raw);
+        if (!url) {
+          statusLine.textContent = 'Introduce una dirección válida para previsualizar.';
+          return;
+        }
+        addressInput.value = url;
+        previewFrame.src = url;
+        statusLine.textContent = `Mostrando ${url}`;
+      }
+
+      previewButton.addEventListener('click', () => loadInFrame(addressInput.value));
+      quickLinkButtons.forEach((button) =>
+        button.addEventListener('click', () => loadInFrame(button.dataset.url)),
+      );
+      addressInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          loadInFrame(addressInput.value);
+        }
+      });
+
+      sendButton.addEventListener('click', () => {
+        const url = normalizeUrl(addressInput.value);
+        if (!url) {
+          statusLine.textContent = 'Introduce una dirección antes de mandar al importador.';
+          return;
+        }
+        const target = `/import?url=${encodeURIComponent(url)}`;
+        window.location.href = target;
+      });
+
+      if (addressInput.value) {
+        loadInFrame(addressInput.value);
+      }
+    </script>
+  </body>
+</html>

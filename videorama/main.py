@@ -1049,7 +1049,13 @@ async def import_manager(request: Request) -> HTMLResponse:
             if tag:
                 tag_counter[tag] += 1
     popular_tags = [tag for tag, _ in tag_counter.most_common(5)]
+
     default_tab = request.query_params.get("mode") == "search"
+    prefill_url = request.query_params.get("url")
+    default_tab_name = "tab-search" if default_tab else "tab-url"
+    if prefill_url:
+        default_tab_name = "tab-url"
+
     context = {
         "request": request,
         "app_name": APP_TITLE,
@@ -1059,9 +1065,21 @@ async def import_manager(request: Request) -> HTMLResponse:
         "library_path": str(LIBRARY_PATH.resolve()),
         "categories": categories,
         "popular_tags": popular_tags,
-        "default_tab": "tab-search" if default_tab else "tab-url",
+        "default_tab": default_tab_name,
+        "prefill_url": prefill_url,
     }
     return templates.TemplateResponse("import_manager.html", context)
+
+
+@app.get("/external-player", response_class=HTMLResponse)
+async def external_player(request: Request) -> HTMLResponse:
+    context = {
+        "request": request,
+        "app_name": APP_TITLE,
+        "library_count": len(load_library()),
+        "default_url": request.query_params.get("url") or "https://piped.video",
+    }
+    return templates.TemplateResponse("external_player.html", context)
 
 
 @app.post("/api/library/upload", status_code=201)

@@ -341,8 +341,8 @@
       <span class="brand">{{ app_name }}</span>
       <div class="nav-links">
         <a href="/">Biblioteca</a>
-        <a href="/import" class="{{ 'active' if default_tab == 'tab-url' else '' }}">Importador</a>
-        <a href="/import?mode=search" class="{{ 'active' if default_tab == 'tab-search' else '' }}">Buscador externo</a>
+        <a href="/import" class="active">Importador</a>
+        <a href="/external-player">Player externo</a>
         <a href="/stats">Estadísticas</a>
       </div>
     </nav>
@@ -521,6 +521,7 @@
       const recentEntries = {{ recent_entries|tojson }};
       const defaultFormat = {{ default_format|tojson }};
       const defaultTab = {{ default_tab|tojson }};
+      const prefillUrl = {{ prefill_url|tojson }};
 
       const probeForm = document.getElementById('probe-form');
       const probeUrlInput = document.getElementById('probe-url');
@@ -960,6 +961,11 @@
       renderTagSuggestions(popularTagSeeds);
       resetEditor();
       setActiveTab(defaultTab || 'tab-url');
+      if (prefillUrl) {
+        probeUrlInput.value = prefillUrl;
+        setActiveTab('tab-url');
+        runProbe(prefillUrl);
+      }
       renderRows(recentEntries);
       if (!recentEntries.length) {
         refreshEntries();
