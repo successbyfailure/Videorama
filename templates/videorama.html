@@ -162,11 +162,27 @@
         display: flex;
         flex-direction: column;
       }
-      .thumb {
+      .video-header {
+        padding: 1.25rem 1.25rem 0.35rem;
+      }
+      .video-header h3 {
+        margin: 0 0 0.35rem;
+        font-size: 1.15rem;
+      }
+      .video-header .video-meta {
+        margin: 0;
+      }
+      .video-preview {
         position: relative;
         padding-top: 56.25%;
         background: rgba(30, 41, 59, 0.8);
         overflow: hidden;
+      }
+      .thumb {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
       }
       .thumb img {
         position: absolute;
@@ -184,6 +200,22 @@
         padding: 0.25rem 0.5rem;
         border-radius: 999px;
         font-size: 0.75rem;
+      }
+      .card-player {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: none;
+        display: none;
+        background: black;
+        border-radius: 0;
+      }
+      .video-card.playing .card-player {
+        display: block;
+      }
+      .video-card.playing .thumb {
+        display: none;
       }
       .favorite-toggle {
         position: absolute;
@@ -209,10 +241,6 @@
         display: flex;
         flex-direction: column;
         gap: 0.5rem;
-      }
-      .video-body h3 {
-        margin: 0;
-        font-size: 1.1rem;
       }
       .video-meta {
         font-size: 0.85rem;
@@ -242,7 +270,8 @@
         align-items: center;
       }
       .primary-button,
-      .ghost-link {
+      .ghost-link,
+      .info-button {
         border-radius: 12px;
         border: none;
         padding: 0.6rem 1.1rem;
@@ -259,10 +288,15 @@
         background: linear-gradient(120deg, #f97316, #ec4899);
         color: white;
       }
+      .info-button,
       .ghost-link {
         border: 1px solid rgba(148, 163, 184, 0.4);
         background: transparent;
         color: inherit;
+      }
+      .info-button {
+        flex: 1;
+        min-width: 160px;
       }
       .download-menu {
         flex: 1;
@@ -1400,20 +1434,26 @@
         const card = document.createElement('article');
         card.className = 'video-card';
         card.innerHTML = `
-          <div class="thumb">
-            <img src="${entry.thumbnail || 'https://placehold.co/640x360?text=Videorama'}" alt="Miniatura" loading="lazy" />
-            <button class="favorite-toggle ${libraryState.favorites.has(entry.id) ? 'active' : ''}" title="Marcar como favorito">★</button>
-            <span class="duration-badge">${formatDuration(entry.duration)}</span>
-          </div>
-          <div class="video-body">
+          <div class="video-header">
             <h3>${entry.title}</h3>
             <p class="video-meta">${entry.uploader || 'Autor desconocido'} · ${toTitle(entry.category || 'miscelánea')}</p>
+          </div>
+          <div class="video-preview">
+            <div class="thumb">
+              <img src="${entry.thumbnail || 'https://placehold.co/640x360?text=Videorama'}" alt="Miniatura" loading="lazy" />
+              <button class="favorite-toggle ${libraryState.favorites.has(entry.id) ? 'active' : ''}" title="Marcar como favorito">★</button>
+              <span class="duration-badge">${formatDuration(entry.duration)}</span>
+            </div>
+            <video class="card-player" playsinline controls preload="metadata" poster="${entry.thumbnail || ''}"></video>
+          </div>
+          <div class="video-body">
             <div class="tag-row">
               ${(entry.tags || []).slice(0, 4).map((tag) => `<span class="tag">${tag}</span>`).join('')}
             </div>
             <p class="notes">${entry.notes || 'Sin notas adicionales.'}</p>
             <div class="actions">
               <button class="primary-button play-button" type="button">Reproducir</button>
+              <button class="info-button" type="button">Más información</button>
               <details class="download-menu">
                 <summary>Descargas y recodificación</summary>
                 <div class="download-menu-body">
@@ -1439,9 +1479,13 @@
           downloadLink.href = buildDownloadUrl(entry, select.value);
         });
         const playButton = card.querySelector('.play-button');
+        const infoButton = card.querySelector('.info-button');
         const thumb = card.querySelector('.thumb');
-        playButton.addEventListener('click', () => openPlayer(entry));
-        thumb.addEventListener('click', () => openPlayer(entry));
+        playButton.addEventListener('click', () => startInlinePlayback(entry, card));
+        thumb.addEventListener('click', () => startInlinePlayback(entry, card));
+        if (infoButton) {
+          infoButton.addEventListener('click', () => openPlayer(entry));
+        }
         return card;
       }
 
@@ -1466,6 +1510,88 @@
         url.searchParams.set('url', entry.url);
         url.searchParams.set('format', format || entry.preferred_format || DEFAULT_FORMAT);
         return url.toString();
+      }
+
+      function buildStreamUrl(entry) {
+        if (entry.vhs_cache_key) {
+          return `${VHS_BASE_URL}/api/cache/${entry.vhs_cache_key}/download`;
+        }
+        return buildDownloadUrl(entry, entry.preferred_format || DEFAULT_FORMAT);
+      }
+
+      function resetInlinePlayer(card) {
+        if (!card) {
+          return;
+        }
+        card.classList.remove('playing');
+        const player = card.querySelector('.card-player');
+        const thumb = card.querySelector('.thumb');
+        if (player) {
+          player.pause();
+          delete player.dataset.fallbackTried;
+          player.removeAttribute('src');
+          player.load();
+        }
+        if (thumb) {
+          thumb.removeAttribute('aria-hidden');
+        }
+      }
+
+      function startInlinePlayback(entry, card) {
+        if (!card) {
+          openPlayer(entry);
+          return;
+        }
+        document.querySelectorAll('.video-card.playing').forEach((activeCard) => {
+          if (activeCard !== card) {
+            resetInlinePlayer(activeCard);
+          }
+        });
+        const player = card.querySelector('.card-player');
+        if (!player) {
+          openPlayer(entry);
+          return;
+        }
+        const thumb = card.querySelector('.thumb');
+        card.classList.add('playing');
+        if (thumb) {
+          thumb.setAttribute('aria-hidden', 'true');
+        }
+        const attemptPlayback = (sourceUrl, isFallback = false) => {
+          if (!sourceUrl) {
+            resetInlinePlayer(card);
+            openPlayer(entry);
+            return;
+          }
+          player.src = sourceUrl;
+          player.poster = entry.thumbnail || '';
+          player.load();
+          player
+            .play()
+            .catch((error) => {
+              console.warn('No se pudo iniciar la reproducción inline', error);
+              if (!isFallback) {
+                attemptPlayback(buildDownloadUrl(entry, entry.preferred_format || DEFAULT_FORMAT), true);
+              } else {
+                resetInlinePlayer(card);
+                openPlayer(entry);
+              }
+            });
+        };
+
+        player.onerror = () => {
+          if (player.dataset.fallbackTried) {
+            resetInlinePlayer(card);
+            openPlayer(entry);
+            return;
+          }
+          player.dataset.fallbackTried = '1';
+          attemptPlayback(buildDownloadUrl(entry, entry.preferred_format || DEFAULT_FORMAT), true);
+        };
+        player.onended = () => {
+          resetInlinePlayer(card);
+        };
+        attemptPlayback(buildStreamUrl(entry));
       }
 
       function formatDuration(seconds) {
