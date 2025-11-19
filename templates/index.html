@@ -28,6 +28,15 @@
         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
         backdrop-filter: blur(14px);
       }
+      .hero-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin: 1rem 0 0;
+      }
+      .hero-actions .ghost-button {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
       h1 {
         margin-top: 0;
         margin-bottom: 0.5rem;
@@ -147,6 +156,18 @@
         gap: 1.5rem;
         margin-top: 2rem;
       }
+      .upload-form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+      .upload-form input[type='file'] {
+        border: 1px dashed rgba(148, 163, 184, 0.6);
+        padding: 0.75rem;
+        border-radius: 12px;
+        background: rgba(15, 23, 42, 0.5);
+      }
       .panel {
         border-radius: 16px;
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -236,6 +257,9 @@
       <p class="hint">
         Las descargas permanecen en caché durante 24 horas para reusar archivos y evitar conversiones repetidas.
       </p>
+      <div class="hero-actions">
+        <a class="ghost-button" href="/docs/api">API docs</a>
+      </div>
       <section class="services">
         <p class="services-title">Servicios soportados</p>
         <ul class="services-list">
@@ -269,6 +293,36 @@
         </div>
         <p class="status" id="status"></p>
       </form>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Transcribe un archivo local</h2>
+            <p class="hint">Sube audio o video corto y obtén transcripción directa desde el navegador.</p>
+          </div>
+        </div>
+        <form id="upload-form" class="upload-form">
+          <div>
+            <label for="upload-file">Archivo</label>
+            <input type="file" id="upload-file" name="file" accept="audio/*,video/*" required />
+          </div>
+          <div>
+            <label for="upload-format">Formato</label>
+            <select name="media_format" id="upload-format">
+              <option value="transcripcion_txt" selected>Transcripción (TXT)</option>
+              <option value="transcripcion">Transcripción completa (JSON)</option>
+              <option value="transcripcion_srt">Subtítulos SRT</option>
+            </select>
+          </div>
+          <button type="submit">Transcribir archivo</button>
+          <div class="progress" id="upload-progress" hidden>
+            <p class="progress-label" id="upload-progress-label">Preparando…</p>
+            <div class="progress-bar">
+              <div class="progress-fill" id="upload-progress-fill"></div>
+            </div>
+          </div>
+          <p class="status" id="upload-status"></p>
+        </form>
+      </section>
       <section class="dashboard">
         <section class="panel">
           <div class="panel-header">
@@ -311,6 +365,13 @@
       const progressContainer = document.getElementById('progress');
       const progressLabel = document.getElementById('progress-label');
       const progressFill = document.getElementById('progress-fill');
+      const uploadForm = document.getElementById('upload-form');
+      const uploadStatusEl = document.getElementById('upload-status');
+      const uploadProgressContainer = document.getElementById('upload-progress');
+      const uploadProgressLabel = document.getElementById('upload-progress-label');
+      const uploadProgressFill = document.getElementById('upload-progress-fill');
+      const uploadFileInput = document.getElementById('upload-file');
+      const uploadFormatSelect = document.getElementById('upload-format');
       let usageChart;
 
       const PROGRESS_STEPS = {
@@ -323,23 +384,23 @@
         ],
       };
 
-      const progressTracker = (() => {
+      function createProgressTracker(container, labelEl, fillEl) {
         let steps = [];
         let current = 0;
         function reset() {
           steps = [];
           current = 0;
-          progressFill.style.width = '0%';
-          progressFill.classList.remove('error');
-          progressContainer.hidden = true;
+          fillEl.style.width = '0%';
+          fillEl.classList.remove('error');
+          container.hidden = true;
         }
         function start(stepList) {
           steps = stepList;
           current = 0;
-          progressFill.classList.remove('error');
-          progressContainer.hidden = false;
-          progressFill.style.width = steps.length ? '5%' : '0%';
-          progressLabel.textContent = steps[0] || 'Procesando…';
+          fillEl.classList.remove('error');
+          container.hidden = false;
+          fillEl.style.width = steps.length ? '5%' : '0%';
+          labelEl.textContent = steps[0] || 'Procesando…';
         }
         function advance(message) {
           if (!steps.length) {
@@ -347,30 +408,37 @@
           }
           current = Math.min(current + 1, steps.length);
           const percent = Math.max((current / steps.length) * 100, 10);
-          progressFill.style.width = `${percent}%`;
+          fillEl.style.width = `${percent}%`;
           if (message) {
-            progressLabel.textContent = message;
+            labelEl.textContent = message;
           } else {
             const fallbackIndex = Math.min(current, steps.length - 1);
-            progressLabel.textContent = steps[fallbackIndex] || 'Procesando…';
+            labelEl.textContent = steps[fallbackIndex] || 'Procesando…';
           }
         }
         function complete(message) {
-          progressFill.classList.remove('error');
-          progressFill.style.width = '100%';
-          progressLabel.textContent = message || 'Descarga completada.';
+          fillEl.classList.remove('error');
+          fillEl.style.width = '100%';
+          labelEl.textContent = message || 'Descarga completada.';
           setTimeout(() => {
-            progressContainer.hidden = true;
+            container.hidden = true;
           }, 1500);
         }
         function fail(message) {
-          progressContainer.hidden = false;
-          progressFill.classList.add('error');
-          progressFill.style.width = '100%';
-          progressLabel.textContent = message;
+          container.hidden = false;
+          fillEl.classList.add('error');
+          fillEl.style.width = '100%';
+          labelEl.textContent = message;
         }
         return { reset, start, advance, complete, fail };
-      })();
+      }
+
+      const downloadProgress = createProgressTracker(progressContainer, progressLabel, progressFill);
+      const uploadProgress = createProgressTracker(
+        uploadProgressContainer,
+        uploadProgressLabel,
+        uploadProgressFill,
+      );
 
       function triggerBlobDownload(blob, filename) {
         const url = window.URL.createObjectURL(blob);
@@ -384,10 +452,12 @@
       }
 
       async function downloadFromEndpoint(endpoint, options = {}) {
-        const { statusTarget, progress } = options;
+        const { statusTarget, progress, fetchOptions } = options;
         try {
-          progress?.advance('Conectando con el servidor…');
-          const response = await fetch(endpoint);
+          const method = (fetchOptions && fetchOptions.method) || 'GET';
+          const message = method === 'GET' ? 'Conectando con el servidor…' : 'Enviando solicitud…';
+          progress?.advance(message);
+          const response = await fetch(endpoint, fetchOptions);
           if (!response.ok) {
             const errorPayload = await response.json().catch(() => ({}));
             throw new Error(errorPayload.detail || 'Error al preparar el archivo');
@@ -419,14 +489,40 @@
         const steps = format.startsWith('transcripcion')
           ? PROGRESS_STEPS.transcription
           : PROGRESS_STEPS.default;
-        progressTracker.reset();
-        progressTracker.start(steps);
+        downloadProgress.reset();
+        downloadProgress.start(steps);
         statusEl.textContent = steps[0];
         const params = new URLSearchParams(formData);
         try {
           await downloadFromEndpoint(`/api/download?${params.toString()}`, {
             statusTarget: statusEl,
-            progress: progressTracker,
+            progress: downloadProgress,
+          });
+        } catch (error) {
+          console.error(error);
+        }
+      });
+
+      uploadForm?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!uploadFileInput?.files?.length) {
+          uploadStatusEl.textContent = 'Selecciona un archivo válido.';
+          return;
+        }
+        const formData = new FormData();
+        formData.append('file', uploadFileInput.files[0]);
+        formData.append('media_format', uploadFormatSelect?.value || 'transcripcion_txt');
+        uploadProgress.reset();
+        uploadProgress.start(PROGRESS_STEPS.transcription);
+        uploadStatusEl.textContent = 'Preparando archivo local…';
+        try {
+          await downloadFromEndpoint('/api/transcribe/upload', {
+            statusTarget: uploadStatusEl,
+            progress: uploadProgress,
+            fetchOptions: {
+              method: 'POST',
+              body: formData,
+            },
           });
         } catch (error) {
           console.error(error);

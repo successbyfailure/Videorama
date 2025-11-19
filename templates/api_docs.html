@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }} · API</title>
+    <style>
+      :root {
+        color-scheme: dark light;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #020617;
+        color: #e2e8f0;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+        background: radial-gradient(circle at top, #312e81, #020617 60%);
+      }
+      main {
+        width: min(960px, 100%);
+        background: rgba(15, 23, 42, 0.85);
+        border-radius: 18px;
+        padding: clamp(1.5rem, 4vw, 3rem);
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+      }
+      h1 {
+        margin-top: 0;
+        font-size: clamp(2rem, 5vw, 3rem);
+      }
+      section + section {
+        margin-top: 2rem;
+      }
+      pre {
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        border-radius: 12px;
+        padding: 1rem;
+        overflow-x: auto;
+        font-size: 0.95rem;
+      }
+      code {
+        font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+      }
+      .chip-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .chip {
+        padding: 0.35rem 0.75rem;
+        border-radius: 999px;
+        border: 1px solid rgba(59, 130, 246, 0.5);
+        background: rgba(59, 130, 246, 0.15);
+        font-size: 0.85rem;
+      }
+      a.button-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        text-decoration: none;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        padding: 0.5rem 0.9rem;
+        border-radius: 10px;
+        color: inherit;
+      }
+      dl {
+        display: grid;
+        grid-template-columns: 160px 1fr;
+        gap: 0.5rem 1rem;
+        margin: 1rem 0 0;
+      }
+      dt {
+        font-weight: 600;
+        color: #cbd5f5;
+      }
+      dd {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a href="/" class="button-link">← Volver</a>
+      <h1>API de {{ app_name }}</h1>
+      <p>
+        Utiliza estos endpoints para automatizar descargas, convertir audio en subtítulos o integrar el servicio en
+        tus herramientas. Todas las respuestas devuelven errores en formato JSON cuando ocurre algún problema.
+      </p>
+      <section>
+        <h2>Formatos soportados</h2>
+        <ul class="chip-grid">
+          {% for fmt in formats %}
+          <li class="chip"><strong>{{ fmt.name }}</strong>: {{ fmt.description }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+      <section>
+        <h2>Descarga directa</h2>
+        <p>El endpoint <code>GET /api/download</code> acepta dos parámetros:</p>
+        <dl>
+          <dt>url</dt>
+          <dd>Enlace completo del video/audio soportado por yt-dlp.</dd>
+          <dt>format</dt>
+          <dd>Uno de los formatos listados arriba. Por omisión descarga video.</dd>
+        </dl>
+        <pre><code>curl -L "${BASE_URL:-http://localhost:8000}/api/download?url=https://youtu.be/&amp;format=audio" \
+  -o audio.mp3</code></pre>
+      </section>
+      <section>
+        <h2>Transcribir un archivo local</h2>
+        <p>Envía un archivo de audio o video con <code>POST /api/transcribe/upload</code> usando <code>multipart/form-data</code>.</p>
+        <pre><code>curl -X POST "${BASE_URL:-http://localhost:8000}/api/transcribe/upload" \
+  -F "media_format=transcripcion_srt" \
+  -F "file=@/ruta/al/audio.mp4" \
+  -o subtitulos.srt</code></pre>
+        <p>Los formatos válidos son <code>transcripcion</code>, <code>transcripcion_txt</code> y <code>transcripcion_srt</code>.</p>
+      </section>
+      <section>
+        <h2>Gestionar la caché</h2>
+        <ul>
+          <li><code>GET /api/cache</code>: lista los elementos disponibles, tamaños y tiempos de expiración.</li>
+          <li><code>GET /api/cache/{cache_key}/download</code>: recupera un elemento específico.</li>
+          <li><code>DELETE /api/cache/{cache_key}</code>: elimina un archivo y su metadato asociado.</li>
+        </ul>
+      </section>
+      <section>
+        <h2>Estadísticas y salud</h2>
+        <ul>
+          <li><code>GET /api/health</code>: devuelve <code>{"status": "ok"}</code> cuando el servicio responde.</li>
+          <li><code>GET /api/stats/usage</code>: totales y aciertos de caché de los últimos 7 días.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>
