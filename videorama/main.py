@@ -653,6 +653,18 @@ def tags_from_string(raw: str) -> List[str]:
     return sorted({chunk.strip() for chunk in raw.split(",") if chunk.strip()})
 
 
+def normalize_tag_list(values: Optional[List[str]]) -> List[str]:
+    if not values:
+        return []
+    return sorted(
+        {
+            value.strip()
+            for value in values
+            if isinstance(value, str) and value.strip()
+        }
+    )
+
+
 def fetch_vhs_metadata(url: str) -> Dict[str, Any]:
     endpoint = f"{VHS_BASE_URL}/api/probe"
     try:
@@ -710,6 +722,35 @@ class AddLibraryEntry(BaseModel):
         cleaned = value.strip()
         return cleaned or None
 
+
+class UpdateLibraryEntry(BaseModel):
+    title: Optional[str] = Field(default=None, max_length=300)
+    tags: Optional[List[str]] = None
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    category: Optional[str] = Field(default=None, max_length=120)
+    preferred_format: Optional[str] = Field(default=None, max_length=50)
+    metadata: Optional[Dict[str, Any]] = None
+
+    @validator("title")
+    def strip_title(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @validator("category")
+    def strip_category(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @validator("notes")
+    def strip_notes(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
 class EnrichmentPayload(BaseModel):
     url: str = Field(..., min_length=3, max_length=500)
@@ -988,6 +1029,35 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
 
     stored_entry = normalize_entry(entry)
     return stored_entry or entry
+
+
+@app.put("/api/library/{entry_id}")
+async def update_entry(entry_id: str, payload: UpdateLibraryEntry) -> Dict[str, Any]:
+    stored_entry = store.get_entry(entry_id)
+    if not stored_entry:
+        raise HTTPException(status_code=404, detail="Entrada no encontrada")
+
+    updated = stored_entry.copy()
+    update_data = payload.dict(exclude_unset=True)
+
+    if "title" in update_data:
+        updated["title"] = update_data.get("title") or stored_entry.get("title")
+    if "category" in update_data:
+        updated["category"] = update_data.get("category") or DEFAULT_CATEGORY
+    if "notes" in update_data:
+        updated["notes"] = update_data.get("notes")
+    if "preferred_format" in update_data:
+        updated["preferred_format"] = update_data.get("preferred_format") or DEFAULT_VHS_FORMAT
+    if "tags" in update_data:
+        updated["tags"] = normalize_tag_list(update_data.get("tags"))
+    if "metadata" in update_data:
+        updated["metadata"] = sanitize_metadata(update_data.get("metadata"))
+
+    store.upsert_entry(updated)
+    normalized = normalize_entry(updated)
+    if normalized:
+        return normalized
+    raise HTTPException(status_code=500, detail="No se pudo actualizar la entrada")
 
 
 @app.get("/", response_class=HTMLResponse)
