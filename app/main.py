@@ -7,7 +7,7 @@ import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import certifi
 from dotenv import load_dotenv
@@ -608,18 +608,21 @@ def _call_whisper_asr(file_path: Path) -> Dict[str, Any]:
 
 def transcribe_audio_file(file_path: Path) -> Dict[str, Any]:
     ensure_transcription_ready()
-    errors: List[str] = []
+    Attempt = Tuple[str, Callable[[], Dict[str, Any]]]
+    attempts: List[Attempt] = []
+
     if TRANSCRIPTION_API_KEY and TRANSCRIPTION_MODEL:
-        try:
-            return _call_openai_transcription(file_path)
-        except Exception as exc:  # pragma: no cover - depende de SDK externo
-            errors.append(str(exc))
+        attempts.append(("openai", lambda: _call_openai_transcription(file_path)))
 
     if WHISPER_ASR_URL:
+        attempts.append(("whisper-asr", lambda: _call_whisper_asr(file_path)))
+
+    errors: List[str] = []
+    for provider_name, provider_call in attempts:
         try:
-            return _call_whisper_asr(file_path)
-        except Exception as exc:  # pragma: no cover - servicio externo
-            errors.append(str(exc))
+            return provider_call()
+        except Exception as exc:  # pragma: no cover - servicios externos
+            errors.append(f"{provider_name}: {exc}")
 
     joined = "; ".join(errors)
     raise DownloadError(f"No se pudo transcribir el audio: {joined or 'error desconocido'}")
