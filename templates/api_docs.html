@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ app_name }} · API</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA2NCA2NCcgZmlsbD0nbm9uZSc+CjxyZWN0IHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgcng9JzE2JyBmaWxsPScjMGYxNzJhJy8+CjxjaXJjbGUgY3g9JzI2JyBjeT0nMzInIHI9JzE0JyBzdHJva2U9JyMyMmQzZWUnIHN0cm9rZS13aWR0aD0nNCcgZmlsbD0nbm9uZScvPgo8cGF0aCBkPSdNMzIgMjJsMTYgMTAtMTYgMTBWMjJ6JyBmaWxsPScjZjk3MzE2Jy8+Cjwvc3ZnPg=="
+    />
     <style>
       :root {
         color-scheme: dark light;
@@ -134,7 +139,10 @@
         <h2>Estadísticas y salud</h2>
         <ul>
           <li><code>GET /api/health</code>: devuelve <code>{"status": "ok"}</code> cuando el servicio responde.</li>
-          <li><code>GET /api/stats/usage</code>: totales y aciertos de caché de los últimos 7 días.</li>
+          <li>
+            <code>GET /api/stats/usage</code>: totales, aciertos de caché y conteo aproximado de palabras/tokens
+            transcritos en los últimos 7 días.
+          </li>
         </ul>
       </section>
     </main>

@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ app_name }} | Descarga videos con yt-dlp</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA2NCA2NCcgZmlsbD0nbm9uZSc+CjxyZWN0IHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgcng9JzE2JyBmaWxsPScjMGYxNzJhJy8+CjxjaXJjbGUgY3g9JzI2JyBjeT0nMzInIHI9JzE0JyBzdHJva2U9JyMyMmQzZWUnIHN0cm9rZS13aWR0aD0nNCcgZmlsbD0nbm9uZScvPgo8cGF0aCBkPSdNMzIgMjJsMTYgMTAtMTYgMTBWMjJ6JyBmaWxsPScjZjk3MzE2Jy8+Cjwvc3ZnPg=="
+    />
     <style>
       :root {
         color-scheme: dark light;
@@ -649,34 +654,46 @@
           });
           const downloads = payload.points.map((point) => point.downloads);
           const cacheHits = payload.points.map((point) => point.cache_hits);
+          const wordCounts = payload.points.map((point) => point.word_count || 0);
+          const datasets = [
+            {
+              label: 'Descargas',
+              data: downloads,
+              borderColor: '#f97316',
+              backgroundColor: 'rgba(249, 115, 22, 0.2)',
+              tension: 0.3,
+              fill: true,
+              yAxisID: 'y',
+            },
+            {
+              label: 'Aciertos caché',
+              data: cacheHits,
+              borderColor: '#22d3ee',
+              backgroundColor: 'rgba(34, 211, 238, 0.2)',
+              tension: 0.3,
+              fill: true,
+              yAxisID: 'y',
+            },
+            {
+              label: 'Palabras transcritas',
+              data: wordCounts,
+              borderColor: '#c084fc',
+              backgroundColor: 'rgba(192, 132, 252, 0.3)',
+              tension: 0.3,
+              fill: false,
+              yAxisID: 'y1',
+            },
+          ];
           if (usageChart) {
             usageChart.data.labels = labels;
-            usageChart.data.datasets[0].data = downloads;
-            usageChart.data.datasets[1].data = cacheHits;
+            usageChart.data.datasets = datasets;
             usageChart.update();
           } else if (window.Chart) {
             usageChart = new Chart(usageCanvas, {
               type: 'line',
               data: {
                 labels,
-                datasets: [
-                  {
-                    label: 'Descargas',
-                    data: downloads,
-                    borderColor: '#f97316',
-                    backgroundColor: 'rgba(249, 115, 22, 0.2)',
-                    tension: 0.3,
-                    fill: true,
-                  },
-                  {
-                    label: 'Aciertos caché',
-                    data: cacheHits,
-                    borderColor: '#22d3ee',
-                    backgroundColor: 'rgba(34, 211, 238, 0.2)',
-                    tension: 0.3,
-                    fill: true,
-                  },
-                ],
+                datasets,
               },
               options: {
                 plugins: {
@@ -694,11 +711,29 @@
                     beginAtZero: true,
                     grid: { color: 'rgba(148, 163, 184, 0.1)' },
                   },
+                  y1: {
+                    position: 'right',
+                    beginAtZero: true,
+                    ticks: { color: '#cbd5f5' },
+                    grid: {
+                      color: 'rgba(192, 132, 252, 0.15)',
+                      drawOnChartArea: false,
+                    },
+                  },
                 },
               },
             });
           }
-          usageStatusEl.textContent = `Últimos ${payload.days} días: ${payload.total} descargas · ${payload.cache_hits} desde caché.`;
+          const totalWords = payload.total_words || 0;
+          const totalTokens = payload.total_tokens || 0;
+          let summary = `Últimos ${payload.days} días: ${payload.total} descargas · ${payload.cache_hits} desde caché.`;
+          if (totalWords) {
+            summary += ` · ${totalWords.toLocaleString('es-ES')} palabras transcritas`;
+          }
+          if (totalTokens && totalTokens !== totalWords) {
+            summary += ` · ${totalTokens.toLocaleString('es-ES')} tokens estimados`;
+          }
+          usageStatusEl.textContent = summary;
         } catch (error) {
           usageStatusEl.textContent = error.message;
         }
