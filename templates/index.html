@@ -281,7 +281,8 @@
         <div>
           <label for="format">Formato</label>
           <select name="format" id="format">
-            <option value="video" selected>Video (MP4)</option>
+            <option value="video_high" selected>Video alta calidad (MP4)</option>
+            <option value="video_low">Video ligera (MP4 hasta 480p)</option>
             <option value="audio">Audio (MP3 192 kbps)</option>
             <option value="audio_low">Audio ligero (MP3 96 kbps)</option>
             <option value="transcripcion">Transcripción completa (JSON vía OpenAI)</option>
@@ -490,7 +491,7 @@
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
         const formData = new FormData(form);
-        const format = String(formData.get('format') || 'video');
+        const format = String(formData.get('format') || 'video_high');
         const steps = format.startsWith('transcripcion')
           ? PROGRESS_STEPS.transcription
           : PROGRESS_STEPS.default;
