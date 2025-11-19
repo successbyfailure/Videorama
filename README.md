@@ -16,6 +16,7 @@ videos o pistas de audio y mantener un caché local durante 24 horas.
 ## Requisitos
 
 - Docker y Docker Compose (o Python 3.11+ si deseas ejecutar el proyecto sin contenedores).
+- Un runtime de JavaScript (p. ej. Node.js) para que yt-dlp pueda ejecutar el código de ciertos proveedores como YouTube. La imagen de Docker instala Node.js automáticamente, pero en entornos locales debes asegurarte de tenerlo disponible.
 
 ## Ejecución con Docker Compose
 
