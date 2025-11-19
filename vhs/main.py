@@ -23,6 +23,7 @@ from fastapi import (
 )
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 # Ensure the runtime always has a CA bundle to prevent SSL failures, even in
@@ -240,6 +241,7 @@ for preset_name, preset in FFMPEG_PRESETS.items():
 
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 
 
 class DownloadError(RuntimeError):
