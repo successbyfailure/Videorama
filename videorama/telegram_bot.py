@@ -1,13 +1,25 @@
-"""Bot sencillo de Telegram para gestionar Videorama desde el chat."""
+"""Bot de Telegram que conversa con Videorama y VHS."""
 
+import asyncio
 import logging
 import os
-from typing import List
+import re
+import tempfile
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import requests
-from telegram import Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    Update,
+)
+from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -17,7 +29,120 @@ from telegram.ext import (
 logging.basicConfig(level=logging.INFO)
 
 VIDEORAMA_API_URL = os.getenv("VIDEORAMA_API_URL", "http://localhost:8600").rstrip("/")
+VHS_API_URL = (os.getenv("VHS_API_URL") or os.getenv("VHS_BASE_URL") or "http://localhost:8601").rstrip(
+    "/"
+)
+DEFAULT_VHS_PRESET = os.getenv("TELEGRAM_VHS_PRESET", "ffmpeg_720p")
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+MEDIA_FILTER = filters.Document.ALL | filters.VIDEO | filters.AUDIO
+
+MAIN_MENU = ReplyKeyboardMarkup(
+    [
+        [KeyboardButton("Añadir URL"), KeyboardButton("Ver biblioteca")],
+        [KeyboardButton("Ayuda")],
+    ],
+    resize_keyboard=True,
+    one_time_keyboard=False,
+)
+
+
+def build_absolute_url(path: str) -> str:
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    return f"{VIDEORAMA_API_URL}{path}" if path.startswith("/") else path
+
+
+def safe_filename(source_name: Optional[str], fallback: str) -> str:
+    candidate = Path(source_name or fallback).name
+    if not candidate:
+        return fallback
+    return candidate
+
+
+def parse_content_disposition(headers: Dict[str, str], fallback: str) -> str:
+    header = headers.get("content-disposition") or ""
+    match = re.search(r'filename="?([^";]+)"?', header)
+    if match:
+        return match.group(1)
+    return fallback
+
+
+async def download_to_tempfile(context: ContextTypes.DEFAULT_TYPE, file_id: str) -> Path:
+    telegram_file = await context.bot.get_file(file_id)
+    temp_handle = tempfile.NamedTemporaryFile(delete=False)
+    temp_path = Path(temp_handle.name)
+    temp_handle.close()
+    await telegram_file.download_to_drive(custom_path=str(temp_path))
+    return temp_path
+
+
+async def upload_file_to_videorama(
+    file_path: Path, file_name: str, notes: Optional[str]
+) -> Optional[Dict[str, str]]:
+    title = (notes or "").strip() or file_name
+
+    def _request() -> Optional[Dict[str, str]]:
+        with file_path.open("rb") as payload:
+            files = {"file": (file_name, payload)}
+            data = {"title": title, "notes": notes or "", "tags": "telegram"}
+            response = requests.post(
+                f"{VIDEORAMA_API_URL}/api/library/upload",
+                data=data,
+                files=files,
+                timeout=300,
+            )
+            if response.status_code >= 400:
+                return None
+            return response.json()
+
+    return await asyncio.to_thread(_request)
+
+
+async def convert_with_vhs(file_path: Path, file_name: str) -> Tuple[Optional[Path], Optional[str]]:
+    fallback_name = f"convertido_{file_name}"
+
+    def _request() -> Tuple[Optional[Path], Optional[str]]:
+        with file_path.open("rb") as payload:
+            files = {"file": (file_name, payload)}
+            data = {"media_format": DEFAULT_VHS_PRESET}
+            try:
+                with requests.post(
+                    f"{VHS_API_URL}/api/ffmpeg/upload",
+                    data=data,
+                    files=files,
+                    timeout=600,
+                    stream=True,
+                ) as response:
+                    if response.status_code >= 400:
+                        return None, None
+                    output_name = safe_filename(
+                        parse_content_disposition(response.headers, fallback_name), fallback_name
+                    )
+                    temp_handle = tempfile.NamedTemporaryFile(delete=False)
+                    temp_path = Path(temp_handle.name)
+                    with temp_handle:
+                        for chunk in response.iter_content(1 << 20):
+                            if chunk:
+                                temp_handle.write(chunk)
+            except requests.RequestException:
+                return None, None
+        return temp_path, output_name
+
+    return await asyncio.to_thread(_request)
+
+
+def pick_media_file(message) -> Optional[object]:
+    if message.video:
+        return message.video
+    if message.audio:
+        return message.audio
+    document = message.document
+    if document and (
+        not document.mime_type or document.mime_type.startswith("video/") or document.mime_type.startswith("audio/")
+    ):
+        return document
+    return None
 
 
 def fetch_library(limit: int = 5) -> List[dict]:
@@ -38,9 +163,16 @@ def build_entry_line(entry: dict) -> str:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
     await update.message.reply_text(
-        "Hola, soy el robot de Videorama. Usa /add <url> para añadir videos "
-        "y /list para ver las últimas entradas."
+        "Hola, soy VideoramaBot. Puedo añadir enlaces, guardar archivos locales y"
+        " pedirle a VHS que los convierta.",
+        reply_markup=MAIN_MENU,
+    )
+    await update.message.reply_text(
+        "¿Qué te gustaría hacer? Usa los botones o mándame un archivo de audio/vídeo.",
+        reply_markup=MAIN_MENU,
     )
 
 
@@ -51,6 +183,138 @@ async def list_entries(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     lines = ["Últimas entradas en Videorama:"] + [build_entry_line(item) for item in items]
     await update.message.reply_text("\n".join(lines))
+
+
+async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message:
+        await update.message.reply_text(
+            "Elige una opción o reenvíame un archivo.", reply_markup=MAIN_MENU
+        )
+
+
+async def handle_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.message.text:
+        return
+    text = update.message.text.strip().lower()
+    if text.startswith("añadir"):
+        await update.message.reply_text(
+            "Usa /add <url> para guardar enlaces o envíame el vídeo directamente.",
+            reply_markup=MAIN_MENU,
+        )
+    elif text.startswith("ver"):
+        await list_entries(update, context)
+    elif text.startswith("ayuda"):
+        await update.message.reply_text(
+            "Puedo listar la biblioteca, añadir enlaces y convertir archivos con VHS.",
+            reply_markup=MAIN_MENU,
+        )
+    else:
+        await update.message.reply_text(
+            "No reconocí esa opción. Usa /menu o los botones.", reply_markup=MAIN_MENU
+        )
+
+
+async def handle_media_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    file_obj = pick_media_file(update.message)
+    if not file_obj:
+        await update.message.reply_text("Solo puedo manejar archivos de audio o vídeo.")
+        return
+    unique_id = file_obj.file_unique_id
+    mime_type = getattr(file_obj, "mime_type", None)
+    extension = ".mp3" if mime_type and mime_type.startswith("audio/") else ".mp4"
+    file_name = safe_filename(
+        getattr(file_obj, "file_name", None), f"archivo_{unique_id}{extension}"
+    )
+    store = context.user_data.setdefault("pending_uploads", {})
+    store[unique_id] = {
+        "file_id": file_obj.file_id,
+        "file_name": file_name,
+        "notes": update.message.caption or "",
+    }
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("Agregar a Videorama", callback_data=f"add:{unique_id}"),
+                InlineKeyboardButton("Convertir con VHS", callback_data=f"convert:{unique_id}"),
+            ]
+        ]
+    )
+    await update.message.reply_text(
+        "Recibí tu archivo. ¿Quieres sumarlo a Videorama o prefieres convertirlo?",
+        reply_markup=keyboard,
+    )
+
+
+async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    await query.answer()
+    try:
+        action, file_key = query.data.split(":", 1)
+    except ValueError:
+        await query.message.reply_text("Acción desconocida.")
+        return
+    pending = context.user_data.get("pending_uploads", {})
+    file_info = pending.pop(file_key, None)
+    if not file_info:
+        await query.message.reply_text("El archivo ya no está disponible. Reenvíalo, por favor.")
+        return
+
+    await context.bot.send_chat_action(chat_id=query.message.chat_id, action=ChatAction.UPLOAD_DOCUMENT)
+    try:
+        temp_path = await download_to_tempfile(context, file_info["file_id"])
+    except Exception:
+        await query.message.reply_text("No pude descargar el archivo desde Telegram.")
+        return
+
+    try:
+        if action == "add":
+            await process_videorama_upload(query, file_info, temp_path)
+        elif action == "convert":
+            await process_vhs_conversion(query, file_info, temp_path)
+        else:
+            await query.message.reply_text("No entiendo la acción seleccionada.")
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+async def process_videorama_upload(query, file_info: Dict[str, str], file_path: Path) -> None:
+    await query.message.reply_text("Subiendo a Videorama…")
+    entry = await upload_file_to_videorama(file_path, file_info["file_name"], file_info.get("notes"))
+    if not entry:
+        await query.message.reply_text("No pude guardar el archivo en Videorama.")
+        return
+    entry_url = build_absolute_url(entry.get("url") or entry.get("original_url") or "")
+    await query.message.reply_text(
+        f"Listo, añadí {entry.get('title')} a la biblioteca.\n{entry_url}",
+        disable_web_page_preview=True,
+    )
+
+
+async def process_vhs_conversion(query, file_info: Dict[str, str], file_path: Path) -> None:
+    await query.message.reply_text("Pidiendo a VHS que convierta tu archivo…")
+    converted_path, converted_name = await convert_with_vhs(file_path, file_info["file_name"])
+    if not converted_path or not converted_name:
+        await query.message.reply_text("VHS no pudo convertir el archivo en este momento.")
+        return
+    try:
+        with converted_path.open("rb") as payload:
+            await query.message.reply_document(
+                document=payload,
+                filename=converted_name,
+                caption=f"Perfil {DEFAULT_VHS_PRESET}",
+            )
+    finally:
+        try:
+            converted_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 async def add_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -82,7 +346,7 @@ async def add_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Comando no reconocido. Usa /add o /list.")
+    await update.message.reply_text("No entiendo ese comando. Prueba con /menu, /add o /list.")
 
 
 def main() -> None:
@@ -93,8 +357,14 @@ def main() -> None:
         )
     application = ApplicationBuilder().token(token).build()
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("menu", show_menu))
     application.add_handler(CommandHandler("list", list_entries))
     application.add_handler(CommandHandler("add", add_entry))
+    application.add_handler(CallbackQueryHandler(handle_action_selection))
+    application.add_handler(MessageHandler(MEDIA_FILTER, handle_media_message))
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_text)
+    )
     application.add_handler(MessageHandler(filters.COMMAND, unknown))
     application.run_polling()
 
