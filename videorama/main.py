@@ -696,6 +696,48 @@ async def probe_import(url: str) -> Dict[str, Any]:
     return {"entry": entry}
 
 
+@app.get("/api/import/search")
+async def search_sources(query: str, limit: int = 8) -> Dict[str, Any]:
+    cleaned_query = (query or "").strip()
+    if len(cleaned_query) < 3:
+        raise HTTPException(status_code=400, detail="Escribe al menos 3 caracteres para buscar")
+    try:
+        response = requests.get(
+            f"{VHS_BASE_URL}/api/search",
+            params={"query": cleaned_query, "limit": max(1, min(limit, 25))},
+            timeout=60,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"VHS no respondió: {exc}") from exc
+    if response.status_code >= 400:
+        try:
+            detail = response.json().get("detail")
+        except ValueError:
+            detail = response.text
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    payload = response.json()
+    items = []
+    for raw in payload.get("items") or []:
+        if not isinstance(raw, dict):
+            continue
+        url = str(raw.get("url") or raw.get("webpage_url") or "").strip()
+        if not url:
+            continue
+        items.append(
+            {
+                "title": raw.get("title") or url,
+                "url": url,
+                "duration": raw.get("duration"),
+                "uploader": raw.get("uploader"),
+                "extractor": raw.get("extractor") or raw.get("extractor_key"),
+                "thumbnail": raw.get("thumbnail"),
+            }
+        )
+
+    return {"query": cleaned_query, "items": items, "services": payload.get("services")}
+
+
 @app.post("/api/import/auto-summary")
 async def auto_summary(payload: EnrichmentPayload) -> Dict[str, Any]:
     metadata = sanitize_metadata(payload.metadata)

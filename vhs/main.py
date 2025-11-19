@@ -677,6 +677,56 @@ def probe_media(url: str) -> Dict[str, Any]:
     }
 
 
+def search_media(query: str, limit: int = 8) -> List[Dict[str, Any]]:
+    cleaned_query = (query or "").strip()
+    if len(cleaned_query) < 3:
+        raise DownloadError("La búsqueda debe tener al menos 3 caracteres")
+
+    safe_limit = max(1, min(limit, 25))
+    search_expression = f"ytsearch{safe_limit}:{cleaned_query}"
+    ydl_opts: Dict[str, Any] = {
+        "quiet": True,
+        "noprogress": True,
+        "noplaylist": True,
+        "extract_flat": True,
+        "skip_download": True,
+        "default_search": "auto",
+        "nocheckcertificate": False,
+        "ca_certs": CERT_BUNDLE,
+        "http_headers": {"User-Agent": YTDLP_USER_AGENT},
+    }
+
+    if YTDLP_PROXY:
+        ydl_opts["proxy"] = YTDLP_PROXY
+    if YTDLP_COOKIES_FILE:
+        ydl_opts["cookiefile"] = YTDLP_COOKIES_FILE
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            results = ydl.extract_info(search_expression, download=False)
+    except Exception as exc:  # pragma: no cover - passthrough errors
+        raise DownloadError(str(exc)) from exc
+
+    items: List[Dict[str, Any]] = []
+    for entry in results.get("entries") or []:
+        resolved_url = entry.get("webpage_url") or entry.get("url")
+        if not resolved_url or not isinstance(resolved_url, str):
+            continue
+        items.append(
+            {
+                "id": entry.get("id"),
+                "title": entry.get("title") or resolved_url,
+                "url": resolved_url,
+                "duration": entry.get("duration"),
+                "uploader": entry.get("uploader") or entry.get("channel"),
+                "extractor": entry.get("extractor") or entry.get("ie_key"),
+                "thumbnail": entry.get("thumbnail"),
+            }
+        )
+
+    return items
+
+
 def ensure_transcription_ready() -> None:
     if TRANSCRIPTION_API_KEY and TRANSCRIPTION_MODEL:
         return
@@ -992,6 +1042,18 @@ async def probe_endpoint(
     except DownloadError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return info
+
+
+@app.get("/api/search", response_class=JSONResponse)
+async def search_endpoint(
+    query: str = Query(..., min_length=3, description="Término de búsqueda"),
+    limit: int = Query(8, ge=1, le=25, description="Número máximo de resultados"),
+):
+    try:
+        items = await run_in_threadpool(search_media, query, limit)
+    except DownloadError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"query": query.strip(), "items": items, "services": SUPPORTED_SERVICES}
 
 
 @app.get("/api/download")
