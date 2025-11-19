@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 APP_TITLE = "Videorama Retro Library"
@@ -16,6 +18,7 @@ VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
 DEFAULT_VHS_FORMAT = os.getenv("VIDEORAMA_DEFAULT_FORMAT", "video_low")
 
 app = FastAPI(title=APP_TITLE)
+templates = Jinja2Templates(directory="templates")
 
 
 def load_library() -> List[Dict[str, Any]]:
@@ -166,10 +169,22 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     return entry
 
 
-@app.get("/")
-async def root() -> Dict[str, Any]:
-    return {
-        "service": APP_TITLE,
-        "description": "Biblioteca personal estilo YouTube retro que se apoya en VHS",
-        "library_items": len(load_library()),
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request) -> HTMLResponse:
+    entries = load_library()
+    categories = sorted(
+        {
+            (entry.get("category") or "miscelánea").strip() or "miscelánea"
+            for entry in entries
+        }
+    )
+    preview_categories = [category.title() for category in categories[:6]]
+    context = {
+        "request": request,
+        "app_name": APP_TITLE,
+        "library_count": len(entries),
+        "preview_categories": preview_categories,
+        "vhs_base_url": VHS_BASE_URL,
+        "default_format": DEFAULT_VHS_FORMAT,
     }
+    return templates.TemplateResponse("videorama.html", context)
