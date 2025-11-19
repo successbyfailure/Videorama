@@ -93,6 +93,8 @@ Clona `example.env`, renómbralo a `.env` y ajusta los valores según tu entorno
   dispones de:
   - `ffmpeg_audio`: extrae MP3 usando `ffmpeg`.
   - `ffmpeg_audio_wav`: genera un WAV sin pérdidas.
+  - `ffmpeg_1440p` y `ffmpeg_1080p`: recodificaciones listas para ediciones o
+    streaming en alta calidad.
   - `ffmpeg_720p` y `ffmpeg_480p`: copias comprimidas perfectas para hardware
     antiguo o streaming ligero.
 - `POST /api/transcribe/upload`: sube un fichero local para obtener subtítulos en
