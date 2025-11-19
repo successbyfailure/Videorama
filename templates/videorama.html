@@ -248,6 +248,12 @@
         font-size: 0.85rem;
         color: #94a3b8;
       }
+      .video-meta.tech-meta {
+        color: #cbd5f5;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+      }
       .tag-row {
         display: flex;
         flex-wrap: wrap;
@@ -660,7 +666,9 @@
       <span class="brand">{{ app_name }}</span>
       <div class="nav-links">
         <a href="/">Biblioteca</a>
+        <a href="/import?mode=search">Buscador externo</a>
         <a href="/import">Importador</a>
+        <a href="/stats">Estadísticas</a>
         <button type="button" data-open-modal="playlist-modal">Playlists</button>
         <button type="button" data-open-modal="category-modal">Categorías</button>
       </div>
@@ -1139,6 +1147,12 @@
           { label: 'Autor', value: entry.uploader || 'Desconocido' },
           { label: 'Duración', value: formatDuration(entry.duration) },
           { label: 'Extractor', value: entry.extractor || '—' },
+          { label: 'Resolución', value: inferResolutionFromMetadata(entry.metadata) || '—' },
+          { label: 'Códecs', value: inferCodecsFromMetadata(entry.metadata) || '—' },
+          {
+            label: 'Tamaño',
+            value: inferSizeFromMetadata(entry.metadata) ? formatFileSize(inferSizeFromMetadata(entry.metadata)) : '—',
+          },
           { label: 'Etiquetas', value: (entry.tags || []).join(', ') || '—' },
           { label: 'Añadido', value: formatDate(entry.added_at) },
         ];
@@ -1527,6 +1541,7 @@
           <div class="video-header">
             <h3>${entry.title}</h3>
             <p class="video-meta">${entry.uploader || 'Autor desconocido'} · ${toTitle(entry.category || 'miscelánea')}</p>
+            <p class="video-meta tech-meta">${buildTechSummary(entry)}</p>
           </div>
           <div class="video-preview">
             <div class="thumb">
@@ -1716,6 +1731,117 @@
             .padStart(2, '0')}`;
         }
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      }
+
+      function formatFileSize(bytes) {
+        if (!bytes || Number.isNaN(Number(bytes))) {
+          return '';
+        }
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = Number(bytes);
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+          size /= 1024;
+          unitIndex += 1;
+        }
+        const formatted = size >= 10 || size % 1 === 0 ? size.toFixed(0) : size.toFixed(1);
+        return `${formatted} ${units[unitIndex]}`;
+      }
+
+      function inferSizeFromMetadata(metadata) {
+        if (!metadata || typeof metadata !== 'object') {
+          return null;
+        }
+        const candidates = ['file_size', 'filesize', 'filesize_approx', 'approx_filesize'];
+        for (const key of candidates) {
+          const value = metadata[key];
+          if (Number.isFinite(value) && value > 0) {
+            return Number(value);
+          }
+        }
+        const formats = metadata.requested_formats || metadata.formats || [];
+        for (const fmt of formats) {
+          if (!fmt || typeof fmt !== 'object') continue;
+          if (Number.isFinite(fmt.filesize) && fmt.filesize > 0) {
+            return Number(fmt.filesize);
+          }
+          if (Number.isFinite(fmt.filesize_approx) && fmt.filesize_approx > 0) {
+            return Number(fmt.filesize_approx);
+          }
+        }
+        return null;
+      }
+
+      function inferResolutionFromMetadata(metadata) {
+        if (!metadata || typeof metadata !== 'object') {
+          return '';
+        }
+        if (Number.isFinite(metadata.width) && Number.isFinite(metadata.height) && metadata.width > 0 && metadata.height > 0) {
+          return `${Number(metadata.width)}x${Number(metadata.height)}`;
+        }
+        const resolution = metadata.resolution || metadata.format_note;
+        if (resolution) {
+          return `${resolution}`;
+        }
+        const formats = metadata.requested_formats || metadata.formats || [];
+        for (const fmt of formats) {
+          if (!fmt || typeof fmt !== 'object') continue;
+          if (fmt.resolution) {
+            return `${fmt.resolution}`;
+          }
+          if (Number.isFinite(fmt.width) && Number.isFinite(fmt.height)) {
+            return `${fmt.width}x${fmt.height}`;
+          }
+        }
+        return '';
+      }
+
+      function inferCodecsFromMetadata(metadata) {
+        if (!metadata || typeof metadata !== 'object') {
+          return '';
+        }
+        const codecs = [];
+        const vcodec = metadata.vcodec || metadata.video_codec;
+        const acodec = metadata.acodec || metadata.audio_codec;
+        [vcodec, acodec].forEach((codec) => {
+          if (codec && `${codec}`.toLowerCase() !== 'none') {
+            codecs.push(codec);
+          }
+        });
+        if (!codecs.length) {
+          const formats = metadata.requested_formats || metadata.formats || [];
+          for (const fmt of formats) {
+            if (fmt?.vcodec && `${fmt.vcodec}`.toLowerCase() !== 'none') {
+              codecs.push(fmt.vcodec);
+            }
+            if (fmt?.acodec && `${fmt.acodec}`.toLowerCase() !== 'none') {
+              codecs.push(fmt.acodec);
+            }
+            if (codecs.length) break;
+          }
+        }
+        return codecs.join(' / ');
+      }
+
+      function buildTechSummary(entry) {
+        const details = [];
+        const size = inferSizeFromMetadata(entry.metadata);
+        const resolution = inferResolutionFromMetadata(entry.metadata);
+        const codecs = inferCodecsFromMetadata(entry.metadata);
+        const duration = formatDuration(entry.duration);
+        if (duration && duration !== '—') {
+          details.push(`Duración ${duration}`);
+        }
+        if (resolution) {
+          details.push(resolution);
+        }
+        if (codecs) {
+          details.push(codecs);
+        }
+        if (size) {
+          details.push(formatFileSize(size));
+        }
+        return details.join(' • ') || 'Metadatos en preparación';
       }
 
       function normalize(value) {

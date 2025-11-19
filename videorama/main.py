@@ -5,6 +5,7 @@ import os
 import secrets
 import time
 from collections import Counter
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -167,6 +168,127 @@ def sanitize_metadata(metadata: Any) -> Dict[str, Any]:
         else:
             sanitized[key] = str(value)
     return sanitized
+
+
+def _extract_from_formats(metadata: Dict[str, Any], key: str) -> Optional[Any]:
+    for fmt in metadata.get("requested_formats") or metadata.get("formats") or []:
+        if not isinstance(fmt, dict):
+            continue
+        value = fmt.get(key)
+        if value:
+            return value
+    return None
+
+
+def infer_entry_size(entry: Dict[str, Any]) -> Optional[int]:
+    metadata = entry.get("metadata") if isinstance(entry, dict) else None
+    normalized = sanitize_metadata(metadata)
+    for key in ("file_size", "filesize", "filesize_approx", "approx_filesize"):
+        value = normalized.get(key)
+        if isinstance(value, (int, float)) and value > 0:
+            return int(value)
+
+    fmt_value = _extract_from_formats(normalized, "filesize") or _extract_from_formats(normalized, "filesize_approx")
+    if isinstance(fmt_value, (int, float)) and fmt_value > 0:
+        return int(fmt_value)
+
+    url = str(entry.get("url") or "") if isinstance(entry, dict) else ""
+    if url.startswith("/media/"):
+        file_path = _resolve_local_media(entry)
+        if file_path and file_path.exists():
+            return file_path.stat().st_size
+    return None
+
+
+def infer_resolution(metadata: Dict[str, Any]) -> Optional[str]:
+    normalized = sanitize_metadata(metadata)
+    width = normalized.get("width")
+    height = normalized.get("height")
+    if isinstance(width, (int, float)) and isinstance(height, (int, float)):
+        if width > 0 and height > 0:
+            return f"{int(width)}x{int(height)}"
+    for key in ("resolution", "format_note"):
+        value = normalized.get(key)
+        if value:
+            return str(value)
+    fmt_resolution = _extract_from_formats(normalized, "resolution") or _extract_from_formats(normalized, "format_note")
+    if fmt_resolution:
+        return str(fmt_resolution)
+    fmt_width = _extract_from_formats(normalized, "width")
+    fmt_height = _extract_from_formats(normalized, "height")
+    if isinstance(fmt_width, (int, float)) and isinstance(fmt_height, (int, float)):
+        return f"{int(fmt_width)}x{int(fmt_height)}"
+    return None
+
+
+def infer_codecs(metadata: Dict[str, Any]) -> Optional[str]:
+    normalized = sanitize_metadata(metadata)
+    video_codec = normalized.get("vcodec") or normalized.get("video_codec")
+    audio_codec = normalized.get("acodec") or normalized.get("audio_codec")
+    codecs = [codec for codec in (video_codec, audio_codec) if codec and str(codec).lower() != "none"]
+    if codecs:
+        return " / ".join(str(codec) for codec in codecs)
+    fmt_codec = _extract_from_formats(normalized, "vcodec") or _extract_from_formats(normalized, "acodec")
+    if fmt_codec:
+        return str(fmt_codec)
+    return None
+
+
+def summarize_library(entries: List[Dict[str, Any]], downloads: List[Dict[str, Any]]) -> Dict[str, Any]:
+    category_totals: Dict[str, Dict[str, Any]] = {}
+    format_counts: Counter[str] = Counter()
+    extractor_counts: Counter[str] = Counter()
+    total_duration = 0
+    total_size = 0
+    for entry in entries:
+        category = (entry.get("category") or DEFAULT_CATEGORY).strip() or DEFAULT_CATEGORY
+        details = category_totals.setdefault(category, {"count": 0, "duration": 0, "bytes": 0})
+        details["count"] += 1
+        if entry.get("duration"):
+            details["duration"] += int(entry["duration"])
+            total_duration += int(entry["duration"])
+        size = infer_entry_size(entry)
+        if size:
+            details["bytes"] += size
+            total_size += size
+        format_counts[entry.get("preferred_format") or DEFAULT_VHS_FORMAT] += 1
+        extractor_counts[entry.get("extractor") or "desconocido"] += 1
+
+    downloads_by_day: Dict[str, Dict[str, int]] = {}
+    download_count = len(downloads)
+    download_bytes = 0
+    for event in downloads:
+        created_at = event.get("created_at") or time.time()
+        day_key = datetime.fromtimestamp(created_at).strftime("%Y-%m-%d")
+        bucket = downloads_by_day.setdefault(day_key, {"count": 0, "bytes": 0})
+        bucket["count"] += 1
+        if isinstance(event.get("bytes"), (int, float)) and event["bytes"] > 0:
+            bucket["bytes"] += int(event["bytes"])
+            download_bytes += int(event["bytes"])
+
+    top_downloaded_entries: Counter[str] = Counter()
+    for event in downloads:
+        if event.get("entry_id"):
+            top_downloaded_entries[event["entry_id"]] += 1
+
+    return {
+        "totals": {
+            "entries": len(entries),
+            "duration_seconds": total_duration,
+            "bytes": total_size,
+        },
+        "categories": [
+            {"name": name, **stats} for name, stats in sorted(category_totals.items(), key=lambda item: item[1]["count"], reverse=True)
+        ],
+        "formats": dict(format_counts),
+        "extractors": dict(extractor_counts),
+        "downloads": {
+            "events": download_count,
+            "bytes": download_bytes,
+            "by_day": downloads_by_day,
+            "top_entries": dict(top_downloaded_entries),
+        },
+    }
 
 
 def normalize_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -816,6 +938,8 @@ async def download_entry(request: Request, entry_id: str, format: Optional[str] 
     normalized = normalize_entry(stored_entry)
     if not normalized:
         raise HTTPException(status_code=404, detail="Entrada no disponible")
+    preferred_format = format or normalized.get("preferred_format") or DEFAULT_VHS_FORMAT
+    store.log_download(entry_id, preferred_format, infer_entry_size(normalized))
     return stream_entry_content(normalized, format, as_attachment=True, request=request)
 
 
@@ -886,6 +1010,28 @@ async def home(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("videorama.html", context)
 
 
+@app.get("/stats", response_class=HTMLResponse)
+async def stats_page(request: Request) -> HTMLResponse:
+    entries = load_library()
+    downloads = store.list_download_events(1000)
+    summary = summarize_library(entries, downloads)
+    context = {
+        "request": request,
+        "app_name": APP_TITLE,
+        "summary": summary,
+        "generated_at": time.time(),
+    }
+    return templates.TemplateResponse("stats.html", context)
+
+
+@app.get("/api/stats")
+async def get_stats() -> Dict[str, Any]:
+    entries = load_library()
+    downloads = store.list_download_events(2000)
+    summary = summarize_library(entries, downloads)
+    return {"summary": summary, "generated_at": time.time()}
+
+
 @app.get("/import", response_class=HTMLResponse)
 async def import_manager(request: Request) -> HTMLResponse:
     entries = load_library()
@@ -903,6 +1049,7 @@ async def import_manager(request: Request) -> HTMLResponse:
             if tag:
                 tag_counter[tag] += 1
     popular_tags = [tag for tag, _ in tag_counter.most_common(5)]
+    default_tab = request.query_params.get("mode") == "search"
     context = {
         "request": request,
         "app_name": APP_TITLE,
@@ -912,6 +1059,7 @@ async def import_manager(request: Request) -> HTMLResponse:
         "library_path": str(LIBRARY_PATH.resolve()),
         "categories": categories,
         "popular_tags": popular_tags,
+        "default_tab": "tab-search" if default_tab else "tab-url",
     }
     return templates.TemplateResponse("import_manager.html", context)
 
