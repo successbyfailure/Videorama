@@ -354,8 +354,12 @@
               </div>
             </div>
             <div>
-              <label for="notes-input">Notas</label>
-              <textarea id="notes-input" name="notes" placeholder="Enlace, capítulo destacado, etc."></textarea>
+              <label for="notes-input">Resumen</label>
+              <textarea
+                id="notes-input"
+                name="notes"
+                placeholder="Idea principal, capítulo destacado, etc."
+              ></textarea>
               <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem">
                 <button type="button" id="auto-summary-btn">Auto resumen</button>
                 <button type="button" id="auto-tags-btn">Auto etiquetas</button>
@@ -405,7 +409,7 @@
                 <th>Etiquetas</th>
                 <th>Formato</th>
                 <th>Fuente</th>
-                <th>Notas</th>
+                <th>Resumen</th>
               </tr>
             </thead>
             <tbody id="table-body"></tbody>
@@ -641,7 +645,6 @@
           requestLLMAssist('/api/import/auto-tags', (data) => {
             if (Array.isArray(data.tags)) {
               tagInput.value = data.tags.join(', ');
-              renderTagSuggestions(data.tags);
             }
           }),
         );
