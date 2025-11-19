@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -9,9 +10,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import certifi
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
 # Ensure the runtime always has a CA bundle to prevent SSL failures, even in
@@ -428,6 +429,41 @@ def transcription_payload_to_srt(payload: Dict[str, Any]) -> str:
     return "\n".join(entries).strip() + "\n"
 
 
+def _transcription_text_only(payload: Dict[str, Any]) -> str:
+    text_only = payload.get("text") or ""
+    if not isinstance(text_only, str):
+        text_only = str(text_only)
+    return text_only.strip()
+
+
+def render_transcription_payload(payload: Dict[str, Any], media_format: str) -> bytes:
+    if media_format == "transcripcion":
+        text = json.dumps(payload, ensure_ascii=False, indent=2)
+    elif media_format == "transcripcion_srt":
+        text = transcription_payload_to_srt(payload)
+    else:
+        text = _transcription_text_only(payload)
+    return text.encode("utf-8")
+
+
+def build_transcription_download_name(source_name: str, media_format: str) -> str:
+    extension = FORMAT_EXTENSIONS.get(media_format, ".txt")
+    dummy_path = Path(f"transcripcion{extension}")
+    return build_download_name(source_name or "transcripcion", dummy_path, media_format)
+
+
+async def save_upload_file(upload: UploadFile) -> Path:
+    suffix = Path(upload.filename or "upload.bin").suffix or ".bin"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        while True:
+            chunk = await upload.read(1 << 20)
+            if not chunk:
+                break
+            tmp.write(chunk)
+    await upload.close()
+    return Path(tmp.name)
+
+
 def _call_openai_transcription(file_path: Path) -> Dict[str, Any]:
     client = OpenAI(api_key=TRANSCRIPTION_API_KEY, base_url=TRANSCRIPTION_ENDPOINT)
     with file_path.open("rb") as audio_stream:
@@ -539,6 +575,43 @@ async def index(request: Request) -> HTMLResponse:
     )
 
 
+@app.get("/docs/api", response_class=HTMLResponse)
+async def api_docs(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "api_docs.html",
+        {
+            "request": request,
+            "app_name": APP_TITLE,
+            "formats": [
+                {
+                    "name": "video",
+                    "description": "MP4 procesado mediante yt-dlp",
+                },
+                {
+                    "name": "audio",
+                    "description": "MP3 a 192 kbps",
+                },
+                {
+                    "name": "audio_low",
+                    "description": "MP3 ligero a 96 kbps",
+                },
+                {
+                    "name": "transcripcion",
+                    "description": "JSON completo con segmentos y timestamps",
+                },
+                {
+                    "name": "transcripcion_txt",
+                    "description": "Solo el texto consolidado",
+                },
+                {
+                    "name": "transcripcion_srt",
+                    "description": "Subtítulos compatibles con reproductores",
+                },
+            ],
+        },
+    )
+
+
 @app.get("/api/health")
 async def health() -> Dict[str, str]:
     return {"status": "ok"}
@@ -561,7 +634,7 @@ async def download_endpoint(
         )
 
     try:
-        if format_value in {"transcripcion", "transcripcion_txt"}:
+        if format_value in {"transcripcion", "transcripcion_txt", "transcripcion_srt"}:
             file_path, metadata = await run_in_threadpool(
                 generate_transcription_file, url, format_value
             )
@@ -673,4 +746,43 @@ async def remove_cached_entry(cache_key: str) -> Dict[str, Any]:
 @app.get("/api/stats/usage", response_class=JSONResponse)
 async def usage_stats() -> Dict[str, Any]:
     return summarize_usage()
+
+
+@app.post("/api/transcribe/upload")
+async def transcribe_upload(
+    media_format: str = Form("transcripcion_txt"),
+    file: UploadFile = File(...),
+):
+    format_value = media_format.lower()
+    if format_value not in {"transcripcion", "transcripcion_txt", "transcripcion_srt"}:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Formato inválido. Usa 'transcripcion', 'transcripcion_txt' o 'transcripcion_srt'."
+            ),
+        )
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Incluye un archivo de audio o video")
+
+    temp_path = await save_upload_file(file)
+    try:
+        payload = await run_in_threadpool(transcribe_audio_file, temp_path)
+    except DownloadError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    content = render_transcription_payload(payload, format_value)
+    download_name = build_transcription_download_name(file.filename or "transcripcion", format_value)
+    headers = {"Content-Disposition": f'attachment; filename="{download_name}"'}
+    response = Response(
+        content=content,
+        media_type=media_type_for_format(format_value),
+        headers=headers,
+    )
+    await run_in_threadpool(record_download_event, format_value, False)
+    return response
 
