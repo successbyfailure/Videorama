@@ -29,7 +29,7 @@ services:
     environment:
       - VHS_BASE_URL=http://vhs:8601
       - VIDEORAMA_LIBRARY_PATH=/app/data/videorama/library.json
-      - VIDEORAMA_DEFAULT_FORMAT=video_low
+      - VIDEORAMA_DEFAULT_FORMAT=video_high
     volumes:
       - ./data:/app/data
     restart: unless-stopped
