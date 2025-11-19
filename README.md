@@ -1,22 +1,45 @@
-# Videorama
+# Videorama · VHS Suite
 
-Servicio web mínimo que envuelve a [yt-dlp](https://github.com/yt-dlp/yt-dlp) para descargar
-videos o pistas de audio y mantener un caché local durante 24 horas.
+ Videorama evoluciona hacia una pequeña suite de tres servicios que pueden convivir en
+ el mismo `docker compose` o desplegarse por separado:
 
-## Características
+- **VHS (Video Harvester Service)**: el servicio FastAPI que ya conocías, ahora
+  enfocado en capturar vídeos, generar audios/transcripciones y ejecutar
+  transformaciones rápidas con `ffmpeg`.
+- **Videorama Retro Library**: una biblioteca personal tipo YouTube de los años
+  2000. Usa la API de VHS para adquirir contenido, clasificarlo automáticamente
+  y ofrecer comandos básicos para gestionarlo.
+- **VideoramaBot**: robot de Telegram opcional para interactuar con Videorama
+  desde cualquier chat usando comandos `/add` y `/list`.
 
-- Interfaz web simple (SPA) para solicitar descargas de video (MP4 en alta o baja calidad), audio (MP3 en dos calidades) o transcripciones en texto plano utilizando la API de OpenAI o un servicio compatible con whisper-asr.
-- API REST en `/api` con endpoints:
-  - `GET /api/health`: verificación rápida del servicio.
-- `GET /api/download?url=...&format=video_high|video_low|video|audio|audio_low|transcripcion|transcripcion_txt|transcripcion_srt`: genera y devuelve el archivo (o transcripción).
-  - `GET /api/cache`: listado informativo del contenido en caché.
-- Caché de descargas en disco durante 24h (configurable mediante `CACHE_TTL_SECONDS`).
-- Basado en FastAPI + yt-dlp para aprovechar todos los proveedores soportados.
+Ambos servicios comparten la misma imagen de Docker e instalación de
+dependencias, por lo que es sencillo mantenerlos sincronizados.
 
-## Requisitos
+## Características principales
 
-- Docker y Docker Compose (o Python 3.11+ si deseas ejecutar el proyecto sin contenedores).
-- Un runtime de JavaScript (p. ej. Node.js) para que yt-dlp pueda ejecutar el código de ciertos proveedores como YouTube. La imagen de Docker instala Node.js automáticamente, pero en entornos locales debes asegurarte de tenerlo disponible.
+### VHS · Video Harvester Service
+
+- Descarga de vídeo y audio apoyada en [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+  con caché en disco y control de caducidad.
+- Conversión directa de audio a texto usando OpenAI o un servicio compatible con
+  whisper-asr.
+- **Tareas rápidas de `ffmpeg`** sobre el material descargado (por ejemplo,
+  extraer audio WAV/MP3 o generar copias comprimidas a 720p/480p).
+- Endpoint `/api/probe` para inspeccionar cualquier URL soportada sin necesidad
+  de descargarla.
+- Panel web minimalista y páginas HTML (`/` y `/docs/api`) para uso manual.
+
+### Videorama Retro Library
+
+- API propia (`/api/library`) para guardar, consultar y eliminar elementos de la
+  colección.
+- Clasificación automática en base al proveedor, duración y etiquetas devueltas
+  por VHS.
+- Sincroniza automáticamente nuevas entradas con VHS para que el contenido quede
+  precacheado en segundo plano.
+- Almacena los datos en `data/videorama/library.json` (ruta configurable).
+- Bot de Telegram opcional (`videorama/telegram_bot.py`) con comandos `/add` y
+  `/list` para gestionar la biblioteca desde cualquier chat.
 
 ## Ejecución con Docker Compose
 
@@ -24,30 +47,74 @@ videos o pistas de audio y mantener un caché local durante 24 horas.
 docker compose up --build
 ```
 
-El servicio quedará disponible en `http://localhost:8000` con la interfaz web y la API.
+- VHS quedará disponible en `http://localhost:8000`.
+- Videorama responderá en `http://localhost:8100`.
+- VideoramaBot se conectará automáticamente a la API de Videorama usando las
+  variables de entorno definidas en `.env` (necesita `TELEGRAM_BOT_TOKEN`).
 
-### Variables de entorno útiles
+Puedes seguir usando solo algunos de los servicios si lo prefieres; basta con
+eliminar la entrada correspondiente del `docker-compose.yml` o ajustar el comando
+que ejecuta cada contenedor.
 
-| Variable | Descripción | Valor por defecto |
-| --- | --- | --- |
-| `CACHE_TTL_SECONDS` | Tiempo de vida de cada descarga en caché | `86400` (24h) |
-| `CACHE_DIR` | Ruta interna donde se guarda la caché | `data/cache` |
-| `YTDLP_PROXY` | Proxy HTTP(S) usado por yt-dlp | _(vacío)_ |
-| `YTDLP_COOKIES_FILE` | Ruta a un archivo de cookies (por ejemplo, exportado con la extensión «Get cookies.txt»). Útil para proveedores que requieren sesión como Instagram. | _(vacío)_ |
-| `YTDLP_USER_AGENT` | User-Agent personalizado enviado en cada petición de yt-dlp. Útil para evitar bloqueos/403. | Cadena UA moderna de Chrome |
-| `TRANSCRIPTION_ENDPOINT` | Endpoint compatible con la librería de OpenAI para generar transcripciones. | `https://api.openai.com/v1` |
-| `TRANSCRIPTION_API_KEY` | Clave API usada para autenticar contra el endpoint de transcripción. | _(vacío)_ |
-| `TRANSCRIPTION_MODEL` | Modelo usado para transcribir (por ejemplo, `gpt-4o-mini-transcribe`). | `gpt-4o-mini-transcribe` |
-| `WHISPER_ASR_URL` | URL base de un servicio whisper-asr (p. ej. `https://miexample.com`). Se usará cuando OpenAI no esté configurado o falle. | _(vacío)_ |
-| `WHISPER_ASR_TIMEOUT` | Tiempo de espera en segundos para solicitudes a whisper-asr. | `600` |
+## Variables de entorno destacadas
 
-Cuando defines tanto OpenAI como whisper-asr, Videorama intentará transcribir primero con OpenAI y recurrirá a whisper-asr automáticamente si algo sale mal.
+| Variable | Descripción | Servicio | Valor por defecto |
+| --- | --- | --- | --- |
+| `CACHE_TTL_SECONDS` | Tiempo de vida de los ficheros en caché | VHS | `86400` |
+| `CACHE_DIR` | Carpeta de trabajo donde VHS guarda la caché | VHS | `data/cache` |
+| `USAGE_LOG_PATH` | Ruta del log JSONL para estadísticas | VHS | `data/usage_log.jsonl` |
+| `FFMPEG_BINARY` | Binario usado para las tareas de conversión | VHS | `ffmpeg` |
+| `TRANSCRIPTION_*` | Configuración del endpoint usado para transcribir | VHS | Ver `example.env` |
+| `WHISPER_ASR_*` | Endpoint alternativo compatible con whisper-asr | VHS | _(vacío)_ |
+| `VHS_BASE_URL` | URL que usa Videorama para hablar con VHS | Videorama | `http://localhost:8000` |
+| `VIDEORAMA_LIBRARY_PATH` | Ruta del fichero JSON de la biblioteca | Videorama | `data/videorama/library.json` |
+| `VIDEORAMA_DEFAULT_FORMAT` | Formato que Videorama pedirá a VHS al precachear | Videorama | `video_low` |
+| `VIDEORAMA_API_URL` | URL que utilizará el bot de Telegram | Bot | `http://localhost:8100` |
+| `TELEGRAM_BOT_TOKEN` | Token de tu bot para `videorama/telegram_bot.py` | Bot | _(vacío)_ |
 
-Puedes sobrescribirlas en `docker-compose.yml` o al ejecutar `docker compose`.
+Clona `example.env`, renómbralo a `.env` y ajusta los valores según tu entorno.
 
-Si quieres mantener tus ajustes localmente, crea un archivo `.env` (puedes
-partir de `example.env`) y define ahí las variables necesarias; la aplicación lo
-cargará automáticamente al iniciar.
+## Endpoints relevantes
+
+### VHS
+
+- `GET /api/health`: verificación del servicio.
+- `GET /api/probe?url=...`: inspecciona metadatos sin descargar nada.
+- `GET /api/download?url=...&format=...`: descarga/codifica contenido. Además de
+  los formatos ya conocidos (`video_high`, `audio`, `transcripcion`, etc.) ahora
+  dispones de:
+  - `ffmpeg_audio`: extrae MP3 usando `ffmpeg`.
+  - `ffmpeg_audio_wav`: genera un WAV sin pérdidas.
+  - `ffmpeg_720p` y `ffmpeg_480p`: copias comprimidas perfectas para hardware
+    antiguo o streaming ligero.
+- `POST /api/transcribe/upload`: sube un fichero local para obtener subtítulos en
+  JSON/TXT/SRT.
+- `GET /api/cache`: lista los elementos en caché (con endpoints para descargar o
+  eliminar cada uno).
+- `GET /api/stats/usage`: desglose de descargas y transcripciones.
+
+### Videorama
+
+- `GET /api/library`: devuelve todas las entradas guardadas junto al recuento.
+- `POST /api/library`: añade una nueva URL, consulta `/api/probe` en VHS y, si
+  se solicita, dispara una descarga remota para precachear el contenido.
+- `DELETE /api/library/{id}`: elimina un elemento.
+- `GET /api/health`: estado básico del servicio.
+
+## Bot de Telegram
+
+El bot es opcional y vive en `videorama/telegram_bot.py`. Para ejecutarlo:
+
+```bash
+export TELEGRAM_BOT_TOKEN="<tu token>"
+export VIDEORAMA_API_URL="http://localhost:8100"
+python -m videorama.telegram_bot
+```
+
+Comandos disponibles:
+
+- `/add <url>`: añade el vídeo a la biblioteca y dispara el precacheo en VHS.
+- `/list`: muestra las últimas 5 entradas disponibles.
 
 ## Ejecución local (sin Docker)
 
@@ -55,14 +122,12 @@ cargará automáticamente al iniciar.
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn vhs.main:app --reload --host 0.0.0.0 --port 8000  # VHS
+uvicorn videorama.main:app --reload --host 0.0.0.0 --port 8001  # Videorama
 ```
 
-## Flujo de trabajo
-
-1. Introduce la URL de cualquier proveedor soportado por yt-dlp y elige si deseas video (alta o baja calidad), audio (normal o ligero) o transcripción.
-2. El backend busca en caché, descarga en caso necesario y devuelve el archivo.
-3. Las descargas se guardan durante 24h para acelerar solicitudes repetidas y reducir el uso de red.
+Lanza cada servicio en una terminal distinta o usa `tmux`/`foreman`. El bot de
+Telegram también puede ejecutarse en el mismo entorno virtual.
 
 ## Licencia
 

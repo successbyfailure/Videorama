@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{ app_name }} | Descarga videos con yt-dlp</title>
+    <title>{{ app_name }} · Video Harvester Service</title>
     <link
       rel="icon"
       type="image/svg+xml"
@@ -255,12 +255,14 @@
     <main class="card">
       <h1>{{ app_name }}</h1>
       <p>
-        Herramienta ligera basada en
+        Servicio de cosecha de video basado en
         <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noreferrer">yt-dlp</a>
-        para bajar video, audio y transcripciones sin pasos extra.
+        + <code>ffmpeg</code>: descarga, extrae audio, reduce resolución y genera
+        transcripciones listas para compartir.
       </p>
       <p class="hint">
-        Las descargas permanecen en caché durante 24 horas para reusar archivos y evitar conversiones repetidas.
+        Las descargas y conversiones se guardan en caché 24h para reutilizar
+        archivos, acelerar el bot de Telegram y alimentar la biblioteca de Videorama.
       </p>
       <div class="hero-actions">
         <a class="ghost-button" href="/docs/api">API docs</a>

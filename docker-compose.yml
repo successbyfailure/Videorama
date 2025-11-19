@@ -1,10 +1,39 @@
 services:
-  videorama:
+  vhs:
     build: .
+    command: uvicorn vhs.main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
     environment:
       - CACHE_TTL_SECONDS=86400
+      - CACHE_DIR=/app/data/cache
+      - USAGE_LOG_PATH=/app/data/usage_log.jsonl
+      - FFMPEG_BINARY=ffmpeg
     volumes:
       - ./data:/app/data
+    restart: unless-stopped
+
+  videorama:
+    build: .
+    command: uvicorn videorama.main:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8100:8001"
+    depends_on:
+      - vhs
+    environment:
+      - VHS_BASE_URL=http://vhs:8000
+      - VIDEORAMA_LIBRARY_PATH=/app/data/videorama/library.json
+      - VIDEORAMA_DEFAULT_FORMAT=video_low
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  videorama-bot:
+    build: .
+    command: python -m videorama.telegram_bot
+    depends_on:
+      - videorama
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - VIDEORAMA_API_URL=http://videorama:8001
     restart: unless-stopped
