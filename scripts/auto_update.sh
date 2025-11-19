@@ -70,8 +70,22 @@ update_repo() {
 
   if [[ "${local_ref}" != "${remote_ref}" ]]; then
     log "Detectados cambios en ${upstream}. Aplicando actualización..."
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+      log "El árbol de trabajo tiene cambios locales. Omite la actualización para evitar sobreescribir cambios."
+      return
+    fi
+
+    if ! git merge-base --is-ancestor "${local_ref}" "${remote_ref}"; then
+      log "La rama local contiene commits que no están en ${upstream}. Se requiere intervención manual."
+      return
+    fi
+
     docker compose stop
-    git pull --ff-only
+    if ! git pull --ff-only; then
+      log "git pull falló. Reiniciando los servicios para evitar tiempo de inactividad."
+      docker compose up -d
+      return
+    fi
     ensure_env
     docker compose build
     docker compose up -d
