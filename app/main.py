@@ -128,12 +128,23 @@ def media_type_for_format(media_format: str) -> str:
     return "video/mp4"
 
 
-def record_download_event(media_format: str, cache_hit: bool) -> None:
+def record_download_event(
+    media_format: str,
+    cache_hit: bool,
+    transcription_stats: Optional[Dict[str, Any]] = None,
+) -> None:
     event = {
         "timestamp": time.time(),
         "media_format": media_format,
         "cache_hit": bool(cache_hit),
     }
+    if transcription_stats:
+        word_count = transcription_stats.get("word_count")
+        token_count = transcription_stats.get("token_count")
+        if isinstance(word_count, (int, float)):
+            event["word_count"] = int(word_count)
+        if isinstance(token_count, (int, float)):
+            event["token_count"] = int(token_count)
     with USAGE_LOG_PATH.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, ensure_ascii=False) + "\n")
 
@@ -155,10 +166,17 @@ def summarize_usage(days: int = 7) -> Dict[str, Any]:
     aggregates: Dict[str, Dict[str, int]] = {}
     for idx in range(days):
         day = (now - timedelta(days=days - idx - 1)).date()
-        aggregates[day.isoformat()] = {"downloads": 0, "cache_hits": 0}
+        aggregates[day.isoformat()] = {
+            "downloads": 0,
+            "cache_hits": 0,
+            "word_count": 0,
+            "token_count": 0,
+        }
 
     total_downloads = 0
     total_cache_hits = 0
+    total_word_count = 0
+    total_token_count = 0
     for event in points:
         timestamp = event.get("timestamp")
         if timestamp is None:
@@ -175,6 +193,12 @@ def summarize_usage(days: int = 7) -> Dict[str, Any]:
         total_downloads += 1
         if event.get("cache_hit"):
             total_cache_hits += 1
+        word_count = int(event.get("word_count") or 0)
+        token_count = int(event.get("token_count") or 0)
+        aggregates[day_key]["word_count"] += word_count
+        aggregates[day_key]["token_count"] += token_count
+        total_word_count += word_count
+        total_token_count += token_count
 
     series = [
         {"date": day, **aggregates[day]} for day in sorted(aggregates.keys())
@@ -183,6 +207,8 @@ def summarize_usage(days: int = 7) -> Dict[str, Any]:
         "points": series,
         "total": total_downloads,
         "cache_hits": total_cache_hits,
+        "total_words": total_word_count,
+        "total_tokens": total_token_count,
         "days": days,
     }
 
@@ -436,6 +462,23 @@ def _transcription_text_only(payload: Dict[str, Any]) -> str:
     return text_only.strip()
 
 
+WORD_TOKEN_PATTERN = re.compile(r"[\wÀ-ÿ]+(?:'[\wÀ-ÿ]+)?", flags=re.UNICODE)
+
+
+def estimate_transcription_stats(payload: Dict[str, Any]) -> Dict[str, int]:
+    text = _transcription_text_only(payload)
+    if not text:
+        return {"word_count": 0, "token_count": 0}
+    normalized = text.strip()
+    words = WORD_TOKEN_PATTERN.findall(normalized)
+    word_count = len(words)
+    token_count = len(normalized.split())
+    return {
+        "word_count": word_count,
+        "token_count": token_count or word_count,
+    }
+
+
 def render_transcription_payload(payload: Dict[str, Any], media_format: str) -> bytes:
     if media_format == "transcripcion":
         text = json.dumps(payload, ensure_ascii=False, indent=2)
@@ -532,6 +575,7 @@ def generate_transcription_file(url: str, media_format: str) -> Tuple[Path, Dict
 
     audio_path, audio_meta = download_media(url, "audio_low")
     transcript_payload = transcribe_audio_file(audio_path)
+    transcription_stats = estimate_transcription_stats(transcript_payload)
 
     if media_format == "transcripcion":
         transcript_path = CACHE_DIR / f"{key}{TRANSCRIPTION_FILE_SUFFIX}"
@@ -557,6 +601,7 @@ def generate_transcription_file(url: str, media_format: str) -> Tuple[Path, Dict
         "media_format": media_format,
         "downloaded_at": time.time(),
         "cache_key": key,
+        "transcription_stats": transcription_stats,
     }
     metadata["_cache_hit"] = False
     save_meta(key, metadata)
@@ -655,7 +700,10 @@ async def download_endpoint(
         media_type=media_type,
     )
     await run_in_threadpool(
-        record_download_event, format_value, bool(metadata.get("_cache_hit"))
+        record_download_event,
+        format_value,
+        bool(metadata.get("_cache_hit")),
+        metadata.get("transcription_stats"),
     )
     return response
 
@@ -729,7 +777,12 @@ async def download_cached_entry(cache_key: str):
         filename=download_name,
         media_type=media_type,
     )
-    await run_in_threadpool(record_download_event, media_format, True)
+    await run_in_threadpool(
+        record_download_event,
+        media_format,
+        True,
+        metadata.get("transcription_stats") if metadata else None,
+    )
     return response
 
 
@@ -775,6 +828,7 @@ async def transcribe_upload(
         except OSError:
             pass
 
+    transcription_stats = estimate_transcription_stats(payload)
     content = render_transcription_payload(payload, format_value)
     download_name = build_transcription_download_name(file.filename or "transcripcion", format_value)
     headers = {"Content-Disposition": f'attachment; filename="{download_name}"'}
@@ -783,6 +837,11 @@ async def transcribe_upload(
         media_type=media_type_for_format(format_value),
         headers=headers,
     )
-    await run_in_threadpool(record_download_event, format_value, False)
+    await run_in_threadpool(
+        record_download_event,
+        format_value,
+        False,
+        transcription_stats,
+    )
     return response
 
