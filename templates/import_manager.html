@@ -644,7 +644,10 @@
         autoTagsButton.addEventListener('click', () =>
           requestLLMAssist('/api/import/auto-tags', (data) => {
             if (Array.isArray(data.tags)) {
-              tagInput.value = data.tags.join(', ');
+              const tags = data.tags.map((tag) => `${tag}`.trim()).filter(Boolean);
+              tagInput.value = tags.join(', ');
+              mergeMetadata({ tags });
+              renderTagSuggestions(tags);
             }
           }),
         );
