@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
@@ -539,6 +540,38 @@ async def save_upload_file(upload: UploadFile) -> Path:
     return Path(tmp.name)
 
 
+def extract_audio_low_from_file(source_path: Path) -> Path:
+    if not source_path.exists():
+        raise DownloadError("El archivo subido no está disponible para su procesamiento")
+
+    profile = AUDIO_FORMAT_PROFILES["audio_low"]
+    suffix = f".{profile['codec']}"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        output_path = Path(tmp.name)
+
+    command = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(source_path),
+        "-vn",
+        "-acodec",
+        profile["codec"],
+        "-b:a",
+        f"{profile['preferred_quality']}k",
+        str(output_path),
+    ]
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        output_path.unlink(missing_ok=True)
+        error_message = result.stderr.decode("utf-8", errors="ignore").strip()
+        raise DownloadError(
+            "No se pudo extraer el audio del archivo subido para su transcripción"
+            + (f": {error_message.splitlines()[-1]}" if error_message else "")
+        )
+    return output_path
+
+
 def _call_openai_transcription(file_path: Path) -> Dict[str, Any]:
     client = OpenAI(api_key=TRANSCRIPTION_API_KEY, base_url=TRANSCRIPTION_ENDPOINT)
     with file_path.open("rb") as audio_stream:
@@ -867,7 +900,14 @@ async def transcribe_upload(
 
     temp_path = await save_upload_file(file)
     try:
-        payload = await run_in_threadpool(transcribe_audio_file, temp_path)
+        audio_path = await run_in_threadpool(extract_audio_low_from_file, temp_path)
+        try:
+            payload = await run_in_threadpool(transcribe_audio_file, audio_path)
+        finally:
+            try:
+                audio_path.unlink(missing_ok=True)
+            except OSError:
+                pass
     except DownloadError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     finally:
