@@ -1,0 +1,5 @@
+# Dependencias mínimas para ejecutar el servidor MCP de Videorama
+# Usa un entorno virtual independiente para evitar conflictos con el bot de Telegram.
+mcp==1.21.2
+requests
+python-dotenv

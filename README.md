@@ -16,6 +16,7 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Resolución de problemas](#resolución-de-problemas)
 - [Licencia](#licencia)
+- [Servidor MCP](#servidor-mcp)
 
 ## Componentes
 
@@ -116,6 +117,34 @@ export TELEGRAM_BOT_TOKEN="<tu token>"
 export VIDEORAMA_API_URL="http://localhost:8600"
 python -m videorama.telegram_bot
 ```
+
+## Servidor MCP
+
+Videorama incluye un servidor [Model Context Protocol](https://github.com/modelcontextprotocol/specification) para exponer
+herramientas con las que consultar o poblar la biblioteca desde clientes compatibles (por ejemplo, asistentes locales). Es
+un servicio opcional y separado del API principal.
+
+1. Instala las dependencias en un entorno virtual limpio (evita mezclarlo con el bot de Telegram debido a diferencias en
+   versiones de `httpx`):
+
+   ```bash
+   python -m venv .venv-mcp
+   source .venv-mcp/bin/activate
+   pip install -r requirements-mcp.txt
+   ```
+
+2. Lanza el servidor conectado al API de Videorama (usa `VIDEORAMA_API_URL` o `--api-url` para apuntar a otro host):
+
+   ```bash
+   python -m videorama.mcp_server --api-url http://localhost:8600
+   ```
+
+3. Herramientas disponibles:
+
+   - `health`: comprueba el estado del API.
+   - `list_recent_entries`: devuelve las últimas entradas (parámetro opcional `limit`).
+   - `get_entry`: obtiene los detalles completos de una entrada por `entry_id`.
+   - `add_entry_from_url`: agrega una nueva URL a la biblioteca y puede disparar la descarga en VHS con `auto_download`.
 
 ## Endpoints y funcionalidades clave
 
