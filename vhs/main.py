@@ -34,7 +34,7 @@ import requests
 import yt_dlp
 from openai import OpenAI
 
-APP_TITLE = "Videorama"
+APP_TITLE = "VHS · Video Harvester Service"
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "data/cache"))
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 META_DIR = CACHE_DIR / "_meta"
@@ -67,6 +67,7 @@ TRANSCRIPTION_API_KEY = os.getenv("TRANSCRIPTION_API_KEY")
 TRANSCRIPTION_MODEL = os.getenv("TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")
 WHISPER_ASR_URL = os.getenv("WHISPER_ASR_URL")
 WHISPER_ASR_TIMEOUT = int(os.getenv("WHISPER_ASR_TIMEOUT", "600"))
+FFMPEG_BINARY = os.getenv("FFMPEG_BINARY", "ffmpeg")
 
 AUDIO_FORMAT_PROFILES = {
     "audio": {"codec": "mp3", "preferred_quality": "192"},
@@ -87,15 +88,108 @@ DEFAULT_VIDEO_FORMAT = "video_high"
 VIDEO_FORMAT_ALIASES = {
     "video": DEFAULT_VIDEO_FORMAT,
 }
+FFMPEG_PRESETS: Dict[str, Dict[str, Any]] = {
+    "ffmpeg_audio": {
+        "description": "Extrae audio en MP3 usando ffmpeg (libmp3lame 192 kbps)",
+        "extension": ".mp3",
+        "media_type": "audio/mpeg",
+        "args": ["-vn", "-acodec", "libmp3lame", "-b:a", "192k"],
+    },
+    "ffmpeg_audio_wav": {
+        "description": "Convierte a WAV sin pérdidas con ffmpeg",
+        "extension": ".wav",
+        "media_type": "audio/wav",
+        "args": ["-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2"],
+    },
+    "ffmpeg_720p": {
+        "description": "Reescala el video a 720p manteniendo audio AAC",
+        "extension": ".mp4",
+        "media_type": "video/mp4",
+        "args": [
+            "-vf",
+            "scale=-2:720",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "21",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "160k",
+        ],
+    },
+    "ffmpeg_480p": {
+        "description": "Copia ligera a 480p, ideal para móviles retro",
+        "extension": ".mp4",
+        "media_type": "video/mp4",
+        "args": [
+            "-vf",
+            "scale=-2:480",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "faster",
+            "-crf",
+            "23",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+        ],
+    },
+}
 SUPPORTED_MEDIA_FORMATS = {
     *VIDEO_FORMAT_PROFILES,
     *VIDEO_FORMAT_ALIASES,
     *AUDIO_FORMAT_PROFILES,
+    *FFMPEG_PRESETS,
     "transcripcion",
     "transcripcion_txt",
     "transcripcion_srt",
 }
 MEDIA_FORMAT_PATTERN = f"^({'|'.join(sorted(SUPPORTED_MEDIA_FORMATS))})$"
+
+FORMAT_DESCRIPTIONS: List[Dict[str, str]] = [
+    {
+        "name": "video_high",
+        "description": "MP4 en la mejor calidad disponible (mezcla best video + best audio)",
+    },
+    {
+        "name": "video_low",
+        "description": "MP4 comprimido hasta 480p para descargas ligeras",
+    },
+    {
+        "name": "video",
+        "description": "Alias histórico de video_high para compatibilidad",
+    },
+    {
+        "name": "audio",
+        "description": "MP3 a 192 kbps con soporte directo de yt-dlp",
+    },
+    {
+        "name": "audio_low",
+        "description": "MP3 ligero a 96 kbps",
+    },
+    {
+        "name": "transcripcion",
+        "description": "JSON completo con segmentos y timestamps",
+    },
+    {
+        "name": "transcripcion_txt",
+        "description": "Solo el texto consolidado",
+    },
+    {
+        "name": "transcripcion_srt",
+        "description": "Subtítulos compatibles con reproductores",
+    },
+]
+
+for preset_name, preset in FFMPEG_PRESETS.items():
+    FORMAT_DESCRIPTIONS.append(
+        {"name": preset_name, "description": preset["description"]}
+    )
 
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")
@@ -139,6 +233,9 @@ FORMAT_EXTENSIONS = {
     "transcripcion_srt": ".srt",
 }
 
+for preset_name, preset in FFMPEG_PRESETS.items():
+    FORMAT_EXTENSIONS[preset_name] = preset["extension"]
+
 TRANSCRIPTION_FILE_SUFFIX = ".transcript.json"
 
 
@@ -148,6 +245,8 @@ def media_type_for_format(media_format: str) -> str:
         return "application/json"
     if media_format in {"transcripcion_txt", "transcripcion_srt"}:
         return "text/plain"
+    if media_format in FFMPEG_PRESETS:
+        return FFMPEG_PRESETS[media_format]["media_type"]
     if normalized in AUDIO_FORMAT_PROFILES:
         return "audio/mpeg"
     return "video/mp4"
@@ -416,6 +515,78 @@ def download_media(url: str, media_format: str) -> Tuple[Path, Dict]:
     metadata["_cache_hit"] = False
     save_meta(key, metadata)
     return filepath, metadata
+
+
+def run_ffmpeg(source: Path, destination: Path, args: List[str]) -> None:
+    command = [FFMPEG_BINARY, "-y", "-i", str(source), *args, str(destination)]
+    process = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        text=True,
+    )
+    if process.returncode != 0:
+        raise DownloadError(
+            "ffmpeg no pudo procesar el archivo: " + (process.stderr or process.stdout)
+        )
+
+
+def process_with_ffmpeg(url: str, media_format: str) -> Tuple[Path, Dict]:
+    preset = FFMPEG_PRESETS[media_format]
+    key = cache_key(url, media_format)
+    purge_expired_entries()
+    cached_path, cached_meta = fetch_cached_file(key)
+    if cached_path:
+        return cached_path, cached_meta or {}
+
+    source_path, source_metadata = download_media(url, DEFAULT_VIDEO_FORMAT)
+    output_path = CACHE_DIR / f"{key}{preset['extension']}"
+    output_path.unlink(missing_ok=True)
+    run_ffmpeg(source_path, output_path, preset["args"])
+
+    metadata = {
+        "title": source_metadata.get("title") or "video",
+        "filename": output_path.name,
+        "source_url": url,
+        "media_format": media_format,
+        "downloaded_at": time.time(),
+        "cache_key": key,
+        "_cache_hit": False,
+        "preset": media_format,
+    }
+    save_meta(key, metadata)
+    return output_path, metadata
+
+
+def probe_media(url: str) -> Dict[str, Any]:
+    key = cache_key(url, "probe")
+    ydl_opts = build_ydl_options(DEFAULT_VIDEO_FORMAT, cache_key_value=key)
+    ydl_opts["skip_download"] = True
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as exc:  # pragma: no cover - passthrough errors
+        raise DownloadError(str(exc)) from exc
+
+    thumbnails = info.get("thumbnails") or []
+    if isinstance(thumbnails, list) and thumbnails:
+        thumb_url = thumbnails[-1].get("url")
+    else:
+        thumb_url = info.get("thumbnail")
+
+    return {
+        "id": info.get("id"),
+        "title": info.get("title"),
+        "duration": info.get("duration"),
+        "uploader": info.get("uploader") or info.get("channel"),
+        "webpage_url": info.get("webpage_url") or url,
+        "extractor": info.get("extractor"),
+        "extractor_key": info.get("extractor_key"),
+        "categories": info.get("categories") or [],
+        "tags": info.get("tags") or [],
+        "thumbnail": thumb_url,
+    }
 
 
 def ensure_transcription_ready() -> None:
@@ -695,40 +866,7 @@ async def api_docs(request: Request) -> HTMLResponse:
         {
             "request": request,
             "app_name": APP_TITLE,
-            "formats": [
-                {
-                    "name": "video_high",
-                    "description": "MP4 en la mejor calidad disponible (mezcla best video + best audio)",
-                },
-                {
-                    "name": "video_low",
-                    "description": "MP4 comprimido hasta 480p para descargas ligeras",
-                },
-                {
-                    "name": "video",
-                    "description": "Alias histórico de video_high para compatibilidad",
-                },
-                {
-                    "name": "audio",
-                    "description": "MP3 a 192 kbps",
-                },
-                {
-                    "name": "audio_low",
-                    "description": "MP3 ligero a 96 kbps",
-                },
-                {
-                    "name": "transcripcion",
-                    "description": "JSON completo con segmentos y timestamps",
-                },
-                {
-                    "name": "transcripcion_txt",
-                    "description": "Solo el texto consolidado",
-                },
-                {
-                    "name": "transcripcion_srt",
-                    "description": "Subtítulos compatibles con reproductores",
-                },
-            ],
+            "formats": FORMAT_DESCRIPTIONS,
         },
     )
 
@@ -736,6 +874,17 @@ async def api_docs(request: Request) -> HTMLResponse:
 @app.get("/api/health")
 async def health() -> Dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/probe", response_class=JSONResponse)
+async def probe_endpoint(
+    url: str = Query(..., description="URL a inspeccionar sin descargar"),
+):
+    try:
+        info = await run_in_threadpool(probe_media, url)
+    except DownloadError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return info
 
 
 @app.get("/api/download")
@@ -766,6 +915,10 @@ async def download_endpoint(
         }:
             file_path, metadata = await run_in_threadpool(
                 generate_transcription_file, url, normalized_format
+            )
+        elif normalized_format in FFMPEG_PRESETS:
+            file_path, metadata = await run_in_threadpool(
+                process_with_ffmpeg, url, normalized_format
             )
         else:
             file_path, metadata = await run_in_threadpool(

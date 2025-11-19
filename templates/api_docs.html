@@ -117,6 +117,19 @@
         </dl>
         <pre><code>curl -L "${BASE_URL:-http://localhost:8000}/api/download?url=https://youtu.be/&amp;format=audio" \
   -o audio.mp3</code></pre>
+        <p>
+          También puedes elegir los formatos <code>ffmpeg_audio</code>, <code>ffmpeg_audio_wav</code>,
+          <code>ffmpeg_720p</code> o <code>ffmpeg_480p</code> para ejecutar conversiones rápidas una vez
+          descargado el material original.
+        </p>
+      </section>
+      <section>
+        <h2>Inspeccionar sin descargar</h2>
+        <p>
+          <code>GET /api/probe?url=...</code> consulta yt-dlp en modo <em>dry-run</em> y devuelve los
+          metadatos (título, duración, categorías y miniaturas). Es ideal para que otros servicios,
+          como la biblioteca de Videorama, clasifiquen el contenido sin esperar a la descarga.
+        </p>
       </section>
       <section>
         <h2>Transcribir un archivo local</h2>
