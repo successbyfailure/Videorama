@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 APP_TITLE = "Videorama Retro Library"
 LIBRARY_PATH = Path(os.getenv("VIDEORAMA_LIBRARY_PATH", "data/videorama/library.json"))
 LIBRARY_PATH.parent.mkdir(parents=True, exist_ok=True)
-VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8000").rstrip("/")
+VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
 DEFAULT_VHS_FORMAT = os.getenv("VIDEORAMA_DEFAULT_FORMAT", "video_low")
 
 app = FastAPI(title=APP_TITLE)

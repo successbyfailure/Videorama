@@ -115,7 +115,7 @@
           <dt>format</dt>
           <dd>Uno de los formatos listados arriba. Por omisión descarga video.</dd>
         </dl>
-        <pre><code>curl -L "${BASE_URL:-http://localhost:8000}/api/download?url=https://youtu.be/&amp;format=audio" \
+        <pre><code>curl -L "${BASE_URL:-http://localhost:8601}/api/download?url=https://youtu.be/&amp;format=audio" \
   -o audio.mp3</code></pre>
         <p>
           También puedes elegir los formatos <code>ffmpeg_audio</code>, <code>ffmpeg_audio_wav</code>,
@@ -134,7 +134,7 @@
       <section>
         <h2>Transcribir un archivo local</h2>
         <p>Envía un archivo de audio o video con <code>POST /api/transcribe/upload</code> usando <code>multipart/form-data</code>.</p>
-        <pre><code>curl -X POST "${BASE_URL:-http://localhost:8000}/api/transcribe/upload" \
+        <pre><code>curl -X POST "${BASE_URL:-http://localhost:8601}/api/transcribe/upload" \
   -F "media_format=transcripcion_srt" \
   -F "file=@/ruta/al/audio.mp4" \
   -o subtitulos.srt</code></pre>

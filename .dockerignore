@@ -1,0 +1,40 @@
+# Source control and editor metadata
+.git
+.gitignore
+.dockerignore
+
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Local tooling caches
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pytype/
+.pyre/
+.pdm-python
+.pdm-build/
+.pixi/
+
+# Node and frontend artifacts
+node_modules/
+
+# Runtime data mounted as Docker volumes
+data/
+
+# Local environment files
+.env
+*.env
