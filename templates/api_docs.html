@@ -4,11 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ app_name }} · API</title>
-    <link
-      rel="icon"
-      type="image/svg+xml"
-      href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA2NCA2NCcgZmlsbD0nbm9uZSc+CjxyZWN0IHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgcng9JzE2JyBmaWxsPScjMGYxNzJhJy8+CjxjaXJjbGUgY3g9JzI2JyBjeT0nMzInIHI9JzE0JyBzdHJva2U9JyMyMmQzZWUnIHN0cm9rZS13aWR0aD0nNCcgZmlsbD0nbm9uZScvPgo8cGF0aCBkPSdNMzIgMjJsMTYgMTAtMTYgMTBWMjJ6JyBmaWxsPScjZjk3MzE2Jy8+Cjwvc3ZnPg=="
-    />
+    {% set favicon_svg_data =
+      "data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%2064%2064%27%3E%3Crect%20width%3D%2764%27%20height%3D%2764%27%20rx%3D%2714%27%20fill%3D%27%23050914%27/%3E%3Crect%20x%3D%278%27%20y%3D%2716%27%20width%3D%2748%27%20height%3D%2732%27%20rx%3D%276%27%20fill%3D%27%23111827%27%20stroke%3D%27%2394a3b8%27%20stroke-width%3D%272%27/%3E%3Crect%20x%3D%2712%27%20y%3D%2722%27%20width%3D%2740%27%20height%3D%2720%27%20rx%3D%274%27%20fill%3D%27%230f172a%27%20stroke%3D%27%231e293b%27%20stroke-width%3D%272%27/%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2732%27%20r%3D%278%27%20fill%3D%27%23020617%27%20stroke%3D%27%23cbd5f5%27%20stroke-width%3D%273%27/%3E%3Ccircle%20cx%3D%2740%27%20cy%3D%2732%27%20r%3D%278%27%20fill%3D%27%23020617%27%20stroke%3D%27%23cbd5f5%27%20stroke-width%3D%273%27/%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2732%27%20r%3D%273%27%20fill%3D%27%23e2e8f0%27/%3E%3Ccircle%20cx%3D%2740%27%20cy%3D%2732%27%20r%3D%273%27%20fill%3D%27%23e2e8f0%27/%3E%3Crect%20x%3D%2722%27%20y%3D%2712%27%20width%3D%2720%27%20height%3D%274%27%20rx%3D%271%27%20fill%3D%27%23f97316%27/%3E%3Crect%20x%3D%2722%27%20y%3D%2748%27%20width%3D%2720%27%20height%3D%274%27%20rx%3D%271%27%20fill%3D%27%23f97316%27%20opacity%3D%270.9%27/%3E%3Cpath%20d%3D%27M18%2024h4l4%2012%204-12h4%27%20fill%3D%27none%27%20stroke%3D%27%23f8fafc%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27/%3E%3Cpath%20d%3D%27M38%2036V24h4c3%200%204%202%204%206s-1%206-4%206h-4z%27%20fill%3D%27none%27%20stroke%3D%27%23f8fafc%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27/%3E%3C/svg%3E"
+    %}
+    {% set favicon_png_data =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAC1klEQVR4nO1bv0tcQRAeJRKUC0ERG0FECFaBRBB7lfsHtBQ7LWyOKyytUqYINhamC5bmHzg0/RHwAmJxBI7j4AiIJIWPA5totY91773Zmbe7mRduPzi4u92Z/ebbH7c7+25sYnL2EUYY49IEpBEFkCYgjSiANAFpRAGkCUgjCiBNQBpRAGkC0ngR0nly4E/fyslfb750BBsBPoMP4U9h5KfAyAsw5pIP+HR6hpbv/dgt6noIn999Qcvr+zuF/BYSwBa4JLhCsAUwgz86rLEaDIEPH4+ffeaIwBJAD74MgZvQhaCKQBZABV/GwE0oISgikH4FyjznMVB4s3aClN5/NT0LX88bueVb21WrD5v9/Z871P7osDa0LuTBOgU4875xeUVqFCBbCCxwE9WNFbScuh6QBbAF/6t3k/n99c+Hoe/evnlJrouBKgImgJfDENbza++X0vfNVofsU7fLs29cXllFsMFZABW86j2d+CDpwyDpw1RlPi0bJP1n9U1kBW6W6UK4iuB0FjB7HiNPAdXerMdZe0x4Owxh5Lu9trV+ln23105fnPY4KCwAproiffs7AQCAuZkKdHvtdPhPVebR9SAr6DwhKHwweBkB/2ro+24XIEA+AOslH/au/k0ET4jo00D/XBaMfEbIuwCLC8ui5Vx4EYCzw/Np79ougIMA2O5rcWHZ2lPYCp5lb/NZdDfo7WKk2eoMBYURNnvP1b4onKaAqTqVVF69ovZiZ4GsxputDhqgWba5vupkL34aVCTMrSilN1Xwm+urcPHtO9veNXgAxgiwpZi4ZLa2q/B6Zjp9UVJlnPaoKTHrCKjv75CTotWNFaecoCpzzQnqsGWGSWnxst8HmODcD5CmQNF7N2lQeMeboXg3GG+H4/MBQf4wEeKZnhAPSsWEiDQBaQQTwPdwDfWcYLA14H9BnALSBKQRBZAmII0ogDQBaUQBpAlIIwogTUAaT0UoQsGs3uYXAAAAAElFTkSuQmCC"
+    %}
+    <link rel="icon" type="image/svg+xml" href="{{ favicon_svg_data }}" />
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ favicon_png_data }}" />
+    <link rel="shortcut icon" href="{{ favicon_png_data }}" />
     <style>
       :root {
         color-scheme: dark light;
