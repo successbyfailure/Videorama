@@ -1,27 +1,35 @@
 import hashlib
+import hashlib
 import json
 import os
+import secrets
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import requests
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
+
+from .storage import SQLiteStore
 
 APP_TITLE = "Videorama Retro Library"
 LIBRARY_PATH = Path(os.getenv("VIDEORAMA_LIBRARY_PATH", "data/videorama/library.json"))
 LIBRARY_PATH.parent.mkdir(parents=True, exist_ok=True)
+UPLOADS_DIR = Path(os.getenv("VIDEORAMA_UPLOADS_DIR", "data/videorama/uploads"))
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
 DEFAULT_VHS_FORMAT = os.getenv("VIDEORAMA_DEFAULT_FORMAT", "video_high")
+LIBRARY_DB_PATH = Path(os.getenv("VIDEORAMA_DB_PATH", "data/videorama/library.db"))
 DEFAULT_CATEGORY = "miscelánea"
 
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+store = SQLiteStore(LIBRARY_DB_PATH)
 
 
 def sanitize_metadata(metadata: Any) -> Dict[str, Any]:
@@ -146,6 +154,18 @@ def normalize_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def load_library() -> List[Dict[str, Any]]:
+    entries = store.list_entries()
+    if entries:
+        return normalize_entries(entries)
+    legacy_entries = _load_legacy_library()
+    if not legacy_entries:
+        return []
+    for entry in legacy_entries:
+        store.upsert_entry(entry)
+    return normalize_entries(store.list_entries())
+
+
+def _load_legacy_library() -> List[Dict[str, Any]]:
     if not LIBRARY_PATH.exists():
         return []
     try:
@@ -156,13 +176,6 @@ def load_library() -> List[Dict[str, Any]]:
     if isinstance(data, list):
         return normalize_entries(data)
     return []
-
-
-def save_library(entries: List[Dict[str, Any]]) -> None:
-    LIBRARY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    normalized_entries = normalize_entries(entries)
-    with LIBRARY_PATH.open("w", encoding="utf-8") as handle:
-        json.dump(normalized_entries, handle, ensure_ascii=False, indent=2)
 
 
 def entry_id_for_url(url: str) -> str:
@@ -188,6 +201,43 @@ def safe_list(value: Any) -> List[str]:
     if isinstance(value, list):
         return [str(item) for item in value[:25]]
     return []
+
+
+def sanitize_filename(name: str) -> str:
+    candidate = Path(name or "videorama.bin").name
+    cleaned = "".join(
+        char for char in candidate if char.isalnum() or char in {"-", "_", ".", " "}
+    ).strip()
+    cleaned = cleaned.replace(" ", "_")
+    return cleaned or "videorama.bin"
+
+
+async def store_upload(entry_id: str, upload: UploadFile) -> Dict[str, Any]:
+    safe_name = sanitize_filename(upload.filename or "upload.bin")
+    target_dir = UPLOADS_DIR / entry_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / safe_name
+    total_bytes = 0
+    with target_path.open("wb") as handle:
+        while True:
+            chunk = await upload.read(1 << 20)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            handle.write(chunk)
+    await upload.close()
+    return {
+        "file_path": target_path,
+        "file_name": safe_name,
+        "file_size": total_bytes,
+        "mime_type": upload.content_type or "application/octet-stream",
+    }
+
+
+def tags_from_string(raw: str) -> List[str]:
+    if not raw:
+        return []
+    return sorted({chunk.strip() for chunk in raw.split(",") if chunk.strip()})
 
 
 def fetch_vhs_metadata(url: str) -> Dict[str, Any]:
@@ -231,6 +281,66 @@ class AddLibraryEntry(BaseModel):
     auto_download: bool = True
 
 
+class PlaylistRules(BaseModel):
+    type: Literal[
+        "tag",
+        "category",
+        "uploader",
+        "duration_min",
+        "duration_max",
+    ]
+    term: Optional[str]
+    minutes: Optional[int]
+
+    @validator("term")
+    def strip_term(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
+class PlaylistPayload(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    mode: Literal["static", "dynamic"]
+    entry_ids: Optional[List[str]] = None
+    rules: Optional[PlaylistRules] = None
+
+    @validator("name")
+    def validate_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("El nombre es obligatorio")
+        return normalized
+
+    @validator("description", pre=True, always=True)
+    def default_description(cls, value: Optional[str]) -> str:
+        if value is None:
+            return ""
+        return value.strip()
+
+    @validator("entry_ids", each_item=True)
+    def normalize_ids(cls, value: str) -> str:
+        return str(value).strip()
+
+
+class CategorySetting(BaseModel):
+    slug: str
+    label: Optional[str] = None
+    hidden: bool = False
+
+    @validator("slug")
+    def normalize_slug(cls, value: str) -> str:
+        normalized = (value or "").strip().lower()
+        if not normalized:
+            raise ValueError("La categoría debe tener identificador")
+        return normalized
+
+
+class CategorySettingsPayload(BaseModel):
+    settings: List[CategorySetting]
+
+
 @app.get("/api/health")
 async def health() -> Dict[str, Any]:
     entries = load_library()
@@ -245,19 +355,17 @@ async def list_library() -> Dict[str, Any]:
 
 @app.get("/api/library/{entry_id}")
 async def get_entry(entry_id: str) -> Dict[str, Any]:
-    for entry in load_library():
-        if entry.get("id") == entry_id:
-            return entry
+    stored_entry = store.get_entry(entry_id)
+    if stored_entry:
+        return stored_entry
     raise HTTPException(status_code=404, detail="Entrada no encontrada")
 
 
 @app.delete("/api/library/{entry_id}")
 async def delete_entry(entry_id: str) -> Dict[str, Any]:
-    entries = load_library()
-    filtered = [entry for entry in entries if entry.get("id") != entry_id]
-    if len(filtered) == len(entries):
+    deleted = store.delete_entry(entry_id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Entrada no encontrada")
-    save_library(filtered)
     return {"status": "deleted", "id": entry_id}
 
 
@@ -286,9 +394,7 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
         "metadata": metadata_blob,
     }
 
-    entries = [item for item in load_library() if item.get("id") != entry_id]
-    entries.append(entry)
-    save_library(entries)
+    store.upsert_entry(entry)
 
     if payload.auto_download:
         trigger_vhs_download(payload.url, payload.format)
@@ -321,7 +427,7 @@ async def home(request: Request) -> HTMLResponse:
 @app.get("/import", response_class=HTMLResponse)
 async def import_manager(request: Request) -> HTMLResponse:
     entries = load_library()
-    recent_entries = entries[:50]
+    recent_entries = store.list_recent_entries(50)
     context = {
         "request": request,
         "app_name": APP_TITLE,
@@ -331,3 +437,102 @@ async def import_manager(request: Request) -> HTMLResponse:
         "library_path": str(LIBRARY_PATH.resolve()),
     }
     return templates.TemplateResponse("import_manager.html", context)
+
+
+@app.post("/api/library/upload", status_code=201)
+async def upload_library_entry(
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    category: str = Form(DEFAULT_CATEGORY),
+    tags: str = Form(""),
+    notes: str = Form(""),
+) -> Dict[str, Any]:
+    entry_id = secrets.token_hex(16)
+    file_meta = await store_upload(entry_id, file)
+    media_url = f"/media/{entry_id}/{file_meta['file_name']}"
+    now = time.time()
+    entry = {
+        "id": entry_id,
+        "url": media_url,
+        "original_url": media_url,
+        "title": title.strip() or file_meta["file_name"],
+        "duration": None,
+        "uploader": "telegram_upload",
+        "category": category.strip() or DEFAULT_CATEGORY,
+        "tags": tags_from_string(tags),
+        "notes": notes.strip() or None,
+        "thumbnail": None,
+        "extractor": "upload",
+        "added_at": now,
+        "vhs_cache_key": None,
+        "preferred_format": DEFAULT_VHS_FORMAT,
+        "metadata": sanitize_metadata(
+            {
+                "source": "upload",
+                "file_name": file_meta["file_name"],
+                "file_size": file_meta["file_size"],
+                "mime_type": file_meta["mime_type"],
+            }
+        ),
+    }
+    entries = [item for item in load_library() if item.get("id") != entry_id]
+    entries.append(entry)
+    save_library(entries)
+    stored_entry = normalize_entry(entry)
+    return stored_entry or entry
+
+
+@app.get("/media/{entry_id}/{file_name}")
+async def serve_uploaded_media(entry_id: str, file_name: str):
+    safe_name = sanitize_filename(file_name)
+    uploads_root = UPLOADS_DIR.resolve()
+    file_path = (UPLOADS_DIR / entry_id / safe_name).resolve()
+    if uploads_root not in file_path.parents:
+        raise HTTPException(status_code=404, detail="Archivo no disponible")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Archivo no disponible")
+    return FileResponse(file_path, filename=safe_name)
+@app.get("/api/playlists")
+async def list_playlists_api() -> Dict[str, Any]:
+    playlists = store.list_playlists()
+    return {"items": playlists, "count": len(playlists)}
+
+
+@app.post("/api/playlists", status_code=201)
+async def create_playlist_api(payload: PlaylistPayload) -> Dict[str, Any]:
+    if payload.mode == "static":
+        if not payload.entry_ids:
+            raise HTTPException(status_code=400, detail="Faltan elementos para la lista")
+        config = {"entry_ids": payload.entry_ids}
+    else:
+        if not payload.rules:
+            raise HTTPException(status_code=400, detail="La lista dinámica necesita reglas")
+        config = {"rules": payload.rules.dict()}
+    playlist = store.create_playlist(
+        name=payload.name,
+        description=payload.description or "",
+        mode=payload.mode,
+        config=config,
+    )
+    return playlist
+
+
+@app.delete("/api/playlists/{playlist_id}")
+async def delete_playlist_api(playlist_id: str) -> Dict[str, Any]:
+    deleted = store.delete_playlist(playlist_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Lista no encontrada")
+    return {"status": "deleted", "id": playlist_id}
+
+
+@app.get("/api/category-settings")
+async def get_category_settings() -> Dict[str, Any]:
+    settings = store.list_category_preferences()
+    return {"settings": settings, "count": len(settings)}
+
+
+@app.put("/api/category-settings")
+async def update_category_settings(payload: CategorySettingsPayload) -> Dict[str, Any]:
+    store.replace_category_preferences([setting.dict() for setting in payload.settings])
+    settings = store.list_category_preferences()
+    return {"settings": settings, "count": len(settings)}

@@ -131,32 +131,23 @@
         border-color: transparent;
         font-weight: 600;
       }
-      .playlists-panel {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 1rem;
+      .sidebar button small {
+        display: block;
+        font-size: 0.7rem;
+        color: #94a3b8;
       }
-      .playlist-card {
-        border-radius: 18px;
-        padding: 1rem;
-        border: 1px solid rgba(148, 163, 184, 0.25);
-        background: rgba(15, 23, 42, 0.65);
-        cursor: pointer;
-        transition: transform 0.2s ease, border 0.2s ease;
-        min-height: 150px;
+      .sidebar-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
       }
-      .playlist-card:hover,
-      .playlist-card.active {
-        border-color: rgba(99, 102, 241, 0.65);
-        transform: translateY(-2px);
-      }
-      .playlist-card h3 {
-        margin: 0 0 0.35rem;
-        font-size: 1.1rem;
-      }
-      .playlist-meta {
-        font-size: 0.85rem;
-        color: #a5b4fc;
+      .sidebar-actions button {
+        width: 100%;
+        border: 1px solid rgba(99, 102, 241, 0.5);
+        border-radius: 12px;
+        padding: 0.5rem 0.75rem;
+        text-align: center;
+        font-weight: 600;
       }
       .library-grid {
         display: grid;
@@ -346,9 +337,170 @@
       .sidebar button.active {
         color: #c084fc;
       }
+      nav.top-nav {
+        max-width: 1200px;
+        margin: 0 auto 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1.5rem;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+      }
+      .brand {
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+      }
+      .nav-links {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .nav-links a,
+      .nav-links button {
+        border: none;
+        border-radius: 999px;
+        padding: 0.4rem 0.9rem;
+        background: rgba(99, 102, 241, 0.15);
+        color: #e2e8f0;
+        text-decoration: none;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .nav-links button {
+        background: rgba(236, 72, 153, 0.2);
+      }
+      .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(2, 6, 23, 0.85);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        z-index: 20;
+      }
+      .modal.open {
+        display: flex;
+      }
+      .modal-content {
+        max-width: 900px;
+        width: 100%;
+        background: rgba(15, 23, 42, 0.95);
+        border-radius: 20px;
+        padding: 1.5rem;
+        border: 1px solid rgba(99, 102, 241, 0.35);
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+      }
+      .modal-body {
+        margin-top: 1rem;
+        display: grid;
+        gap: 1rem;
+      }
+      .modal-close {
+        background: transparent;
+        border: none;
+        color: inherit;
+        font-size: 1.5rem;
+        cursor: pointer;
+      }
+      .manager-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 1rem;
+      }
+      .manager-card {
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 16px;
+        padding: 1rem;
+        background: rgba(2, 6, 23, 0.7);
+      }
+      .manager-card form {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .manager-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .manager-list li {
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 14px;
+        padding: 0.75rem;
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: flex-start;
+      }
+      .manager-list button {
+        border: none;
+        background: rgba(239, 68, 68, 0.2);
+        color: #fecaca;
+        border-radius: 10px;
+        padding: 0.35rem 0.75rem;
+        cursor: pointer;
+      }
+      .category-row {
+        display: grid;
+        grid-template-columns: 1fr 200px 120px;
+        gap: 0.75rem;
+        align-items: center;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 12px;
+        padding: 0.75rem;
+      }
+      .category-row small {
+        display: block;
+        color: #94a3b8;
+        margin-top: 0.15rem;
+      }
+      .category-row label {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.85rem;
+        text-transform: none;
+        letter-spacing: normal;
+        color: #e2e8f0;
+      }
+      .manager-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 1rem;
+      }
+      .manager-actions button {
+        border: none;
+        border-radius: 12px;
+        padding: 0.65rem 1.25rem;
+        background: linear-gradient(120deg, #22d3ee, #6366f1);
+        color: #0f172a;
+        font-weight: 700;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
+    <nav class="top-nav">
+      <span class="brand">{{ app_name }}</span>
+      <div class="nav-links">
+        <a href="/">Biblioteca</a>
+        <a href="/import">Importador</a>
+        <button type="button" data-open-modal="playlist-modal">Playlists</button>
+        <button type="button" data-open-modal="category-modal">Categorías</button>
+      </div>
+    </nav>
     <div class="app-shell">
       <aside class="sidebar">
         <section>
@@ -363,6 +515,10 @@
           <h2>Listas dinámicas</h2>
           <ul id="dynamic-playlists"></ul>
         </section>
+        <div class="sidebar-actions">
+          <button type="button" data-open-modal="playlist-modal">Gestionar playlists</button>
+          <button type="button" data-open-modal="category-modal">Gestionar categorías</button>
+        </div>
       </aside>
       <main>
         <header class="hero">
@@ -412,15 +568,6 @@
             <p id="results-counter">0 resultados.</p>
           </div>
         </section>
-        <section class="filters-panel">
-          <div class="status-row">
-            <div>
-              <label>Listas de reproducción</label>
-              <p class="hint">Explora selecciones fijas y dinámicas según categorías y duración.</p>
-            </div>
-          </div>
-          <div class="playlists-panel" id="playlist-cards"></div>
-        </section>
         <section id="library-section">
           <div class="library-grid" id="library-grid"></div>
           <div class="empty-state" id="empty-state" hidden>
@@ -429,6 +576,81 @@
         </section>
       </main>
     </div>
+    <div class="modal" id="playlist-modal" aria-hidden="true">
+      <div class="modal-content">
+        <header class="modal-header">
+          <div>
+            <h2>Gestor de playlists</h2>
+            <p class="hint">Crea listas estáticas con tu selección o define búsquedas automáticas.</p>
+          </div>
+          <button class="modal-close" type="button" data-close-modal>&times;</button>
+        </header>
+        <div class="modal-body">
+          <div class="manager-grid">
+            <article class="manager-card">
+              <h3>Lista estática</h3>
+              <form id="static-playlist-form">
+                <label for="static-playlist-name">Nombre</label>
+                <input id="static-playlist-name" required maxlength="80" />
+                <label for="static-playlist-description">Descripción</label>
+                <textarea id="static-playlist-description" maxlength="200"></textarea>
+                <p class="hint">Se guardarán los vídeos visibles actualmente en la cuadrícula.</p>
+                <button type="submit">Guardar selección actual</button>
+                <p class="status" id="static-playlist-status"></p>
+              </form>
+            </article>
+            <article class="manager-card">
+              <h3>Lista dinámica</h3>
+              <form id="dynamic-playlist-form">
+                <label for="dynamic-playlist-name">Nombre</label>
+                <input id="dynamic-playlist-name" required maxlength="80" />
+                <label for="dynamic-playlist-description">Descripción</label>
+                <textarea id="dynamic-playlist-description" maxlength="200"></textarea>
+                <label for="dynamic-rule-type">Tipo de regla</label>
+                <select id="dynamic-rule-type">
+                  <option value="tag">Etiqueta</option>
+                  <option value="category">Categoría</option>
+                  <option value="uploader">Autor</option>
+                  <option value="duration_min">Duración mínima (minutos)</option>
+                  <option value="duration_max">Duración máxima (minutos)</option>
+                </select>
+                <label for="dynamic-rule-term">Valor o término</label>
+                <input id="dynamic-rule-term" placeholder="Etiqueta, categoría o autor" />
+                <label for="dynamic-rule-minutes">Minutos (si aplica)</label>
+                <input id="dynamic-rule-minutes" type="number" min="1" step="1" />
+                <button type="submit">Crear lista dinámica</button>
+                <p class="status" id="dynamic-playlist-status"></p>
+              </form>
+            </article>
+          </div>
+          <section>
+            <h3>Listas personalizadas</h3>
+            <ul class="manager-list" id="custom-playlists"></ul>
+          </section>
+        </div>
+      </div>
+    </div>
+    <div class="modal" id="category-modal" aria-hidden="true">
+      <div class="modal-content">
+        <header class="modal-header">
+          <div>
+            <h2>Gestor de categorías</h2>
+            <p class="hint">Renombra o esconde categorías sin perder el material original.</p>
+          </div>
+          <button class="modal-close" type="button" data-close-modal>&times;</button>
+        </header>
+        <div class="modal-body">
+          <form id="category-settings-form">
+            <div class="manager-list" id="category-manager-list"></div>
+            <div class="manager-actions">
+              <button type="submit">Guardar preferencias</button>
+            </div>
+            <p class="status" id="category-manager-status"></p>
+          </form>
+        </div>
+      </div>
+    </div>
+
     <script>
       const VHS_BASE_URL = {{ vhs_base_url | tojson }};
       const DEFAULT_FORMAT = {{ default_format | tojson }};
@@ -437,9 +659,12 @@
         filtered: [],
         favorites: new Set(),
         categories: [],
+        categoryStats: [],
+        categorySettings: [],
         activeCategory: 'all',
         activePlaylistId: null,
         playlists: [],
+        customPlaylists: [],
         search: '',
       };
 
@@ -448,6 +673,8 @@
           id: 'recent',
           name: 'Últimos estrenos',
           description: 'Lo más nuevo añadido a la biblioteca.',
+          category: 'static',
+          source: 'system',
           resolve: (items) =>
             items
               .slice()
@@ -458,30 +685,49 @@
           id: 'longform',
           name: 'Sesión de sofá',
           description: 'Vídeos de más de 15 minutos para maratones caseras.',
+          category: 'static',
+          source: 'system',
           resolve: (items) => items.filter((item) => (item.duration || 0) >= 900),
         },
         {
           id: 'clips',
           name: 'Clips exprés',
           description: 'Duración inferior a 3 minutos.',
+          category: 'static',
+          source: 'system',
           resolve: (items) => items.filter((item) => (item.duration || 0) > 0 && item.duration <= 180),
         },
         {
           id: 'random',
           name: 'Zapping retro',
           description: 'Selección aleatoria para descubrir joyas olvidadas.',
+          category: 'static',
+          source: 'system',
           resolve: (items) => shuffle(items).slice(0, 9),
         },
       ];
 
-      document.addEventListener('DOMContentLoaded', () => {
+      document.addEventListener('DOMContentLoaded', init);
+
+      async function init() {
         restoreFavorites();
         attachSearch();
-        fetchLibrary();
-      });
+        attachMenuButtons();
+        setupManagerForms();
+        try {
+          await Promise.all([fetchLibrary(), fetchCustomPlaylists(), fetchCategorySettings()]);
+          buildCategories();
+          buildPlaylists();
+          applyFilters();
+          renderPlaylistManager();
+          renderCategoryManager();
+        } catch (error) {
+          showLibraryError(error.message);
+        }
+      }
 
       function fetchLibrary() {
-        fetch('/api/library')
+        return fetch('/api/library')
           .then((response) => {
             if (!response.ok) {
               throw new Error('No se pudo cargar la biblioteca.');
@@ -490,14 +736,38 @@
           })
           .then((payload) => {
             libraryState.entries = Array.isArray(payload.items) ? payload.items : [];
-            buildCategories();
-            buildPlaylists();
-            applyFilters();
-          })
-          .catch((error) => {
-            const grid = document.getElementById('library-grid');
-            grid.innerHTML = `<p class="empty-state">${error.message}</p>`;
           });
+      }
+
+      function fetchCustomPlaylists() {
+        return fetch('/api/playlists')
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error('No se pudieron cargar las playlists personalizadas.');
+            }
+            return response.json();
+          })
+          .then((payload) => {
+            libraryState.customPlaylists = Array.isArray(payload.items) ? payload.items : [];
+          });
+      }
+
+      function fetchCategorySettings() {
+        return fetch('/api/category-settings')
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error('No se pudieron cargar las categorías personalizadas.');
+            }
+            return response.json();
+          })
+          .then((payload) => {
+            libraryState.categorySettings = Array.isArray(payload.settings) ? payload.settings : [];
+          });
+      }
+
+      function showLibraryError(message) {
+        const grid = document.getElementById('library-grid');
+        grid.innerHTML = `<p class="empty-state">${message}</p>`;
       }
 
       function restoreFavorites() {
@@ -534,17 +804,83 @@
         });
       }
 
+      function attachMenuButtons() {
+        document.querySelectorAll('[data-open-modal]').forEach((button) => {
+          button.addEventListener('click', () => openModal(button.getAttribute('data-open-modal')));
+        });
+        document.querySelectorAll('[data-close-modal]').forEach((button) => {
+          button.addEventListener('click', () => closeModal(button.closest('.modal')));
+        });
+        document.querySelectorAll('.modal').forEach((modal) => {
+          modal.addEventListener('click', (event) => {
+            if (event.target === modal) {
+              closeModal(modal);
+            }
+          });
+        });
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            document.querySelectorAll('.modal.open').forEach((modal) => closeModal(modal));
+          }
+        });
+      }
+
+      function setupManagerForms() {
+        const staticForm = document.getElementById('static-playlist-form');
+        const dynamicForm = document.getElementById('dynamic-playlist-form');
+        const categoryForm = document.getElementById('category-settings-form');
+        if (staticForm) {
+          staticForm.addEventListener('submit', handleStaticPlaylistSubmit);
+        }
+        if (dynamicForm) {
+          dynamicForm.addEventListener('submit', handleDynamicPlaylistSubmit);
+        }
+        if (categoryForm) {
+          categoryForm.addEventListener('submit', handleCategorySettingsSubmit);
+        }
+      }
+
+      function openModal(id) {
+        const modal = document.getElementById(id);
+        if (!modal) {
+          return;
+        }
+        modal.classList.add('open');
+        modal.setAttribute('aria-hidden', 'false');
+      }
+
+      function closeModal(modal) {
+        if (!modal) {
+          return;
+        }
+        modal.classList.remove('open');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+
       function buildCategories() {
         const categories = new Map();
         libraryState.entries.forEach((entry) => {
           const name = normalize(entry.category) || 'miscelánea';
           categories.set(name, (categories.get(name) || 0) + 1);
         });
-        const chips = [{ id: 'all', label: 'Todos', count: libraryState.entries.length }];
-        chips.push({ id: 'favorites', label: 'Favoritos', count: libraryState.favorites.size });
-        categories.forEach((count, key) => {
-          const label = key.replace(/\b\w/g, (char) => char.toUpperCase());
-          chips.push({ id: key, label, count });
+        libraryState.categoryStats = [...categories.entries()].map(([slug, count]) => ({ slug, count }));
+        const preferenceMap = new Map(libraryState.categorySettings.map((pref) => [pref.slug, pref]));
+        preferenceMap.forEach((pref, slug) => {
+          if (!categories.has(slug)) {
+            libraryState.categoryStats.push({ slug, count: 0 });
+          }
+        });
+        const chips = [
+          { id: 'all', label: 'Todos', count: libraryState.entries.length },
+          { id: 'favorites', label: 'Favoritos', count: libraryState.favorites.size },
+        ];
+        libraryState.categoryStats.forEach(({ slug, count }) => {
+          const pref = preferenceMap.get(slug);
+          if (pref?.hidden) {
+            return;
+          }
+          const label = pref?.label?.trim() || toTitle(slug);
+          chips.push({ id: slug, label, count });
         });
         libraryState.categories = chips;
         renderCategoryChips();
@@ -568,25 +904,28 @@
       }
 
       function buildPlaylists() {
-        const dynamic = buildDynamicPlaylists(libraryState.entries);
-        libraryState.playlists = [...STATIC_PLAYLISTS, ...dynamic];
+        const auto = buildAutoPlaylists(libraryState.entries);
+        const custom = buildCustomPlaylists(libraryState.customPlaylists);
+        libraryState.playlists = [...STATIC_PLAYLISTS, ...auto, ...custom];
         const playlistCount = document.getElementById('playlist-count');
         playlistCount.textContent = libraryState.playlists.length;
         renderPlaylists();
       }
 
-      function buildDynamicPlaylists(items) {
+      function buildAutoPlaylists(items) {
         const categoryCounts = aggregateCounts(items.map((entry) => normalize(entry.category)));
         const topCategories = categoryCounts.slice(0, 4).map((cat) => ({
           id: `cat-${cat.value}`,
           name: `Categoría: ${toTitle(cat.value)}`,
           description: `${cat.count} piezas seleccionadas automáticamente.`,
+          category: 'dynamic',
+          source: 'system',
           resolve: (entries) => entries.filter((entry) => normalize(entry.category) === cat.value).slice(0, 12),
         }));
 
         const tagCounts = aggregateCounts(
           items
-            .flatMap((entry) => Array.isArray(entry.tags) ? entry.tags : [])
+            .flatMap((entry) => (Array.isArray(entry.tags) ? entry.tags : []))
             .map((tag) => normalize(tag))
             .filter(Boolean),
         ).slice(0, 3);
@@ -595,6 +934,8 @@
           id: `tag-${tag.value}`,
           name: `Etiqueta: ${toTitle(tag.value)}`,
           description: 'Agrupación dinámica según etiquetas coincidentes.',
+          category: 'dynamic',
+          source: 'system',
           resolve: (entries) =>
             entries.filter((entry) => (entry.tags || []).some((tagName) => normalize(tagName) === tag.value)).slice(0, 12),
         }));
@@ -602,46 +943,60 @@
         return [...topCategories, ...tagPlaylists];
       }
 
-      function aggregateCounts(values) {
-        const map = new Map();
-        values.forEach((value) => {
-          if (!value) return;
-          map.set(value, (map.get(value) || 0) + 1);
+      function buildCustomPlaylists(items) {
+        return items.map((playlist) => {
+          if (playlist.mode === 'static') {
+            const entryIds = playlist.config?.entry_ids || [];
+            return {
+              ...playlist,
+              category: 'static',
+              source: 'custom',
+              resolve: (entries) => entries.filter((entry) => entryIds.includes(entry.id)),
+            };
+          }
+          return {
+            ...playlist,
+            category: 'dynamic',
+            source: 'custom',
+            resolve: (entries) => applyCustomRule(entries, playlist.config?.rules || {}),
+          };
         });
-        return [...map.entries()]
-          .map(([value, count]) => ({ value, count }))
-          .sort((a, b) => b.count - a.count);
+      }
+
+      function applyCustomRule(entries, rules) {
+        if (!rules || !rules.type) {
+          return entries;
+        }
+        let results = entries;
+        const term = normalize(rules.term);
+        if (rules.type === 'tag' && term) {
+          results = results.filter((entry) => (entry.tags || []).some((tag) => normalize(tag) === term));
+        } else if (rules.type === 'category' && term) {
+          results = results.filter((entry) => normalize(entry.category) === term);
+        } else if (rules.type === 'uploader' && term) {
+          results = results.filter((entry) => normalize(entry.uploader) === term);
+        } else if (rules.type === 'duration_min' && Number.isFinite(Number(rules.minutes))) {
+          const threshold = Number(rules.minutes) * 60;
+          results = results.filter((entry) => (entry.duration || 0) >= threshold);
+        } else if (rules.type === 'duration_max' && Number.isFinite(Number(rules.minutes))) {
+          const threshold = Number(rules.minutes) * 60;
+          results = results.filter((entry) => (entry.duration || 0) <= threshold);
+        }
+        return results.slice(0, 36);
       }
 
       function renderPlaylists() {
-        const listContainer = document.getElementById('playlist-cards');
         const staticList = document.getElementById('static-playlists');
         const dynamicList = document.getElementById('dynamic-playlists');
-        listContainer.innerHTML = '';
         staticList.innerHTML = '';
         dynamicList.innerHTML = '';
-
         libraryState.playlists.forEach((playlist) => {
-          const isStatic = STATIC_PLAYLISTS.some((staticItem) => staticItem.id === playlist.id);
-          const card = document.createElement('article');
-          card.className = `playlist-card ${libraryState.activePlaylistId === playlist.id ? 'active' : ''}`;
-          card.innerHTML = `
-            <p class="playlist-meta">${isStatic ? 'Lista estática' : 'Lista dinámica'}</p>
-            <h3>${playlist.name}</h3>
-            <p>${playlist.description}</p>
-          `;
-          card.addEventListener('click', () => {
-            libraryState.activePlaylistId = playlist.id;
-            libraryState.activeCategory = 'all';
-            applyFilters();
-            renderPlaylists();
-          });
-          listContainer.appendChild(card);
-
           const listItem = document.createElement('li');
           const button = document.createElement('button');
-          button.textContent = playlist.name;
+          button.type = 'button';
           button.className = libraryState.activePlaylistId === playlist.id ? 'active' : '';
+          const badge = playlist.source === 'custom' ? 'Personalizada' : playlist.category === 'static' ? 'Lista fija' : 'Búsqueda';
+          button.innerHTML = `${playlist.name}<small>${badge}</small>`;
           button.addEventListener('click', () => {
             libraryState.activePlaylistId = playlist.id;
             libraryState.activeCategory = 'all';
@@ -649,7 +1004,7 @@
             renderPlaylists();
           });
           listItem.appendChild(button);
-          if (isStatic) {
+          if (playlist.category === 'static') {
             staticList.appendChild(listItem);
           } else {
             dynamicList.appendChild(listItem);
@@ -681,50 +1036,44 @@
         }
 
         libraryState.filtered = items;
-        renderEntries();
-        renderCategoryChips();
+        renderLibrary(items);
         updateCounters();
       }
 
-      function renderEntries() {
+      function renderLibrary(items) {
         const grid = document.getElementById('library-grid');
         const emptyState = document.getElementById('empty-state');
         grid.innerHTML = '';
-        if (!libraryState.filtered.length) {
+        if (!items.length) {
           emptyState.hidden = false;
           return;
         }
         emptyState.hidden = true;
-        libraryState.filtered.forEach((entry) => {
-          grid.appendChild(buildVideoCard(entry));
+        const fragment = document.createDocumentFragment();
+        items.forEach((entry) => {
+          fragment.appendChild(createVideoCard(entry));
         });
+        grid.appendChild(fragment);
       }
 
-      function buildVideoCard(entry) {
-        const card = document.createElement('article');
-        card.className = 'video-card';
-        const thumbnail = entry.thumbnail || `https://placehold.co/640x360/0f172a/ffffff?text=${encodeURIComponent(entry.title || 'Video')}`;
-        const duration = formatDuration(entry.duration);
-        const tags = (entry.tags || []).slice(0, 4);
+      function createVideoCard(entry) {
         const preferredFormat = entry.preferred_format || DEFAULT_FORMAT;
         const downloadUrl = buildDownloadUrl(entry, preferredFormat);
+        const card = document.createElement('article');
+        card.className = 'video-card';
         card.innerHTML = `
           <div class="thumb">
-            <img src="${thumbnail}" alt="Miniatura de ${entry.title || 'video'}" loading="lazy" />
-            <button type="button" class="favorite-toggle ${libraryState.favorites.has(entry.id) ? 'active' : ''}" data-id="${entry.id}" aria-label="Favorito">
-              ★
-            </button>
-            <span class="duration-badge">${duration}</span>
+            <img src="${entry.thumbnail || 'https://placehold.co/640x360?text=Videorama'}" alt="Miniatura" loading="lazy" />
+            <button class="favorite-toggle ${libraryState.favorites.has(entry.id) ? 'active' : ''}" title="Marcar como favorito">★</button>
+            <span class="duration-badge">${formatDuration(entry.duration)}</span>
           </div>
           <div class="video-body">
-            <h3>${entry.title || entry.url}</h3>
-            <p class="video-meta">${entry.uploader || 'Autor desconocido'} · ${toTitle(entry.category) || 'Miscelánea'}</p>
-            <p class="notes">${entry.notes || ''}</p>
+            <h3>${entry.title}</h3>
+            <p class="video-meta">${entry.uploader || 'Autor desconocido'} · ${toTitle(entry.category || 'miscelánea')}</p>
             <div class="tag-row">
-              ${tags
-                .map((tag) => `<span class="tag">${tag}</span>`)
-                .join('')}
+              ${(entry.tags || []).slice(0, 4).map((tag) => `<span class="tag">${tag}</span>`).join('')}
             </div>
+            <p class="notes">${entry.notes || 'Sin notas adicionales.'}</p>
             <div class="actions">
               <select class="format-select">
                 ${formatOptions(preferredFormat)
@@ -797,7 +1146,7 @@
         if (!normalized) {
           return '';
         }
-        return normalized.replace(/\b\w/g, (match) => match.toUpperCase());
+        return normalized.replace(/\w/g, (match) => match.toUpperCase());
       }
 
       function shuffle(items) {
@@ -828,6 +1177,17 @@
         });
       }
 
+      function aggregateCounts(values) {
+        const map = new Map();
+        values.forEach((value) => {
+          if (!value) return;
+          map.set(value, (map.get(value) || 0) + 1);
+        });
+        return [...map.entries()]
+          .map(([value, count]) => ({ value, count }))
+          .sort((a, b) => b.count - a.count);
+      }
+
       function updateCounters() {
         const counter = document.getElementById('results-counter');
         counter.textContent = `${libraryState.filtered.length} resultados`;
@@ -843,6 +1203,211 @@
           active.textContent = `Categoría: ${toTitle(libraryState.activeCategory)}`;
         }
       }
+
+      function renderPlaylistManager() {
+        const container = document.getElementById('custom-playlists');
+        container.innerHTML = '';
+        if (!libraryState.customPlaylists.length) {
+          container.innerHTML = '<li class="empty-state">Todavía no has creado playlists personalizadas.</li>';
+          return;
+        }
+        libraryState.customPlaylists.forEach((playlist) => {
+          const item = document.createElement('li');
+          item.innerHTML = `
+            <div>
+              <strong>${playlist.name}</strong>
+              <small>${playlist.mode === 'static' ? 'Lista estática' : 'Lista dinámica'}</small>
+              <p>${playlist.description || 'Sin descripción'}</p>
+            </div>
+            <button type="button" data-delete-playlist="${playlist.id}">Eliminar</button>
+          `;
+          container.appendChild(item);
+        });
+        container.querySelectorAll('[data-delete-playlist]').forEach((button) => {
+          button.addEventListener('click', () => deleteCustomPlaylist(button.getAttribute('data-delete-playlist')));
+        });
+      }
+
+      function handleStaticPlaylistSubmit(event) {
+        event.preventDefault();
+        const name = document.getElementById('static-playlist-name').value.trim();
+        const description = document.getElementById('static-playlist-description').value.trim();
+        const entryIds = libraryState.filtered.map((entry) => entry.id);
+        if (!entryIds.length) {
+          updateStatus('static-playlist-status', 'Necesitas al menos un elemento visible para crear la lista.', true);
+          return;
+        }
+        fetch('/api/playlists', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, description, mode: 'static', entry_ids: entryIds }),
+        })
+          .then((response) => {
+            if (!response.ok) {
+              return response.json().then((payload) => {
+                throw new Error(payload.detail || 'No se pudo crear la lista estática.');
+              });
+            }
+            return response.json();
+          })
+          .then(() => {
+            updateStatus('static-playlist-status', 'Lista guardada correctamente.');
+            event.target.reset();
+            return fetchCustomPlaylists();
+          })
+          .then(() => {
+            buildPlaylists();
+            renderPlaylistManager();
+          })
+          .catch((error) => updateStatus('static-playlist-status', error.message, true));
+      }
+
+      function handleDynamicPlaylistSubmit(event) {
+        event.preventDefault();
+        const name = document.getElementById('dynamic-playlist-name').value.trim();
+        const description = document.getElementById('dynamic-playlist-description').value.trim();
+        const type = document.getElementById('dynamic-rule-type').value;
+        const termField = document.getElementById('dynamic-rule-term');
+        const minutesField = document.getElementById('dynamic-rule-minutes');
+        let rules = { type };
+        if (type === 'duration_min' || type === 'duration_max') {
+          const minutes = Number.parseInt(minutesField.value, 10);
+          if (!minutes) {
+            updateStatus('dynamic-playlist-status', 'Indica la duración en minutos.', true);
+            return;
+          }
+          rules.minutes = minutes;
+          termField.value = '';
+        } else {
+          const term = termField.value.trim();
+          if (!term) {
+            updateStatus('dynamic-playlist-status', 'Indica un término para la regla.', true);
+            return;
+          }
+          rules.term = term;
+        }
+        fetch('/api/playlists', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, description, mode: 'dynamic', rules }),
+        })
+          .then((response) => {
+            if (!response.ok) {
+              return response.json().then((payload) => {
+                throw new Error(payload.detail || 'No se pudo crear la lista dinámica.');
+              });
+            }
+            return response.json();
+          })
+          .then(() => {
+            updateStatus('dynamic-playlist-status', 'Lista dinámica creada.');
+            event.target.reset();
+            return fetchCustomPlaylists();
+          })
+          .then(() => {
+            buildPlaylists();
+            renderPlaylistManager();
+          })
+          .catch((error) => updateStatus('dynamic-playlist-status', error.message, true));
+      }
+
+      function deleteCustomPlaylist(id) {
+        fetch(`/api/playlists/${id}`, { method: 'DELETE' })
+          .then((response) => {
+            if (!response.ok) {
+              return response.json().then((payload) => {
+                throw new Error(payload.detail || 'No se pudo eliminar la lista.');
+              });
+            }
+            return response.json();
+          })
+          .then(() => fetchCustomPlaylists())
+          .then(() => {
+            buildPlaylists();
+            renderPlaylistManager();
+          })
+          .catch((error) => updateStatus('static-playlist-status', error.message, true));
+      }
+
+      function renderCategoryManager() {
+        const container = document.getElementById('category-manager-list');
+        container.innerHTML = '';
+        if (!libraryState.categoryStats.length) {
+          container.innerHTML = '<p class="hint">Añade algún vídeo para empezar a personalizar categorías.</p>';
+          return;
+        }
+        const preferenceMap = new Map(libraryState.categorySettings.map((pref) => [pref.slug, pref]));
+        const stats = libraryState.categoryStats.slice().sort((a, b) => a.slug.localeCompare(b.slug));
+        stats.forEach(({ slug, count }) => {
+          const pref = preferenceMap.get(slug) || {};
+          const row = document.createElement('div');
+          row.className = 'category-row';
+          row.dataset.slug = slug;
+          row.setAttribute('data-category-row', 'true');
+          row.innerHTML = `
+            <div>
+              <strong>${toTitle(slug)}</strong>
+              <small>${count} elementos</small>
+            </div>
+            <input type="text" value="${pref.label || ''}" placeholder="Etiqueta personalizada" />
+            <label>
+              <input type="checkbox" ${pref.hidden ? 'checked' : ''} />
+              Ocultar
+            </label>
+          `;
+          container.appendChild(row);
+        });
+      }
+
+      function handleCategorySettingsSubmit(event) {
+        event.preventDefault();
+        const rows = document.querySelectorAll('[data-category-row]');
+        const settings = [...rows].map((row) => {
+          const slug = row.dataset.slug;
+          const labelInput = row.querySelector('input[type="text"]');
+          const hiddenInput = row.querySelector('input[type="checkbox"]');
+          return {
+            slug,
+            label: labelInput.value.trim() || null,
+            hidden: hiddenInput.checked,
+          };
+        });
+        fetch('/api/category-settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ settings }),
+        })
+          .then((response) => {
+            if (!response.ok) {
+              return response.json().then((payload) => {
+                throw new Error(payload.detail || 'No se pudieron guardar las categorías.');
+              });
+            }
+            return response.json();
+          })
+          .then((payload) => {
+            libraryState.categorySettings = Array.isArray(payload.settings) ? payload.settings : [];
+            buildCategories();
+            renderCategoryManager();
+            updateStatus('category-manager-status', 'Preferencias guardadas.');
+          })
+          .catch((error) => updateStatus('category-manager-status', error.message, true));
+      }
+
+      function updateStatus(elementId, message, isError = false) {
+        const element = document.getElementById(elementId);
+        if (!element) {
+          return;
+        }
+        element.textContent = message;
+        element.style.color = isError ? '#f87171' : '#bbf7d0';
+        if (message) {
+          setTimeout(() => {
+            element.textContent = '';
+          }, 4000);
+        }
+      }
     </script>
+
   </body>
 </html>
