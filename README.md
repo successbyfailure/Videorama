@@ -5,7 +5,7 @@ videos o pistas de audio y mantener un caché local durante 24 horas.
 
 ## Características
 
-- Interfaz web simple (SPA) para solicitar descargas de video (MP4 en alta o baja calidad), audio (MP3 en dos calidades) o transcripciones en texto plano utilizando la API de OpenAI.
+- Interfaz web simple (SPA) para solicitar descargas de video (MP4 en alta o baja calidad), audio (MP3 en dos calidades) o transcripciones en texto plano utilizando la API de OpenAI o un servicio compatible con whisper-asr.
 - API REST en `/api` con endpoints:
   - `GET /api/health`: verificación rápida del servicio.
 - `GET /api/download?url=...&format=video_high|video_low|video|audio|audio_low|transcripcion|transcripcion_txt|transcripcion_srt`: genera y devuelve el archivo (o transcripción).
@@ -37,6 +37,10 @@ El servicio quedará disponible en `http://localhost:8000` con la interfaz web y
 | `TRANSCRIPTION_ENDPOINT` | Endpoint compatible con la librería de OpenAI para generar transcripciones. | `https://api.openai.com/v1` |
 | `TRANSCRIPTION_API_KEY` | Clave API usada para autenticar contra el endpoint de transcripción. | _(vacío)_ |
 | `TRANSCRIPTION_MODEL` | Modelo usado para transcribir (por ejemplo, `gpt-4o-mini-transcribe`). | `gpt-4o-mini-transcribe` |
+| `WHISPER_ASR_URL` | URL base de un servicio whisper-asr (p. ej. `https://miexample.com`). Se usará cuando OpenAI no esté configurado o falle. | _(vacío)_ |
+| `WHISPER_ASR_TIMEOUT` | Tiempo de espera en segundos para solicitudes a whisper-asr. | `600` |
+
+Cuando defines tanto OpenAI como whisper-asr, Videorama intentará transcribir primero con OpenAI y recurrirá a whisper-asr automáticamente si algo sale mal.
 
 Puedes sobrescribirlas en `docker-compose.yml` o al ejecutar `docker compose`.
 
