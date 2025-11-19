@@ -99,11 +99,13 @@
         justify-content: center;
         padding: 0.75rem;
         box-shadow: inset 0 0 20px rgba(15, 23, 42, 0.55);
+        overflow: hidden;
       }
       .vhs-logo img {
         width: 100%;
         height: 100%;
         object-fit: contain;
+        transform: scale(1.2);
       }
       .panels {
         display: grid;
@@ -345,12 +347,8 @@
             <div>
               <label for="tags-input">Etiquetas (separadas por comas)</label>
               <input id="tags-input" name="tags" type="text" placeholder="retro, demo, vhs" />
-              <div class="chip-group popular-tags">
-                {% if popular_tags %}
-                  {% for tag in popular_tags %}
-                    <button type="button" class="chip popular-tag" data-tag="{{ tag }}">{{ tag }}</button>
-                  {% endfor %}
-                {% else %}
+              <div class="chip-group popular-tags" id="tag-suggestions">
+                {% if not popular_tags %}
                   <span class="hint">Todavía no hay suficientes datos.</span>
                 {% endif %}
               </div>
@@ -442,7 +440,8 @@
       const searchInput = document.getElementById('search-input');
       const tableBody = document.getElementById('table-body');
 
-      const popularTagButtons = document.querySelectorAll('.popular-tag');
+      const tagSuggestionContainer = document.getElementById('tag-suggestions');
+      const popularTagSeeds = {{ popular_tags|tojson }};
 
       let currentEntry = null;
 
@@ -461,6 +460,7 @@
         previewMeta.textContent = '';
         previewThumb.src = '/assets/LogoVHS.png';
         submitButton.disabled = true;
+        renderTagSuggestions(popularTagSeeds);
       }
 
       function formatDuration(seconds) {
@@ -478,6 +478,7 @@
         if (entry.category) {
           categoryInput.value = entry.category;
         }
+        renderTagSuggestions(entry.metadata?.tags || entry.tags || []);
         previewTitle.textContent = entry.title || entry.url;
         const details = [entry.uploader, entry.extractor].filter(Boolean).join(' · ');
         previewDetails.textContent = details;
@@ -569,23 +570,40 @@
         }
       });
 
-      popularTagButtons.forEach((button) => {
-        button.addEventListener('click', () => {
-          const tag = button.dataset.tag;
-          if (!tag) {
-            return;
-          }
-          const current = tagInput.value
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean);
-          if (!current.includes(tag)) {
-            current.push(tag);
-          }
-          tagInput.value = current.join(', ');
-          tagInput.focus();
+      function renderTagSuggestions(extraTags) {
+        if (!tagSuggestionContainer) {
+          return;
+        }
+        const tags = new Set(
+          [...(popularTagSeeds || []), ...(Array.isArray(extraTags) ? extraTags : [])]
+            .map((item) => `${item}`.trim())
+            .filter(Boolean),
+        );
+        tagSuggestionContainer.innerHTML = '';
+        if (!tags.size) {
+          tagSuggestionContainer.innerHTML = '<span class="hint">Todavía no hay suficientes datos.</span>';
+          return;
+        }
+        tags.forEach((tag) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'chip popular-tag';
+          button.dataset.tag = tag;
+          button.textContent = tag;
+          button.addEventListener('click', () => {
+            const current = tagInput.value
+              .split(',')
+              .map((item) => item.trim())
+              .filter(Boolean);
+            if (!current.includes(tag)) {
+              current.push(tag);
+            }
+            tagInput.value = current.join(', ');
+            tagInput.focus();
+          });
+          tagSuggestionContainer.appendChild(button);
         });
-      });
+      }
 
       function renderRows(items) {
         if (!tableBody) {
@@ -652,6 +670,7 @@
         }
       }
 
+      renderTagSuggestions(popularTagSeeds);
       resetEditor();
       renderRows(recentEntries);
       if (!recentEntries.length) {
