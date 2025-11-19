@@ -276,6 +276,7 @@ def derive_cache_key(url: str, media_format: str) -> str:
 
 class AddLibraryEntry(BaseModel):
     url: str = Field(..., min_length=3, max_length=500)
+    title: Optional[str] = Field(default=None, max_length=300)
     tags: List[str] = Field(default_factory=list)
     notes: Optional[str] = Field(default=None, max_length=2000)
     category: Optional[str] = Field(default=None, max_length=120)
@@ -284,6 +285,13 @@ class AddLibraryEntry(BaseModel):
 
     @validator("category")
     def strip_category(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @validator("title")
+    def strip_title(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
         cleaned = value.strip()
@@ -350,6 +358,31 @@ class CategorySettingsPayload(BaseModel):
     settings: List[CategorySetting]
 
 
+@app.get("/api/import/probe")
+async def probe_import(url: str) -> Dict[str, Any]:
+    cleaned_url = (url or "").strip()
+    if len(cleaned_url) < 3:
+        raise HTTPException(status_code=400, detail="La URL es obligatoria")
+    metadata = fetch_vhs_metadata(cleaned_url)
+    metadata_blob = sanitize_metadata(metadata)
+    entry = {
+        "id": entry_id_for_url(cleaned_url),
+        "url": cleaned_url,
+        "original_url": cleaned_url,
+        "title": metadata.get("title") or cleaned_url,
+        "duration": metadata.get("duration"),
+        "uploader": metadata.get("uploader"),
+        "category": classify_entry(metadata),
+        "tags": sorted(set(safe_list(metadata.get("tags")))),
+        "notes": None,
+        "thumbnail": metadata.get("thumbnail"),
+        "extractor": metadata.get("extractor_key") or metadata.get("extractor"),
+        "preferred_format": DEFAULT_VHS_FORMAT,
+        "metadata": metadata_blob,
+    }
+    return {"entry": entry}
+
+
 @app.get("/api/health")
 async def health() -> Dict[str, Any]:
     entries = load_library()
@@ -386,11 +419,13 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     metadata_blob = sanitize_metadata(metadata)
     category = (payload.category or "").strip() or classify_entry(metadata)
 
+    title = payload.title or metadata.get("title") or payload.url
+
     entry = {
         "id": entry_id,
         "url": payload.url,
         "original_url": payload.url,
-        "title": metadata.get("title") or payload.url,
+        "title": title,
         "duration": metadata.get("duration"),
         "uploader": metadata.get("uploader"),
         "category": category,

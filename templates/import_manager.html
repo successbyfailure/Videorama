@@ -108,7 +108,7 @@
       .panels {
         display: grid;
         gap: 1.5rem;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
       }
       .panel {
         border-radius: 20px;
@@ -166,24 +166,20 @@
         background: linear-gradient(120deg, #6366f1, #ec4899);
         color: white;
       }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
       .status-line {
         min-height: 1.25rem;
         font-size: 0.9rem;
       }
-      .library-meta {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-        gap: 0.75rem;
+      .hint {
+        font-size: 0.85rem;
+        color: #94a3b8;
       }
-      .stat {
-        background: rgba(30, 41, 59, 0.8);
-        border-radius: 16px;
-        padding: 0.85rem 1rem;
-        border: 1px solid rgba(148, 163, 184, 0.25);
-      }
-      .stat strong {
-        display: block;
-        font-size: 1.25rem;
+      .table-wrapper {
+        overflow-x: auto;
       }
       table {
         width: 100%;
@@ -202,23 +198,11 @@
         letter-spacing: 0.08em;
         color: #94a3b8;
       }
-      .table-wrapper {
-        overflow-x: auto;
-      }
       .notes-cell {
         max-width: 220px;
         white-space: nowrap;
         text-overflow: ellipsis;
         overflow: hidden;
-      }
-      .empty-state {
-        text-align: center;
-        padding: 1rem;
-        color: #94a3b8;
-      }
-      .hint {
-        font-size: 0.85rem;
-        color: #94a3b8;
       }
       .source-cell a {
         color: #38bdf8;
@@ -226,6 +210,64 @@
       }
       .source-cell small {
         display: block;
+        color: #94a3b8;
+      }
+      .search-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+      }
+      .search-row input[type='search'] {
+        max-width: 320px;
+      }
+      .metadata-preview {
+        display: flex;
+        gap: 1rem;
+        padding: 1rem;
+        border-radius: 18px;
+        border: 1px solid rgba(99, 102, 241, 0.4);
+        background: rgba(15, 23, 42, 0.75);
+        align-items: center;
+      }
+      .metadata-preview.hidden {
+        display: none;
+      }
+      .metadata-preview img {
+        width: 140px;
+        height: 90px;
+        object-fit: cover;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: #020617;
+      }
+      .metadata-preview .meta-text {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
+      .metadata-preview .meta-text h3 {
+        margin: 0;
+        font-size: 1.2rem;
+      }
+      .metadata-preview .meta-text span {
+        color: #94a3b8;
+        font-size: 0.9rem;
+      }
+      .metadata-preview .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.25rem 0.7rem;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        font-size: 0.8rem;
+        color: #cbd5f5;
+      }
+      .steps-label {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
         color: #94a3b8;
       }
     </style>
@@ -248,26 +290,61 @@
             <p class="eyebrow">Central de importación</p>
             <h1>VHS</h1>
             <p>
-              Administra nuevas capturas, valida metadatos y revisa cómo se almacenan los {{ library_count }} elementos de
-              la biblioteca ({{ library_path }}).
+              Gestiona nuevas capturas, valida metadatos y vigila cómo se almacenan los {{ library_count }} elementos de la
+              biblioteca ({{ library_path }}).
             </p>
           </div>
         </div>
       </header>
       <div class="panels">
+        <section class="panel" id="probe-panel">
+          <p class="steps-label">Paso 1 · pegar URL</p>
+          <h2>Obtener metadatos</h2>
+          <form id="probe-form">
+            <label for="probe-url">URL del video</label>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+              <input id="probe-url" type="url" placeholder="https://..." required style="flex: 1 1 220px" />
+              <button type="submit" style="flex: 0 0 auto">Analizar</button>
+            </div>
+          </form>
+          <div class="status-line" id="probe-status"></div>
+          <div class="metadata-preview hidden" id="metadata-preview">
+            <img id="preview-thumb" src="/assets/LogoVHS.png" alt="Miniatura" />
+            <div class="meta-text">
+              <h3 id="preview-title">Título del video</h3>
+              <span id="preview-details"></span>
+              <div class="badge" id="preview-meta"></div>
+            </div>
+          </div>
+          <p class="hint">
+            VHS pregunta al importador remoto, detecta duración, extractor, etiquetas y prepara el registro antes de que lo
+            guardes definitivamente.
+          </p>
+        </section>
         <section class="panel">
-          <h2>Cargar en VHS</h2>
+          <p class="steps-label">Paso 2 · editar y guardar</p>
+          <h2>Confirmar registro</h2>
           <form id="import-form">
+            <input type="hidden" id="url-input" name="url" />
             <div>
-              <label for="url-input">URL del video</label>
-              <input id="url-input" name="url" type="url" placeholder="https://..." required />
+              <label for="title-input">Título</label>
+              <input id="title-input" name="title" type="text" placeholder="Usar título automático" />
+            </div>
+            <div>
+              <label for="category-input">Categoría</label>
+              <input
+                id="category-input"
+                name="category"
+                type="text"
+                list="category-options"
+                placeholder="documentales, entrevistas…"
+                autocomplete="off"
+              />
+              <small class="hint">Usa la existente o déjala vacía para clasificar automáticamente.</small>
             </div>
             <div>
               <label for="tags-input">Etiquetas (separadas por comas)</label>
               <input id="tags-input" name="tags" type="text" placeholder="retro, demo, vhs" />
-            </div>
-            <div>
-              <label>Etiquetas populares</label>
               <div class="chip-group popular-tags">
                 {% if popular_tags %}
                   {% for tag in popular_tags %}
@@ -279,32 +356,20 @@
               </div>
             </div>
             <div>
-              <label for="category-input">Categoría sugerida</label>
-              <input
-                id="category-input"
-                name="category"
-                type="text"
-                list="category-options"
-                placeholder="documentales, entrevistas…"
-                autocomplete="off"
-              />
-              <small class="hint">Se autocompleta con las categorías existentes.</small>
-            </div>
-            <div>
               <label for="notes-input">Notas</label>
               <textarea id="notes-input" name="notes" placeholder="Enlace, capítulo destacado, etc."></textarea>
             </div>
             <div>
               <label for="format-input">Formato preferido</label>
               <select id="format-input" name="format">
-                <option value="video_high">video_high</option>
-                <option value="video_low">video_low</option>
-                <option value="audio">audio</option>
-                <option value="transcripcion">transcripción</option>
-                <option value="ffmpeg_1080p">ffmpeg_1080p</option>
-                <option value="ffmpeg_720p">ffmpeg_720p</option>
-                <option value="ffmpeg_480p">ffmpeg_480p</option>
-                <option value="ffmpeg_audio">ffmpeg_audio</option>
+                <option value="video_high" {% if default_format == 'video_high' %}selected{% endif %}>video_high</option>
+                <option value="video_low" {% if default_format == 'video_low' %}selected{% endif %}>video_low</option>
+                <option value="audio" {% if default_format == 'audio' %}selected{% endif %}>audio</option>
+                <option value="transcripcion" {% if default_format == 'transcripcion' %}selected{% endif %}>transcripción</option>
+                <option value="ffmpeg_1080p" {% if default_format == 'ffmpeg_1080p' %}selected{% endif %}>ffmpeg_1080p</option>
+                <option value="ffmpeg_720p" {% if default_format == 'ffmpeg_720p' %}selected{% endif %}>ffmpeg_720p</option>
+                <option value="ffmpeg_480p" {% if default_format == 'ffmpeg_480p' %}selected{% endif %}>ffmpeg_480p</option>
+                <option value="ffmpeg_audio" {% if default_format == 'ffmpeg_audio' %}selected{% endif %}>ffmpeg_audio</option>
               </select>
             </div>
             <div>
@@ -313,89 +378,227 @@
                 Precargar en VHS
               </label>
             </div>
-            <button type="submit">Importar video</button>
+            <button type="submit" id="submit-button" disabled>Guardar en la biblioteca</button>
             <div class="status-line" id="form-status"></div>
           </form>
           <p class="hint">
-            VHS conserva la URL original y todos los metadatos facilitados (categorías, tags, extractores, duración…) para
-            que puedas auditar cada captura cuando lo necesites.
+            Edita cualquier dato antes de confirmar. No se enviará nada a la biblioteca hasta que los metadatos estén
+            listos y confirmes el registro.
           </p>
         </section>
-        <section class="panel">
-          <h2>Resumen rápido</h2>
-          <div class="library-meta">
-            <div class="stat">
-              <span>Total</span>
-              <strong>{{ library_count }}</strong>
-              <small>entradas guardadas</small>
-            </div>
-            <div class="stat">
-              <span>Formato por defecto</span>
-              <strong>{{ default_format }}</strong>
-              <small>VHS lo prioriza</small>
-            </div>
-            <div class="stat">
-              <span>Archivo</span>
-              <strong style="font-size: 0.85rem">{{ library_path.split('/')[-1] }}</strong>
-            </div>
-          </div>
-          <div>
-            <label for="search-input">Buscar en las últimas importaciones</label>
-            <input id="search-input" type="search" placeholder="Título, etiqueta o proveedor" />
-          </div>
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Título</th>
-                  <th>Categoría</th>
-                  <th>Duración</th>
-                  <th>Etiquetas</th>
-                  <th>Formato</th>
-                  <th>Fuente</th>
-                  <th>Notas</th>
-                </tr>
-              </thead>
-              <tbody id="recent-entries"></tbody>
-            </table>
-            <div id="empty-state" class="empty-state" hidden>
-              No hay elementos para mostrar todavía.
-            </div>
-          </div>
-        </section>
       </div>
+      <section class="panel">
+        <div class="search-row">
+          <h2>Últimas entradas</h2>
+          <input id="search-input" type="search" placeholder="Buscar por título, categoría o etiqueta" />
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Video</th>
+                <th>Categoría</th>
+                <th>Duración</th>
+                <th>Etiquetas</th>
+                <th>Formato</th>
+                <th>Fuente</th>
+                <th>Notas</th>
+              </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+      </section>
     </div>
     <datalist id="category-options">
       {% for category in categories %}
-        <option value="{{ category }}"></option>
+        <option value="{{ category }}">{{ category }}</option>
       {% endfor %}
     </datalist>
     <script>
-      const defaultFormat = "{{ default_format }}";
-      const recentEntries = {{ recent_entries | tojson | safe }};
-      const tableBody = document.getElementById('recent-entries');
-      const emptyState = document.getElementById('empty-state');
-      const statusLine = document.getElementById('form-status');
+      const recentEntries = {{ recent_entries|tojson }};
+      const defaultFormat = {{ default_format|tojson }};
+
+      const probeForm = document.getElementById('probe-form');
+      const probeUrlInput = document.getElementById('probe-url');
+      const probeStatus = document.getElementById('probe-status');
+      const metadataPreview = document.getElementById('metadata-preview');
+      const previewTitle = document.getElementById('preview-title');
+      const previewDetails = document.getElementById('preview-details');
+      const previewMeta = document.getElementById('preview-meta');
+      const previewThumb = document.getElementById('preview-thumb');
+
       const importForm = document.getElementById('import-form');
-      const searchInput = document.getElementById('search-input');
-      const formatInput = document.getElementById('format-input');
+      const urlInput = document.getElementById('url-input');
+      const titleInput = document.getElementById('title-input');
+      const categoryInput = document.getElementById('category-input');
       const tagInput = document.getElementById('tags-input');
-      formatInput.value = defaultFormat;
-      document.querySelectorAll('.popular-tag').forEach((button) => {
-        button.addEventListener('click', () => addPopularTag(button.getAttribute('data-tag')));
+      const notesInput = document.getElementById('notes-input');
+      const formatInput = document.getElementById('format-input');
+      const autoDownloadInput = document.getElementById('auto-download');
+      const submitButton = document.getElementById('submit-button');
+      const statusLine = document.getElementById('form-status');
+
+      const searchInput = document.getElementById('search-input');
+      const tableBody = document.getElementById('table-body');
+
+      const popularTagButtons = document.querySelectorAll('.popular-tag');
+
+      let currentEntry = null;
+
+      function resetEditor() {
+        currentEntry = null;
+        urlInput.value = '';
+        titleInput.value = '';
+        categoryInput.value = '';
+        tagInput.value = '';
+        notesInput.value = '';
+        formatInput.value = defaultFormat;
+        autoDownloadInput.checked = true;
+        metadataPreview.classList.add('hidden');
+        previewTitle.textContent = 'Título del video';
+        previewDetails.textContent = '';
+        previewMeta.textContent = '';
+        previewThumb.src = '/assets/LogoVHS.png';
+        submitButton.disabled = true;
+      }
+
+      function formatDuration(seconds) {
+        if (!seconds || Number.isNaN(Number(seconds))) {
+          return '—';
+        }
+        const minutes = Math.round(Number(seconds) / 60);
+        return `${minutes} min`;
+      }
+
+      function populatePreview(entry) {
+        currentEntry = entry;
+        urlInput.value = entry.url || '';
+        titleInput.value = entry.title || '';
+        if (entry.category) {
+          categoryInput.value = entry.category;
+        }
+        if (entry.tags && entry.tags.length) {
+          tagInput.value = entry.tags.join(', ');
+        }
+        previewTitle.textContent = entry.title || entry.url;
+        const details = [entry.uploader, entry.extractor].filter(Boolean).join(' · ');
+        previewDetails.textContent = details;
+        const metaBits = [];
+        if (entry.duration) {
+          metaBits.push(formatDuration(entry.duration));
+        }
+        if (entry.category) {
+          metaBits.push(entry.category);
+        }
+        previewMeta.textContent = metaBits.join(' · ') || 'Metadatos listos';
+        if (entry.thumbnail) {
+          previewThumb.src = entry.thumbnail;
+        } else {
+          previewThumb.src = '/assets/LogoVHS.png';
+        }
+        metadataPreview.classList.remove('hidden');
+        submitButton.disabled = false;
+        titleInput.focus();
+      }
+
+      probeForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const url = probeUrlInput.value.trim();
+        if (!url) {
+          probeStatus.textContent = 'Introduce una URL válida.';
+          return;
+        }
+        resetEditor();
+        probeStatus.textContent = 'Consultando metadatos…';
+        try {
+          const response = await fetch(`/api/import/probe?${new URLSearchParams({ url })}`);
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.detail || 'No se pudo analizar la URL');
+          }
+          if (!payload.entry) {
+            throw new Error('Respuesta incompleta del servidor');
+          }
+          populatePreview(payload.entry);
+          statusLine.textContent = '';
+          probeStatus.textContent = 'Metadatos listos, revisa el formulario.';
+        } catch (error) {
+          probeStatus.textContent = `⚠️ ${error.message}`;
+        }
+      });
+
+      importForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!currentEntry) {
+          statusLine.textContent = 'Primero analiza una URL.';
+          return;
+        }
+        const payload = {
+          url: urlInput.value,
+          title: titleInput.value.trim() || undefined,
+          tags: tagInput.value
+            .split(',')
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+          notes: notesInput.value.trim() || undefined,
+          category: categoryInput.value.trim() || undefined,
+          format: formatInput.value || defaultFormat,
+          auto_download: autoDownloadInput.checked,
+        };
+        statusLine.textContent = 'Guardando…';
+        try {
+          const response = await fetch('/api/library', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const stored = await response.json();
+          if (!response.ok) {
+            throw new Error(stored.detail || 'No se pudo guardar');
+          }
+          statusLine.textContent = `✔️ Importado: ${stored.title}`;
+          recentEntries.unshift(stored);
+          recentEntries.splice(50);
+          renderRows(getFilteredEntries());
+          if (payload.auto_download) {
+            statusLine.textContent += ' · Precarga solicitada';
+          }
+          resetEditor();
+          probeUrlInput.value = '';
+          probeUrlInput.focus();
+        } catch (error) {
+          statusLine.textContent = `⚠️ ${error.message}`;
+        }
+      });
+
+      popularTagButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          const tag = button.dataset.tag;
+          if (!tag) {
+            return;
+          }
+          const current = tagInput.value
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+          if (!current.includes(tag)) {
+            current.push(tag);
+          }
+          tagInput.value = current.join(', ');
+          tagInput.focus();
+        });
       });
 
       function renderRows(items) {
-        tableBody.innerHTML = '';
-        if (!items.length) {
-          emptyState.hidden = false;
+        if (!tableBody) {
           return;
         }
-        emptyState.hidden = true;
+        tableBody.innerHTML = '';
         const fragment = document.createDocumentFragment();
         items.forEach((item) => {
           const row = document.createElement('tr');
-          const duration = item.duration ? `${Math.round(item.duration / 60)} min` : '—';
+          const duration = item.duration ? formatDuration(item.duration) : '—';
           row.innerHTML = `
             <td><strong>${item.title || 'Sin título'}</strong><br /><small>${item.uploader || ''}</small></td>
             <td>${item.category || 'miscelánea'}</td>
@@ -452,65 +655,7 @@
         }
       }
 
-      importForm.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const formData = new FormData(importForm);
-        const payload = {
-          url: formData.get('url'),
-          tags: (formData.get('tags') || '')
-            .split(',')
-            .map((tag) => tag.trim())
-            .filter(Boolean),
-          notes: formData.get('notes') || undefined,
-          category: formData.get('category') || undefined,
-          format: formData.get('format') || defaultFormat,
-          auto_download: formData.get('auto_download') === 'on',
-        };
-        statusLine.textContent = 'Procesando…';
-        try {
-          const response = await fetch('/api/library', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          if (!response.ok) {
-            const detail = await response.json().catch(() => ({}));
-            throw new Error(detail.detail || 'Error al importar');
-          }
-          const stored = await response.json();
-          statusLine.textContent = `✔️ Importado: ${stored.title}`;
-          importForm.reset();
-          formatInput.value = defaultFormat;
-          recentEntries.unshift(stored);
-          recentEntries.splice(50);
-          renderRows(getFilteredEntries());
-          if (payload.auto_download) {
-            statusLine.textContent += ' · Precarga solicitada';
-          }
-        } catch (error) {
-          statusLine.textContent = `⚠️ ${error.message}`;
-        } finally {
-          setTimeout(() => {
-            statusLine.textContent = '';
-          }, 6000);
-        }
-      });
-
-      function addPopularTag(tag) {
-        if (!tag || !tagInput) {
-          return;
-        }
-        const current = tagInput.value
-          .split(',')
-          .map((item) => item.trim())
-          .filter(Boolean);
-        if (!current.includes(tag)) {
-          current.push(tag);
-        }
-        tagInput.value = current.join(', ');
-        tagInput.focus();
-      }
-
+      resetEditor();
       renderRows(recentEntries);
       if (!recentEntries.length) {
         refreshEntries();
