@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }} · Biblioteca retro</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA2NCA2NCcgZmlsbD0nbm9uZSc+CjxyZWN0IHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgcng9JzE2JyBmaWxsPScjMGYxNzJhJy8+CjxjaXJjbGUgY3g9JzI2JyBjeT0nMzInIHI9JzE0JyBzdHJva2U9JyMyMmQzZWUnIHN0cm9rZS13aWR0aD0nNCcgZmlsbD0nbm9uZScvPgo8cGF0aCBkPSdNMzIgMjJsMTYgMTAtMTYgMTBWMjJ6JyBmaWxsPScjZjk3MzE2Jy8+Cjwvc3ZnPg=="
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #020617;
+        color: #e2e8f0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at top, #1e1b4b, #020617 60%);
+        padding: clamp(1rem, 2vw, 2.5rem);
+      }
+      a {
+        color: inherit;
+      }
+      .app-shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 1.5rem;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      header.hero {
+        background: rgba(15, 23, 42, 0.8);
+        border-radius: 22px;
+        padding: clamp(1.5rem, 4vw, 2.75rem);
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.65);
+        border: 1px solid rgba(99, 102, 241, 0.4);
+      }
+      header.hero h1 {
+        margin: 0 0 0.5rem;
+        font-size: clamp(2rem, 6vw, 3.1rem);
+      }
+      .hero-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-top: 1.25rem;
+      }
+      .stat-card {
+        flex: 1 1 160px;
+        border-radius: 18px;
+        padding: 1rem;
+        background: rgba(30, 41, 59, 0.65);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+      }
+      .stat-card strong {
+        display: block;
+        font-size: 2rem;
+      }
+      .filters-panel {
+        background: rgba(15, 23, 42, 0.75);
+        border-radius: 18px;
+        padding: 1.25rem;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      .filters-panel label {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.8rem;
+        color: #94a3b8;
+      }
+      .search-input {
+        width: 100%;
+        padding: 0.9rem 1rem;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        background: rgba(15, 23, 42, 0.6);
+        color: inherit;
+        font-size: 1rem;
+      }
+      .chip-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .chip {
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        border-radius: 999px;
+        padding: 0.35rem 0.85rem;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+      .chip.active {
+        background: linear-gradient(120deg, #6366f1, #c084fc);
+        color: #0f172a;
+        border-color: transparent;
+        font-weight: 600;
+      }
+      .playlists-panel {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+      }
+      .playlist-card {
+        border-radius: 18px;
+        padding: 1rem;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        background: rgba(15, 23, 42, 0.65);
+        cursor: pointer;
+        transition: transform 0.2s ease, border 0.2s ease;
+        min-height: 150px;
+      }
+      .playlist-card:hover,
+      .playlist-card.active {
+        border-color: rgba(99, 102, 241, 0.65);
+        transform: translateY(-2px);
+      }
+      .playlist-card h3 {
+        margin: 0 0 0.35rem;
+        font-size: 1.1rem;
+      }
+      .playlist-meta {
+        font-size: 0.85rem;
+        color: #a5b4fc;
+      }
+      .library-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.25rem;
+      }
+      .video-card {
+        border-radius: 20px;
+        overflow: hidden;
+        border: 1px solid rgba(15, 23, 42, 0.6);
+        background: rgba(15, 23, 42, 0.85);
+        display: flex;
+        flex-direction: column;
+      }
+      .thumb {
+        position: relative;
+        padding-top: 56.25%;
+        background: rgba(30, 41, 59, 0.8);
+        overflow: hidden;
+      }
+      .thumb img {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .duration-badge {
+        position: absolute;
+        bottom: 0.75rem;
+        right: 0.75rem;
+        background: rgba(15, 23, 42, 0.85);
+        padding: 0.25rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+      }
+      .favorite-toggle {
+        position: absolute;
+        top: 0.75rem;
+        right: 0.75rem;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: rgba(2, 6, 23, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: #fcd34d;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        font-size: 1rem;
+      }
+      .favorite-toggle.active {
+        background: rgba(250, 204, 21, 0.15);
+        border-color: rgba(250, 204, 21, 0.6);
+      }
+      .video-body {
+        padding: 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .video-body h3 {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+      .video-meta {
+        font-size: 0.85rem;
+        color: #94a3b8;
+      }
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+      }
+      .tag {
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        padding: 0.2rem 0.65rem;
+        font-size: 0.75rem;
+      }
+      .notes {
+        font-size: 0.85rem;
+        color: #cbd5f5;
+        min-height: 2.4em;
+      }
+      .actions {
+        margin-top: 0.5rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+      }
+      .primary-button,
+      .ghost-link {
+        border-radius: 12px;
+        border: none;
+        padding: 0.6rem 1.1rem;
+        font-weight: 600;
+        text-decoration: none;
+        text-align: center;
+        cursor: pointer;
+      }
+      .primary-button {
+        background: linear-gradient(120deg, #f97316, #ec4899);
+        color: white;
+      }
+      .ghost-link {
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        background: transparent;
+        color: inherit;
+      }
+      .format-select {
+        flex: 1;
+        min-width: 150px;
+        padding: 0.5rem 0.75rem;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        background: rgba(15, 23, 42, 0.4);
+        color: inherit;
+      }
+      .status-row {
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+        color: #94a3b8;
+      }
+      .hint {
+        font-size: 0.85rem;
+        color: #94a3b8;
+        margin: 0.25rem 0 0;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 3rem 1rem;
+        border-radius: 18px;
+        border: 1px dashed rgba(148, 163, 184, 0.4);
+        color: #94a3b8;
+      }
+      @media (min-width: 1100px) {
+        .app-shell {
+          grid-template-columns: 280px minmax(0, 1fr);
+        }
+        .sidebar {
+          position: sticky;
+          top: 1rem;
+          align-self: flex-start;
+        }
+      }
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      .sidebar section {
+        background: rgba(15, 23, 42, 0.75);
+        border-radius: 18px;
+        padding: 1.25rem;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+      }
+      .sidebar h2 {
+        margin: 0 0 0.5rem;
+        font-size: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #a5b4fc;
+      }
+      .sidebar ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
+      .sidebar button {
+        background: transparent;
+        border: none;
+        color: inherit;
+        text-align: left;
+        padding: 0.35rem 0.25rem;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .sidebar button.active {
+        color: #c084fc;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <section>
+          <h2>Categorías</h2>
+          <div class="chip-group" id="category-chips"></div>
+        </section>
+        <section>
+          <h2>Listas estáticas</h2>
+          <ul id="static-playlists"></ul>
+        </section>
+        <section>
+          <h2>Listas dinámicas</h2>
+          <ul id="dynamic-playlists"></ul>
+        </section>
+      </aside>
+      <main>
+        <header class="hero">
+          <h1>{{ app_name }}</h1>
+          <p>
+            Biblioteca retro con {{ library_count }} elementos ya clasificados.
+            {% if preview_categories %}Destacan: {{ ', '.join(preview_categories) }}.{% endif %}
+          </p>
+          <div class="hero-grid">
+            <article class="stat-card">
+              <label>Elementos</label>
+              <strong>{{ '{:,}'.format(library_count).replace(',', '.') }}</strong>
+              <small>Videos y audios listos para descargar.</small>
+            </article>
+            <article class="stat-card">
+              <label>Favoritos</label>
+              <strong id="favorite-count">0</strong>
+              <small>Se guardan en tu navegador.</small>
+            </article>
+            <article class="stat-card">
+              <label>Listas activas</label>
+              <strong id="playlist-count">0</strong>
+              <small>Estáticas + dinámicas.</small>
+            </article>
+          </div>
+        </header>
+        <section class="filters-panel">
+          <div>
+            <label for="search">Buscar</label>
+            <input
+              type="search"
+              id="search"
+              class="search-input"
+              placeholder="Título, autor, etiqueta o nota"
+              autocomplete="off"
+            />
+          </div>
+          <div class="status-row">
+            <p id="active-playlist">Mostrando toda la biblioteca.</p>
+            <p id="results-counter">0 resultados.</p>
+          </div>
+        </section>
+        <section class="filters-panel">
+          <div class="status-row">
+            <div>
+              <label>Listas de reproducción</label>
+              <p class="hint">Explora selecciones fijas y dinámicas según categorías y duración.</p>
+            </div>
+          </div>
+          <div class="playlists-panel" id="playlist-cards"></div>
+        </section>
+        <section id="library-section">
+          <div class="library-grid" id="library-grid"></div>
+          <div class="empty-state" id="empty-state" hidden>
+            Nada coincide con tu búsqueda o filtros. Intenta otra combinación o vuelve a "Todos".
+          </div>
+        </section>
+      </main>
+    </div>
+    <script>
+      const VHS_BASE_URL = {{ vhs_base_url | tojson }};
+      const DEFAULT_FORMAT = {{ default_format | tojson }};
+      const libraryState = {
+        entries: [],
+        filtered: [],
+        favorites: new Set(),
+        categories: [],
+        activeCategory: 'all',
+        activePlaylistId: null,
+        playlists: [],
+        search: '',
+      };
+
+      const STATIC_PLAYLISTS = [
+        {
+          id: 'recent',
+          name: 'Últimos estrenos',
+          description: 'Lo más nuevo añadido a la biblioteca.',
+          resolve: (items) =>
+            items
+              .slice()
+              .sort((a, b) => (b.added_at || 0) - (a.added_at || 0))
+              .slice(0, 12),
+        },
+        {
+          id: 'longform',
+          name: 'Sesión de sofá',
+          description: 'Vídeos de más de 15 minutos para maratones caseras.',
+          resolve: (items) => items.filter((item) => (item.duration || 0) >= 900),
+        },
+        {
+          id: 'clips',
+          name: 'Clips exprés',
+          description: 'Duración inferior a 3 minutos.',
+          resolve: (items) => items.filter((item) => (item.duration || 0) > 0 && item.duration <= 180),
+        },
+        {
+          id: 'random',
+          name: 'Zapping retro',
+          description: 'Selección aleatoria para descubrir joyas olvidadas.',
+          resolve: (items) => shuffle(items).slice(0, 9),
+        },
+      ];
+
+      document.addEventListener('DOMContentLoaded', () => {
+        restoreFavorites();
+        attachSearch();
+        fetchLibrary();
+      });
+
+      function fetchLibrary() {
+        fetch('/api/library')
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error('No se pudo cargar la biblioteca.');
+            }
+            return response.json();
+          })
+          .then((payload) => {
+            libraryState.entries = Array.isArray(payload.items) ? payload.items : [];
+            buildCategories();
+            buildPlaylists();
+            applyFilters();
+          })
+          .catch((error) => {
+            const grid = document.getElementById('library-grid');
+            grid.innerHTML = `<p class="empty-state">${error.message}</p>`;
+          });
+      }
+
+      function restoreFavorites() {
+        try {
+          const raw = localStorage.getItem('videorama:favorites');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              libraryState.favorites = new Set(parsed);
+            }
+          }
+        } catch (error) {
+          console.warn('No se pudieron restaurar favoritos', error);
+        }
+        updateFavoriteCounter();
+      }
+
+      function persistFavorites() {
+        localStorage.setItem('videorama:favorites', JSON.stringify([...libraryState.favorites]));
+        updateFavoriteCounter();
+        buildCategories();
+      }
+
+      function updateFavoriteCounter() {
+        const counter = document.getElementById('favorite-count');
+        counter.textContent = libraryState.favorites.size;
+      }
+
+      function attachSearch() {
+        const searchInput = document.getElementById('search');
+        searchInput.addEventListener('input', (event) => {
+          libraryState.search = event.target.value.toLowerCase();
+          applyFilters();
+        });
+      }
+
+      function buildCategories() {
+        const categories = new Map();
+        libraryState.entries.forEach((entry) => {
+          const name = normalize(entry.category) || 'miscelánea';
+          categories.set(name, (categories.get(name) || 0) + 1);
+        });
+        const chips = [{ id: 'all', label: 'Todos', count: libraryState.entries.length }];
+        chips.push({ id: 'favorites', label: 'Favoritos', count: libraryState.favorites.size });
+        categories.forEach((count, key) => {
+          const label = key.replace(/\b\w/g, (char) => char.toUpperCase());
+          chips.push({ id: key, label, count });
+        });
+        libraryState.categories = chips;
+        renderCategoryChips();
+      }
+
+      function renderCategoryChips() {
+        const container = document.getElementById('category-chips');
+        container.innerHTML = '';
+        libraryState.categories.forEach((chip) => {
+          const element = document.createElement('button');
+          element.type = 'button';
+          element.className = `chip ${libraryState.activeCategory === chip.id ? 'active' : ''}`;
+          element.textContent = `${chip.label} (${chip.count})`;
+          element.addEventListener('click', () => {
+            libraryState.activeCategory = chip.id;
+            libraryState.activePlaylistId = null;
+            applyFilters();
+          });
+          container.appendChild(element);
+        });
+      }
+
+      function buildPlaylists() {
+        const dynamic = buildDynamicPlaylists(libraryState.entries);
+        libraryState.playlists = [...STATIC_PLAYLISTS, ...dynamic];
+        const playlistCount = document.getElementById('playlist-count');
+        playlistCount.textContent = libraryState.playlists.length;
+        renderPlaylists();
+      }
+
+      function buildDynamicPlaylists(items) {
+        const categoryCounts = aggregateCounts(items.map((entry) => normalize(entry.category)));
+        const topCategories = categoryCounts.slice(0, 4).map((cat) => ({
+          id: `cat-${cat.value}`,
+          name: `Categoría: ${toTitle(cat.value)}`,
+          description: `${cat.count} piezas seleccionadas automáticamente.`,
+          resolve: (entries) => entries.filter((entry) => normalize(entry.category) === cat.value).slice(0, 12),
+        }));
+
+        const tagCounts = aggregateCounts(
+          items
+            .flatMap((entry) => Array.isArray(entry.tags) ? entry.tags : [])
+            .map((tag) => normalize(tag))
+            .filter(Boolean),
+        ).slice(0, 3);
+
+        const tagPlaylists = tagCounts.map((tag) => ({
+          id: `tag-${tag.value}`,
+          name: `Etiqueta: ${toTitle(tag.value)}`,
+          description: 'Agrupación dinámica según etiquetas coincidentes.',
+          resolve: (entries) =>
+            entries.filter((entry) => (entry.tags || []).some((tagName) => normalize(tagName) === tag.value)).slice(0, 12),
+        }));
+
+        return [...topCategories, ...tagPlaylists];
+      }
+
+      function aggregateCounts(values) {
+        const map = new Map();
+        values.forEach((value) => {
+          if (!value) return;
+          map.set(value, (map.get(value) || 0) + 1);
+        });
+        return [...map.entries()]
+          .map(([value, count]) => ({ value, count }))
+          .sort((a, b) => b.count - a.count);
+      }
+
+      function renderPlaylists() {
+        const listContainer = document.getElementById('playlist-cards');
+        const staticList = document.getElementById('static-playlists');
+        const dynamicList = document.getElementById('dynamic-playlists');
+        listContainer.innerHTML = '';
+        staticList.innerHTML = '';
+        dynamicList.innerHTML = '';
+
+        libraryState.playlists.forEach((playlist) => {
+          const isStatic = STATIC_PLAYLISTS.some((staticItem) => staticItem.id === playlist.id);
+          const card = document.createElement('article');
+          card.className = `playlist-card ${libraryState.activePlaylistId === playlist.id ? 'active' : ''}`;
+          card.innerHTML = `
+            <p class="playlist-meta">${isStatic ? 'Lista estática' : 'Lista dinámica'}</p>
+            <h3>${playlist.name}</h3>
+            <p>${playlist.description}</p>
+          `;
+          card.addEventListener('click', () => {
+            libraryState.activePlaylistId = playlist.id;
+            libraryState.activeCategory = 'all';
+            applyFilters();
+            renderPlaylists();
+          });
+          listContainer.appendChild(card);
+
+          const listItem = document.createElement('li');
+          const button = document.createElement('button');
+          button.textContent = playlist.name;
+          button.className = libraryState.activePlaylistId === playlist.id ? 'active' : '';
+          button.addEventListener('click', () => {
+            libraryState.activePlaylistId = playlist.id;
+            libraryState.activeCategory = 'all';
+            applyFilters();
+            renderPlaylists();
+          });
+          listItem.appendChild(button);
+          if (isStatic) {
+            staticList.appendChild(listItem);
+          } else {
+            dynamicList.appendChild(listItem);
+          }
+        });
+      }
+
+      function applyFilters() {
+        let items = [...libraryState.entries];
+        if (libraryState.activePlaylistId) {
+          const playlist = libraryState.playlists.find((pl) => pl.id === libraryState.activePlaylistId);
+          if (playlist) {
+            items = playlist.resolve(libraryState.entries);
+          }
+        } else if (libraryState.activeCategory === 'favorites') {
+          items = items.filter((entry) => libraryState.favorites.has(entry.id));
+        } else if (libraryState.activeCategory !== 'all') {
+          items = items.filter((entry) => normalize(entry.category) === libraryState.activeCategory);
+        }
+
+        if (libraryState.search) {
+          items = items.filter((entry) => {
+            const haystack = [entry.title, entry.uploader, entry.notes, entry.category]
+              .concat(entry.tags || [])
+              .join(' ')
+              .toLowerCase();
+            return haystack.includes(libraryState.search);
+          });
+        }
+
+        libraryState.filtered = items;
+        renderEntries();
+        renderCategoryChips();
+        updateCounters();
+      }
+
+      function renderEntries() {
+        const grid = document.getElementById('library-grid');
+        const emptyState = document.getElementById('empty-state');
+        grid.innerHTML = '';
+        if (!libraryState.filtered.length) {
+          emptyState.hidden = false;
+          return;
+        }
+        emptyState.hidden = true;
+        libraryState.filtered.forEach((entry) => {
+          grid.appendChild(buildVideoCard(entry));
+        });
+      }
+
+      function buildVideoCard(entry) {
+        const card = document.createElement('article');
+        card.className = 'video-card';
+        const thumbnail = entry.thumbnail || `https://placehold.co/640x360/0f172a/ffffff?text=${encodeURIComponent(entry.title || 'Video')}`;
+        const duration = formatDuration(entry.duration);
+        const tags = (entry.tags || []).slice(0, 4);
+        const preferredFormat = entry.preferred_format || DEFAULT_FORMAT;
+        const downloadUrl = buildDownloadUrl(entry, preferredFormat);
+        card.innerHTML = `
+          <div class="thumb">
+            <img src="${thumbnail}" alt="Miniatura de ${entry.title || 'video'}" loading="lazy" />
+            <button type="button" class="favorite-toggle ${libraryState.favorites.has(entry.id) ? 'active' : ''}" data-id="${entry.id}" aria-label="Favorito">
+              ★
+            </button>
+            <span class="duration-badge">${duration}</span>
+          </div>
+          <div class="video-body">
+            <h3>${entry.title || entry.url}</h3>
+            <p class="video-meta">${entry.uploader || 'Autor desconocido'} · ${toTitle(entry.category) || 'Miscelánea'}</p>
+            <p class="notes">${entry.notes || ''}</p>
+            <div class="tag-row">
+              ${tags
+                .map((tag) => `<span class="tag">${tag}</span>`)
+                .join('')}
+            </div>
+            <div class="actions">
+              <select class="format-select">
+                ${formatOptions(preferredFormat)
+                  .map((option) => `<option value="${option.value}" ${option.selected ? 'selected' : ''}>${option.label}</option>`)
+                  .join('')}
+              </select>
+              <a class="primary-button" href="${downloadUrl}" target="_blank" rel="noreferrer">Descargar</a>
+              <a class="ghost-link" href="${entry.url}" target="_blank" rel="noreferrer">Ver origen</a>
+            </div>
+          </div>
+        `;
+        const favoriteButton = card.querySelector('.favorite-toggle');
+        favoriteButton.addEventListener('click', () => toggleFavorite(entry.id, favoriteButton));
+        const select = card.querySelector('.format-select');
+        const downloadLink = card.querySelector('.primary-button');
+        select.addEventListener('change', () => {
+          downloadLink.href = buildDownloadUrl(entry, select.value);
+        });
+        return card;
+      }
+
+      function toggleFavorite(id, button) {
+        if (libraryState.favorites.has(id)) {
+          libraryState.favorites.delete(id);
+          button.classList.remove('active');
+        } else {
+          libraryState.favorites.add(id);
+          button.classList.add('active');
+        }
+        persistFavorites();
+        if (libraryState.activeCategory === 'favorites') {
+          applyFilters();
+        } else {
+          updateFavoriteCounter();
+        }
+      }
+
+      function buildDownloadUrl(entry, format) {
+        const url = new URL(`${VHS_BASE_URL}/api/download`);
+        url.searchParams.set('url', entry.url);
+        url.searchParams.set('format', format || entry.preferred_format || DEFAULT_FORMAT);
+        return url.toString();
+      }
+
+      function formatDuration(seconds) {
+        if (!seconds) {
+          return '—';
+        }
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        if (mins >= 60) {
+          const hours = Math.floor(mins / 60);
+          const remMins = mins % 60;
+          return `${hours.toString().padStart(2, '0')}:${remMins.toString().padStart(2, '0')}:${secs
+            .toString()
+            .padStart(2, '0')}`;
+        }
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      }
+
+      function normalize(value) {
+        return (value || '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      }
+
+      function toTitle(value) {
+        const normalized = normalize(value);
+        if (!normalized) {
+          return '';
+        }
+        return normalized.replace(/\b\w/g, (match) => match.toUpperCase());
+      }
+
+      function shuffle(items) {
+        const copy = items.slice();
+        for (let i = copy.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [copy[i], copy[j]] = [copy[j], copy[i]];
+        }
+        return copy;
+      }
+
+      function formatOptions(preferred) {
+        const options = [
+          { value: preferred, label: 'Formato preferido', selected: true },
+          { value: 'video_high', label: 'Video alta calidad' },
+          { value: 'video_low', label: 'Video ligero' },
+          { value: 'audio', label: 'Audio MP3' },
+          { value: 'audio_low', label: 'Audio ligero' },
+          { value: 'transcripcion_txt', label: 'Transcripción TXT' },
+        ];
+        const seen = new Set();
+        return options.filter((option) => {
+          if (!option.value || seen.has(option.value)) {
+            return false;
+          }
+          seen.add(option.value);
+          return true;
+        });
+      }
+
+      function updateCounters() {
+        const counter = document.getElementById('results-counter');
+        counter.textContent = `${libraryState.filtered.length} resultados`;
+        const active = document.getElementById('active-playlist');
+        if (libraryState.activePlaylistId) {
+          const playlist = libraryState.playlists.find((pl) => pl.id === libraryState.activePlaylistId);
+          active.textContent = playlist ? `Lista activa: ${playlist.name}` : 'Lista personalizada';
+        } else if (libraryState.activeCategory === 'favorites') {
+          active.textContent = 'Mostrando tus favoritos locales.';
+        } else if (libraryState.activeCategory === 'all') {
+          active.textContent = 'Mostrando toda la biblioteca.';
+        } else {
+          active.textContent = `Categoría: ${toTitle(libraryState.activeCategory)}`;
+        }
+      }
+    </script>
+  </body>
+</html>
