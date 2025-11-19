@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }} · Estadísticas</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #020617;
+        color: #e2e8f0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at top, #0f172a, #020617 60%);
+        padding: clamp(1rem, 2vw, 2.5rem);
+      }
+      nav.top-nav {
+        max-width: 1200px;
+        margin: 0 auto 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1.5rem;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+      }
+      .brand {
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+      }
+      .nav-links {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .nav-links a {
+        text-decoration: none;
+        border-radius: 999px;
+        padding: 0.4rem 0.9rem;
+        background: rgba(99, 102, 241, 0.15);
+        color: inherit;
+        font-weight: 600;
+      }
+      .nav-links a.active {
+        background: rgba(236, 72, 153, 0.25);
+      }
+      .layout {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: grid;
+        gap: 1.5rem;
+      }
+      header.hero {
+        background: rgba(15, 23, 42, 0.9);
+        border-radius: 22px;
+        padding: clamp(1.5rem, 3vw, 2.75rem);
+        border: 1px solid rgba(99, 102, 241, 0.35);
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+      }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+        margin-top: 1.25rem;
+      }
+      .stat-card {
+        border-radius: 18px;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        background: rgba(30, 41, 59, 0.75);
+        padding: 1rem 1.25rem;
+      }
+      .stat-card label {
+        display: block;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.8rem;
+        color: #94a3b8;
+      }
+      .stat-card strong {
+        display: block;
+        font-size: 2rem;
+        margin-top: 0.25rem;
+      }
+      .panels {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1rem;
+      }
+      .panel {
+        border-radius: 18px;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        background: rgba(15, 23, 42, 0.9);
+        padding: 1.25rem;
+      }
+      h2 {
+        margin-top: 0;
+      }
+      .chart-box {
+        background: rgba(30, 41, 59, 0.7);
+        border-radius: 14px;
+        padding: 1rem;
+        border: 1px solid rgba(99, 102, 241, 0.25);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 0.65rem 0.5rem;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+      }
+      th {
+        color: #a5b4fc;
+        letter-spacing: 0.08em;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+      }
+      .hint {
+        color: #94a3b8;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="top-nav">
+      <span class="brand">{{ app_name }}</span>
+      <div class="nav-links">
+        <a href="/">Biblioteca</a>
+        <a href="/import">Importador</a>
+        <a href="/import?mode=search">Buscador externo</a>
+        <a href="/stats" class="active">Estadísticas</a>
+      </div>
+    </nav>
+    <div class="layout">
+      <header class="hero">
+        <p class="hint">Tablero generado el <span id="generated-at"></span></p>
+        <h1>Salud de la biblioteca</h1>
+        <div class="hero-grid">
+          <article class="stat-card">
+            <label>Elementos</label>
+            <strong>{{ '{:,}'.format(summary.totals.entries).replace(',', '.') }}</strong>
+            <small class="hint">Videos y audios listos para reproducir.</small>
+          </article>
+          <article class="stat-card">
+            <label>Almacenamiento estimado</label>
+            <strong id="storage-total">—</strong>
+            <small class="hint">Sumando archivos locales y tamaños reportados.</small>
+          </article>
+          <article class="stat-card">
+            <label>Descargas registradas</label>
+            <strong>{{ summary.downloads.events }}</strong>
+            <small class="hint">Logs del endpoint /download.</small>
+          </article>
+          <article class="stat-card">
+            <label>Duración acumulada</label>
+            <strong id="duration-total">—</strong>
+            <small class="hint">Horas aproximadas de contenido.</small>
+          </article>
+        </div>
+      </header>
+      <div class="panels">
+        <section class="panel">
+          <h2>Almacenamiento por categoría</h2>
+          <div class="chart-box"><canvas id="categoryChart" height="200"></canvas></div>
+          <p class="hint">Solo se contabilizan elementos con tamaño conocido.</p>
+        </section>
+        <section class="panel">
+          <h2>Descargas recientes</h2>
+          <div class="chart-box"><canvas id="downloadChart" height="200"></canvas></div>
+          <p class="hint">Actividad agrupada por día.</p>
+        </section>
+        <section class="panel">
+          <h2>Formatos preferidos</h2>
+          <div class="chart-box"><canvas id="formatChart" height="200"></canvas></div>
+          <p class="hint">Distribución de formatos solicitados en la biblioteca.</p>
+        </section>
+      </div>
+      <section class="panel">
+        <h2>Categorías más pobladas</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Categoría</th>
+                <th>Elementos</th>
+                <th>Duración</th>
+                <th>Tamaño</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for cat in summary.categories[:12] %}
+                <tr>
+                  <td>{{ cat.name.title() }}</td>
+                  <td>{{ cat.count }}</td>
+                  <td data-seconds="{{ cat.duration }}"></td>
+                  <td data-bytes="{{ cat.bytes }}"></td>
+                </tr>
+              {% else %}
+                <tr><td colspan="4" class="hint">Aún no hay suficientes datos en la biblioteca.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+      const summary = {{ summary|tojson }};
+      const generatedAt = {{ generated_at|tojson }};
+
+      function formatBytes(bytes) {
+        if (!bytes || Number.isNaN(Number(bytes))) return '—';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = Number(bytes);
+        let unit = 0;
+        while (size >= 1024 && unit < units.length - 1) {
+          size /= 1024;
+          unit += 1;
+        }
+        const formatted = size >= 10 || size % 1 === 0 ? size.toFixed(0) : size.toFixed(1);
+        return `${formatted} ${units[unit]}`;
+      }
+
+      function formatHours(seconds) {
+        if (!seconds) return '—';
+        const hours = seconds / 3600;
+        return `${hours.toFixed(hours >= 10 ? 0 : 1)} h`;
+      }
+
+      function renderTotals() {
+        const storageNode = document.getElementById('storage-total');
+        const durationNode = document.getElementById('duration-total');
+        storageNode.textContent = formatBytes(summary?.totals?.bytes || 0);
+        durationNode.textContent = formatHours(summary?.totals?.duration_seconds || 0);
+        document.querySelectorAll('[data-bytes]').forEach((cell) => {
+          const value = Number(cell.getAttribute('data-bytes'));
+          cell.textContent = value ? formatBytes(value) : '—';
+        });
+        document.querySelectorAll('[data-seconds]').forEach((cell) => {
+          const value = Number(cell.getAttribute('data-seconds'));
+          cell.textContent = value ? formatHours(value) : '—';
+        });
+        const generatedLabel = document.getElementById('generated-at');
+        if (generatedLabel && generatedAt) {
+          generatedLabel.textContent = new Date(generatedAt * 1000).toLocaleString('es-ES');
+        }
+      }
+
+      function chartDataFromSummary() {
+        const categories = summary?.categories || [];
+        const labels = categories.map((cat) => cat.name?.toString()?.toUpperCase() || 'Sin categoría');
+        const storageData = categories.map((cat) => (Number(cat.bytes) || 0) / 1024 / 1024 / 1024);
+        return { labels, storageData };
+      }
+
+      function renderCategoryChart() {
+        const ctx = document.getElementById('categoryChart');
+        if (!ctx || !summary?.categories?.length) return;
+        const { labels, storageData } = chartDataFromSummary();
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'GB estimados',
+                data: storageData,
+                backgroundColor: '#6366f1',
+              },
+            ],
+          },
+          options: {
+            plugins: {
+              legend: { display: false },
+            },
+            scales: {
+              y: {
+                ticks: { color: '#e2e8f0' },
+                grid: { color: 'rgba(148, 163, 184, 0.2)' },
+              },
+              x: {
+                ticks: { color: '#e2e8f0' },
+                grid: { display: false },
+              },
+            },
+          },
+        });
+      }
+
+      function renderDownloadChart() {
+        const ctx = document.getElementById('downloadChart');
+        const byDay = summary?.downloads?.by_day || {};
+        if (!ctx || !Object.keys(byDay).length) return;
+        const labels = Object.keys(byDay).sort();
+        const counts = labels.map((day) => byDay[day].count || 0);
+        const bytes = labels.map((day) => (byDay[day].bytes || 0) / 1024 / 1024);
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'Descargas',
+                data: counts,
+                borderColor: '#f97316',
+                backgroundColor: 'rgba(249, 115, 22, 0.2)',
+                tension: 0.2,
+              },
+              {
+                label: 'MB transferidos',
+                data: bytes,
+                borderColor: '#22d3ee',
+                backgroundColor: 'rgba(34, 211, 238, 0.2)',
+                tension: 0.2,
+              },
+            ],
+          },
+          options: {
+            plugins: { legend: { labels: { color: '#e2e8f0' } } },
+            scales: {
+              y: { ticks: { color: '#e2e8f0' }, grid: { color: 'rgba(148, 163, 184, 0.2)' } },
+              x: { ticks: { color: '#e2e8f0' }, grid: { display: false } },
+            },
+          },
+        });
+      }
+
+      function renderFormatChart() {
+        const ctx = document.getElementById('formatChart');
+        const formats = summary?.formats || {};
+        if (!ctx || !Object.keys(formats).length) return;
+        const labels = Object.keys(formats);
+        const data = Object.values(formats);
+        new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels,
+            datasets: [
+              {
+                data,
+                backgroundColor: ['#6366f1', '#c084fc', '#f97316', '#22d3ee', '#10b981', '#f472b6'],
+              },
+            ],
+          },
+          options: {
+            plugins: { legend: { labels: { color: '#e2e8f0' } } },
+          },
+        });
+      }
+
+      renderTotals();
+      renderCategoryChart();
+      renderDownloadChart();
+      renderFormatChart();
+    </script>
+  </body>
+</html>

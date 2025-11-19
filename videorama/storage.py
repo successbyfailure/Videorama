@@ -60,6 +60,14 @@ class SQLiteStore:
                     hidden INTEGER NOT NULL DEFAULT 0,
                     updated_at REAL NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS download_events (
+                    id TEXT PRIMARY KEY,
+                    entry_id TEXT NOT NULL,
+                    media_format TEXT,
+                    bytes INTEGER,
+                    created_at REAL NOT NULL
+                );
                 """
             )
 
@@ -133,6 +141,33 @@ class SQLiteStore:
         with self._connect() as conn:
             cursor = conn.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
             return cursor.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # Downloads
+    # ------------------------------------------------------------------
+
+    def log_download(self, entry_id: str, media_format: Optional[str], bytes_count: Optional[int]) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO download_events (id, entry_id, media_format, bytes, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (uuid.uuid4().hex, entry_id, media_format, bytes_count, time.time()),
+            )
+
+    def list_download_events(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, entry_id, media_format, bytes, created_at
+                FROM download_events
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (max(1, limit),),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     # ------------------------------------------------------------------
     # Playlists
