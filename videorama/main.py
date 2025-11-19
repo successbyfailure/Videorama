@@ -15,10 +15,132 @@ APP_TITLE = "Videorama Retro Library"
 LIBRARY_PATH = Path(os.getenv("VIDEORAMA_LIBRARY_PATH", "data/videorama/library.json"))
 LIBRARY_PATH.parent.mkdir(parents=True, exist_ok=True)
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
-DEFAULT_VHS_FORMAT = os.getenv("VIDEORAMA_DEFAULT_FORMAT", "video_low")
+DEFAULT_VHS_FORMAT = os.getenv("VIDEORAMA_DEFAULT_FORMAT", "video_high")
+DEFAULT_CATEGORY = "miscelánea"
 
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")
+
+
+def sanitize_metadata(metadata: Any) -> Dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+    sanitized: Dict[str, Any] = {}
+    for key, value in list(metadata.items())[:100]:
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            sanitized[key] = value
+        elif isinstance(value, list):
+            cleaned_list = []
+            for item in value[:50]:
+                if isinstance(item, (str, int, float, bool)) or item is None:
+                    cleaned_list.append(item)
+                elif isinstance(item, dict):
+                    cleaned_list.append(sanitize_metadata(item))
+                else:
+                    cleaned_list.append(str(item))
+            sanitized[key] = cleaned_list
+        elif isinstance(value, dict):
+            sanitized[key] = sanitize_metadata(value)
+        else:
+            sanitized[key] = str(value)
+    return sanitized
+
+
+def normalize_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    url = str(entry.get("url") or "").strip()
+    entry_id = entry.get("id") or (entry_id_for_url(url) if url else None)
+    if not entry_id or not url:
+        return None
+
+    title = str(entry.get("title") or url).strip() or url
+
+    duration = entry.get("duration")
+    if isinstance(duration, str):
+        try:
+            duration = float(duration)
+        except ValueError:
+            duration = None
+    if isinstance(duration, (int, float)):
+        duration = max(0, int(duration))
+    else:
+        duration = None
+
+    tags = safe_list(entry.get("tags"))
+    cleaned_tags = sorted({tag.strip() for tag in tags if tag.strip()})
+
+    notes = entry.get("notes")
+    if isinstance(notes, str):
+        notes = notes.strip() or None
+    else:
+        notes = None
+
+    category = str(entry.get("category") or DEFAULT_CATEGORY).strip() or DEFAULT_CATEGORY
+    uploader = entry.get("uploader")
+    if isinstance(uploader, str):
+        uploader = uploader.strip() or None
+    else:
+        uploader = None
+
+    thumbnail = entry.get("thumbnail")
+    if isinstance(thumbnail, str):
+        thumbnail = thumbnail.strip() or None
+    else:
+        thumbnail = None
+
+    extractor = entry.get("extractor") or entry.get("extractor_key")
+    if isinstance(extractor, str):
+        extractor = extractor.strip() or None
+    else:
+        extractor = None
+
+    added_at = entry.get("added_at")
+    if not isinstance(added_at, (int, float)):
+        added_at = time.time()
+
+    preferred_format = str(entry.get("preferred_format") or DEFAULT_VHS_FORMAT)
+    preferred_format = preferred_format.strip() or DEFAULT_VHS_FORMAT
+
+    cache_key = entry.get("vhs_cache_key")
+    if isinstance(cache_key, str):
+        cache_key = cache_key.strip() or None
+    else:
+        cache_key = None
+
+    metadata_blob = sanitize_metadata(entry.get("metadata"))
+
+    return {
+        "id": entry_id,
+        "url": url,
+        "original_url": str(entry.get("original_url") or url),
+        "title": title,
+        "duration": duration,
+        "uploader": uploader,
+        "category": category,
+        "tags": cleaned_tags,
+        "notes": notes,
+        "thumbnail": thumbnail,
+        "extractor": extractor,
+        "added_at": added_at,
+        "vhs_cache_key": cache_key or derive_cache_key(url, preferred_format),
+        "preferred_format": preferred_format,
+        "metadata": metadata_blob,
+    }
+
+
+def normalize_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    seen_ids = set()
+    for raw in entries:
+        normalized_entry = normalize_entry(raw)
+        if not normalized_entry:
+            continue
+        entry_id = normalized_entry["id"]
+        if entry_id in seen_ids:
+            continue
+        seen_ids.add(entry_id)
+        normalized.append(normalized_entry)
+    normalized.sort(key=lambda item: item.get("added_at", 0), reverse=True)
+    return normalized
 
 
 def load_library() -> List[Dict[str, Any]]:
@@ -30,14 +152,15 @@ def load_library() -> List[Dict[str, Any]]:
     except json.JSONDecodeError:
         return []
     if isinstance(data, list):
-        return data
+        return normalize_entries(data)
     return []
 
 
 def save_library(entries: List[Dict[str, Any]]) -> None:
     LIBRARY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    normalized_entries = normalize_entries(entries)
     with LIBRARY_PATH.open("w", encoding="utf-8") as handle:
-        json.dump(entries, handle, ensure_ascii=False, indent=2)
+        json.dump(normalized_entries, handle, ensure_ascii=False, indent=2)
 
 
 def entry_id_for_url(url: str) -> str:
@@ -141,9 +264,12 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     metadata = fetch_vhs_metadata(payload.url)
     entry_id = entry_id_for_url(payload.url)
     now = time.time()
+    metadata_blob = sanitize_metadata(metadata)
+
     entry = {
         "id": entry_id,
         "url": payload.url,
+        "original_url": payload.url,
         "title": metadata.get("title") or payload.url,
         "duration": metadata.get("duration"),
         "uploader": metadata.get("uploader"),
@@ -155,18 +281,18 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
         "added_at": now,
         "vhs_cache_key": derive_cache_key(payload.url, payload.format),
         "preferred_format": payload.format,
+        "metadata": metadata_blob,
     }
 
-    entries = load_library()
-    entries = [item for item in entries if item.get("id") != entry_id]
+    entries = [item for item in load_library() if item.get("id") != entry_id]
     entries.append(entry)
-    entries.sort(key=lambda item: item.get("added_at", 0), reverse=True)
     save_library(entries)
 
     if payload.auto_download:
         trigger_vhs_download(payload.url, payload.format)
 
-    return entry
+    stored_entry = normalize_entry(entry)
+    return stored_entry or entry
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -188,3 +314,18 @@ async def home(request: Request) -> HTMLResponse:
         "default_format": DEFAULT_VHS_FORMAT,
     }
     return templates.TemplateResponse("videorama.html", context)
+
+
+@app.get("/import", response_class=HTMLResponse)
+async def import_manager(request: Request) -> HTMLResponse:
+    entries = load_library()
+    recent_entries = entries[:50]
+    context = {
+        "request": request,
+        "app_name": APP_TITLE,
+        "library_count": len(entries),
+        "recent_entries": recent_entries,
+        "default_format": DEFAULT_VHS_FORMAT,
+        "library_path": str(LIBRARY_PATH.resolve()),
+    }
+    return templates.TemplateResponse("import_manager.html", context)

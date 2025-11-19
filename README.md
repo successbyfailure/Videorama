@@ -38,6 +38,10 @@ dependencias, por lo que es sencillo mantenerlos sincronizados.
 - Sincroniza automáticamente nuevas entradas con VHS para que el contenido quede
   precacheado en segundo plano.
 - Almacena los datos en `data/videorama/library.json` (ruta configurable).
+- Panel web "VHS" en `/import` con formulario, iconografía retro, vista previa
+  y confirmaciones instantáneas.
+- Guarda la URL original y los metadatos completos devueltos por VHS para cada
+  vídeo, manteniendo la biblioteca lista para auditorías futuras.
 - Bot de Telegram opcional (`videorama/telegram_bot.py`) con comandos `/add` y
   `/list` para gestionar la biblioteca desde cualquier chat.
 
@@ -76,7 +80,7 @@ que ejecuta cada contenedor.
 | `WHISPER_ASR_*` | Endpoint alternativo compatible con whisper-asr | VHS | _(vacío)_ |
 | `VHS_BASE_URL` | URL que usa Videorama para hablar con VHS | Videorama | `http://localhost:8601` |
 | `VIDEORAMA_LIBRARY_PATH` | Ruta del fichero JSON de la biblioteca | Videorama | `data/videorama/library.json` |
-| `VIDEORAMA_DEFAULT_FORMAT` | Formato que Videorama pedirá a VHS al precachear | Videorama | `video_low` |
+| `VIDEORAMA_DEFAULT_FORMAT` | Formato que Videorama pedirá a VHS al precachear | Videorama | `video_high` |
 | `VIDEORAMA_API_URL` | URL que utilizará el bot de Telegram | Bot | `http://localhost:8600` |
 | `TELEGRAM_BOT_TOKEN` | Token de tu bot para `videorama/telegram_bot.py` | Bot | _(vacío)_ |
 
