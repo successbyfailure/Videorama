@@ -37,7 +37,10 @@ dependencias, por lo que es sencillo mantenerlos sincronizados.
   por VHS.
 - Sincroniza automáticamente nuevas entradas con VHS para que el contenido quede
   precacheado en segundo plano.
-- Almacena los datos en `data/videorama/library.json` (ruta configurable).
+- Almacena los datos en una base SQLite (`data/videorama/library.db` por
+  defecto) y migra automáticamente bibliotecas antiguas en JSON.
+- Gestor visual para listas estáticas/dinámicas y categorías sin salir de la
+  biblioteca principal.
 - Panel web "VHS" en `/import` con formulario, iconografía retro, vista previa
   y confirmaciones instantáneas.
 - Guarda la URL original y los metadatos completos devueltos por VHS para cada
@@ -79,7 +82,8 @@ que ejecuta cada contenedor.
 | `TRANSCRIPTION_*` | Configuración del endpoint usado para transcribir | VHS | Ver `example.env` |
 | `WHISPER_ASR_*` | Endpoint alternativo compatible con whisper-asr | VHS | _(vacío)_ |
 | `VHS_BASE_URL` | URL que usa Videorama para hablar con VHS | Videorama | `http://localhost:8601` |
-| `VIDEORAMA_LIBRARY_PATH` | Ruta del fichero JSON de la biblioteca | Videorama | `data/videorama/library.json` |
+| `VIDEORAMA_LIBRARY_PATH` | Ruta del fichero JSON legado (solo importación) | Videorama | `data/videorama/library.json` |
+| `VIDEORAMA_DB_PATH` | Ruta del fichero SQLite que almacena la biblioteca | Videorama | `data/videorama/library.db` |
 | `VIDEORAMA_DEFAULT_FORMAT` | Formato que Videorama pedirá a VHS al precachear | Videorama | `video_high` |
 | `VIDEORAMA_API_URL` | URL que utilizará el bot de Telegram | Bot | `http://localhost:8600` |
 | `TELEGRAM_BOT_TOKEN` | Token de tu bot para `videorama/telegram_bot.py` | Bot | _(vacío)_ |
@@ -110,6 +114,12 @@ Clona `example.env`, renómbralo a `.env` y ajusta los valores según tu entorno
 - `POST /api/library`: añade una nueva URL, consulta `/api/probe` en VHS y, si
   se solicita, dispara una descarga remota para precachear el contenido.
 - `DELETE /api/library/{id}`: elimina un elemento.
+- `GET /api/playlists`: playlists personalizadas guardadas en SQLite.
+- `POST /api/playlists`: crea una lista estática (con IDs) o dinámica (con
+  reglas por etiqueta/categoría/duración).
+- `DELETE /api/playlists/{id}`: elimina una lista personalizada.
+- `GET /api/category-settings`: devuelve alias/visibilidad de categorías.
+- `PUT /api/category-settings`: guarda las preferencias de categorías.
 - `GET /api/health`: estado básico del servicio.
 
 ## Bot de Telegram

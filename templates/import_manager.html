@@ -23,6 +23,37 @@
       a {
         color: inherit;
       }
+      nav.top-nav {
+        max-width: 1200px;
+        margin: 0 auto 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1.5rem;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+      }
+      .brand {
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+      }
+      .nav-links {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .nav-links a {
+        text-decoration: none;
+        border-radius: 999px;
+        padding: 0.4rem 0.9rem;
+        background: rgba(99, 102, 241, 0.15);
+        font-weight: 600;
+      }
+      .nav-links a.active {
+        background: rgba(236, 72, 153, 0.2);
+      }
       .layout {
         max-width: 1200px;
         margin: 0 auto;
@@ -199,6 +230,13 @@
     </style>
   </head>
   <body>
+    <nav class="top-nav">
+      <span class="brand">{{ app_name }}</span>
+      <div class="nav-links">
+        <a href="/">Biblioteca</a>
+        <a href="/import" class="active">Importador</a>
+      </div>
+    </nav>
     <div class="layout">
       <header>
         <div class="identity">

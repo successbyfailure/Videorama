@@ -3,23 +3,27 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
+
+from .storage import SQLiteStore
 
 APP_TITLE = "Videorama Retro Library"
 LIBRARY_PATH = Path(os.getenv("VIDEORAMA_LIBRARY_PATH", "data/videorama/library.json"))
 LIBRARY_PATH.parent.mkdir(parents=True, exist_ok=True)
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
 DEFAULT_VHS_FORMAT = os.getenv("VIDEORAMA_DEFAULT_FORMAT", "video_high")
+LIBRARY_DB_PATH = Path(os.getenv("VIDEORAMA_DB_PATH", "data/videorama/library.db"))
 DEFAULT_CATEGORY = "miscelánea"
 
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")
+store = SQLiteStore(LIBRARY_DB_PATH)
 
 
 def sanitize_metadata(metadata: Any) -> Dict[str, Any]:
@@ -144,6 +148,18 @@ def normalize_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def load_library() -> List[Dict[str, Any]]:
+    entries = store.list_entries()
+    if entries:
+        return normalize_entries(entries)
+    legacy_entries = _load_legacy_library()
+    if not legacy_entries:
+        return []
+    for entry in legacy_entries:
+        store.upsert_entry(entry)
+    return normalize_entries(store.list_entries())
+
+
+def _load_legacy_library() -> List[Dict[str, Any]]:
     if not LIBRARY_PATH.exists():
         return []
     try:
@@ -154,13 +170,6 @@ def load_library() -> List[Dict[str, Any]]:
     if isinstance(data, list):
         return normalize_entries(data)
     return []
-
-
-def save_library(entries: List[Dict[str, Any]]) -> None:
-    LIBRARY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    normalized_entries = normalize_entries(entries)
-    with LIBRARY_PATH.open("w", encoding="utf-8") as handle:
-        json.dump(normalized_entries, handle, ensure_ascii=False, indent=2)
 
 
 def entry_id_for_url(url: str) -> str:
@@ -229,6 +238,66 @@ class AddLibraryEntry(BaseModel):
     auto_download: bool = True
 
 
+class PlaylistRules(BaseModel):
+    type: Literal[
+        "tag",
+        "category",
+        "uploader",
+        "duration_min",
+        "duration_max",
+    ]
+    term: Optional[str]
+    minutes: Optional[int]
+
+    @validator("term")
+    def strip_term(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
+class PlaylistPayload(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    mode: Literal["static", "dynamic"]
+    entry_ids: Optional[List[str]] = None
+    rules: Optional[PlaylistRules] = None
+
+    @validator("name")
+    def validate_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("El nombre es obligatorio")
+        return normalized
+
+    @validator("description", pre=True, always=True)
+    def default_description(cls, value: Optional[str]) -> str:
+        if value is None:
+            return ""
+        return value.strip()
+
+    @validator("entry_ids", each_item=True)
+    def normalize_ids(cls, value: str) -> str:
+        return str(value).strip()
+
+
+class CategorySetting(BaseModel):
+    slug: str
+    label: Optional[str] = None
+    hidden: bool = False
+
+    @validator("slug")
+    def normalize_slug(cls, value: str) -> str:
+        normalized = (value or "").strip().lower()
+        if not normalized:
+            raise ValueError("La categoría debe tener identificador")
+        return normalized
+
+
+class CategorySettingsPayload(BaseModel):
+    settings: List[CategorySetting]
+
+
 @app.get("/api/health")
 async def health() -> Dict[str, Any]:
     entries = load_library()
@@ -243,19 +312,17 @@ async def list_library() -> Dict[str, Any]:
 
 @app.get("/api/library/{entry_id}")
 async def get_entry(entry_id: str) -> Dict[str, Any]:
-    for entry in load_library():
-        if entry.get("id") == entry_id:
-            return entry
+    stored_entry = store.get_entry(entry_id)
+    if stored_entry:
+        return stored_entry
     raise HTTPException(status_code=404, detail="Entrada no encontrada")
 
 
 @app.delete("/api/library/{entry_id}")
 async def delete_entry(entry_id: str) -> Dict[str, Any]:
-    entries = load_library()
-    filtered = [entry for entry in entries if entry.get("id") != entry_id]
-    if len(filtered) == len(entries):
+    deleted = store.delete_entry(entry_id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Entrada no encontrada")
-    save_library(filtered)
     return {"status": "deleted", "id": entry_id}
 
 
@@ -284,9 +351,7 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
         "metadata": metadata_blob,
     }
 
-    entries = [item for item in load_library() if item.get("id") != entry_id]
-    entries.append(entry)
-    save_library(entries)
+    store.upsert_entry(entry)
 
     if payload.auto_download:
         trigger_vhs_download(payload.url, payload.format)
@@ -319,7 +384,7 @@ async def home(request: Request) -> HTMLResponse:
 @app.get("/import", response_class=HTMLResponse)
 async def import_manager(request: Request) -> HTMLResponse:
     entries = load_library()
-    recent_entries = entries[:50]
+    recent_entries = store.list_recent_entries(50)
     context = {
         "request": request,
         "app_name": APP_TITLE,
@@ -329,3 +394,49 @@ async def import_manager(request: Request) -> HTMLResponse:
         "library_path": str(LIBRARY_PATH.resolve()),
     }
     return templates.TemplateResponse("import_manager.html", context)
+
+
+@app.get("/api/playlists")
+async def list_playlists_api() -> Dict[str, Any]:
+    playlists = store.list_playlists()
+    return {"items": playlists, "count": len(playlists)}
+
+
+@app.post("/api/playlists", status_code=201)
+async def create_playlist_api(payload: PlaylistPayload) -> Dict[str, Any]:
+    if payload.mode == "static":
+        if not payload.entry_ids:
+            raise HTTPException(status_code=400, detail="Faltan elementos para la lista")
+        config = {"entry_ids": payload.entry_ids}
+    else:
+        if not payload.rules:
+            raise HTTPException(status_code=400, detail="La lista dinámica necesita reglas")
+        config = {"rules": payload.rules.dict()}
+    playlist = store.create_playlist(
+        name=payload.name,
+        description=payload.description or "",
+        mode=payload.mode,
+        config=config,
+    )
+    return playlist
+
+
+@app.delete("/api/playlists/{playlist_id}")
+async def delete_playlist_api(playlist_id: str) -> Dict[str, Any]:
+    deleted = store.delete_playlist(playlist_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Lista no encontrada")
+    return {"status": "deleted", "id": playlist_id}
+
+
+@app.get("/api/category-settings")
+async def get_category_settings() -> Dict[str, Any]:
+    settings = store.list_category_preferences()
+    return {"settings": settings, "count": len(settings)}
+
+
+@app.put("/api/category-settings")
+async def update_category_settings(payload: CategorySettingsPayload) -> Dict[str, Any]:
+    store.replace_category_preferences([setting.dict() for setting in payload.settings])
+    settings = store.list_category_preferences()
+    return {"settings": settings, "count": len(settings)}
