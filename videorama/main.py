@@ -1,19 +1,23 @@
 import hashlib
+import hashlib
 import json
 import os
+import secrets
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 APP_TITLE = "Videorama Retro Library"
 LIBRARY_PATH = Path(os.getenv("VIDEORAMA_LIBRARY_PATH", "data/videorama/library.json"))
 LIBRARY_PATH.parent.mkdir(parents=True, exist_ok=True)
+UPLOADS_DIR = Path(os.getenv("VIDEORAMA_UPLOADS_DIR", "data/videorama/uploads"))
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
 DEFAULT_VHS_FORMAT = os.getenv("VIDEORAMA_DEFAULT_FORMAT", "video_high")
 DEFAULT_CATEGORY = "miscelánea"
@@ -188,6 +192,43 @@ def safe_list(value: Any) -> List[str]:
     return []
 
 
+def sanitize_filename(name: str) -> str:
+    candidate = Path(name or "videorama.bin").name
+    cleaned = "".join(
+        char for char in candidate if char.isalnum() or char in {"-", "_", ".", " "}
+    ).strip()
+    cleaned = cleaned.replace(" ", "_")
+    return cleaned or "videorama.bin"
+
+
+async def store_upload(entry_id: str, upload: UploadFile) -> Dict[str, Any]:
+    safe_name = sanitize_filename(upload.filename or "upload.bin")
+    target_dir = UPLOADS_DIR / entry_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / safe_name
+    total_bytes = 0
+    with target_path.open("wb") as handle:
+        while True:
+            chunk = await upload.read(1 << 20)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            handle.write(chunk)
+    await upload.close()
+    return {
+        "file_path": target_path,
+        "file_name": safe_name,
+        "file_size": total_bytes,
+        "mime_type": upload.content_type or "application/octet-stream",
+    }
+
+
+def tags_from_string(raw: str) -> List[str]:
+    if not raw:
+        return []
+    return sorted({chunk.strip() for chunk in raw.split(",") if chunk.strip()})
+
+
 def fetch_vhs_metadata(url: str) -> Dict[str, Any]:
     endpoint = f"{VHS_BASE_URL}/api/probe"
     try:
@@ -329,3 +370,58 @@ async def import_manager(request: Request) -> HTMLResponse:
         "library_path": str(LIBRARY_PATH.resolve()),
     }
     return templates.TemplateResponse("import_manager.html", context)
+
+
+@app.post("/api/library/upload", status_code=201)
+async def upload_library_entry(
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    category: str = Form(DEFAULT_CATEGORY),
+    tags: str = Form(""),
+    notes: str = Form(""),
+) -> Dict[str, Any]:
+    entry_id = secrets.token_hex(16)
+    file_meta = await store_upload(entry_id, file)
+    media_url = f"/media/{entry_id}/{file_meta['file_name']}"
+    now = time.time()
+    entry = {
+        "id": entry_id,
+        "url": media_url,
+        "original_url": media_url,
+        "title": title.strip() or file_meta["file_name"],
+        "duration": None,
+        "uploader": "telegram_upload",
+        "category": category.strip() or DEFAULT_CATEGORY,
+        "tags": tags_from_string(tags),
+        "notes": notes.strip() or None,
+        "thumbnail": None,
+        "extractor": "upload",
+        "added_at": now,
+        "vhs_cache_key": None,
+        "preferred_format": DEFAULT_VHS_FORMAT,
+        "metadata": sanitize_metadata(
+            {
+                "source": "upload",
+                "file_name": file_meta["file_name"],
+                "file_size": file_meta["file_size"],
+                "mime_type": file_meta["mime_type"],
+            }
+        ),
+    }
+    entries = [item for item in load_library() if item.get("id") != entry_id]
+    entries.append(entry)
+    save_library(entries)
+    stored_entry = normalize_entry(entry)
+    return stored_entry or entry
+
+
+@app.get("/media/{entry_id}/{file_name}")
+async def serve_uploaded_media(entry_id: str, file_name: str):
+    safe_name = sanitize_filename(file_name)
+    uploads_root = UPLOADS_DIR.resolve()
+    file_path = (UPLOADS_DIR / entry_id / safe_name).resolve()
+    if uploads_root not in file_path.parents:
+        raise HTTPException(status_code=404, detail="Archivo no disponible")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Archivo no disponible")
+    return FileResponse(file_path, filename=safe_name)
