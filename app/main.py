@@ -71,8 +71,24 @@ AUDIO_FORMAT_PROFILES = {
     "audio": {"codec": "mp3", "preferred_quality": "192"},
     "audio_low": {"codec": "mp3", "preferred_quality": "96"},
 }
+VIDEO_FORMAT_PROFILES = {
+    "video_high": {
+        "format": "bv*+ba/b",
+        "merge_output_format": "mp4",
+    },
+    "video_low": {
+        # Prioriza streams con altura <= 480p y cae al peor disponible en caso extremo.
+        "format": "bv*[height<=480]+ba/b[height<=480]/worst",
+        "merge_output_format": "mp4",
+    },
+}
+DEFAULT_VIDEO_FORMAT = "video_high"
+VIDEO_FORMAT_ALIASES = {
+    "video": DEFAULT_VIDEO_FORMAT,
+}
 SUPPORTED_MEDIA_FORMATS = {
-    "video",
+    *VIDEO_FORMAT_PROFILES,
+    *VIDEO_FORMAT_ALIASES,
     *AUDIO_FORMAT_PROFILES,
     "transcripcion",
     "transcripcion_txt",
@@ -93,6 +109,11 @@ def cache_key(url: str, media_format: str) -> str:
     return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
 
 
+def normalize_media_format(media_format: str) -> str:
+    value = (media_format or "").strip().lower()
+    return VIDEO_FORMAT_ALIASES.get(value, value)
+
+
 def meta_path(key: str) -> Path:
     return META_DIR / f"{key}.json"
 
@@ -108,6 +129,8 @@ def is_expired(meta: Dict) -> bool:
 
 FORMAT_EXTENSIONS = {
     "video": ".mp4",
+    "video_high": ".mp4",
+    "video_low": ".mp4",
     "audio": ".mp3",
     "audio_low": ".mp3",
     "transcripcion": ".json",
@@ -119,11 +142,12 @@ TRANSCRIPTION_FILE_SUFFIX = ".transcript.json"
 
 
 def media_type_for_format(media_format: str) -> str:
+    normalized = normalize_media_format(media_format)
     if media_format == "transcripcion":
         return "application/json"
     if media_format in {"transcripcion_txt", "transcripcion_srt"}:
         return "text/plain"
-    if media_format in AUDIO_FORMAT_PROFILES:
+    if normalized in AUDIO_FORMAT_PROFILES:
         return "audio/mpeg"
     return "video/mp4"
 
@@ -293,6 +317,7 @@ def save_meta(key: str, metadata: Dict) -> None:
 def build_ydl_options(
     media_format: str, *, cache_key_value: str, force_no_proxy: bool = False
 ) -> Dict:
+    normalized_format = normalize_media_format(media_format)
     base_opts: Dict = {
         "quiet": True,
         "noprogress": True,
@@ -313,8 +338,8 @@ def build_ydl_options(
     if YTDLP_COOKIES_FILE:
         base_opts["cookiefile"] = YTDLP_COOKIES_FILE
 
-    if media_format in AUDIO_FORMAT_PROFILES:
-        profile = AUDIO_FORMAT_PROFILES[media_format]
+    if normalized_format in AUDIO_FORMAT_PROFILES:
+        profile = AUDIO_FORMAT_PROFILES[normalized_format]
         return {
             **base_opts,
             "format": "bestaudio/best",
@@ -327,10 +352,16 @@ def build_ydl_options(
             ],
         }
 
+    profile_key = (
+        normalized_format
+        if normalized_format in VIDEO_FORMAT_PROFILES
+        else DEFAULT_VIDEO_FORMAT
+    )
+    profile = VIDEO_FORMAT_PROFILES[profile_key]
     return {
         **base_opts,
-        "format": "bv*+ba/b",
-        "merge_output_format": "mp4",
+        "format": profile.get("format", "bv*+ba/b"),
+        "merge_output_format": profile.get("merge_output_format", "mp4"),
     }
 
 
@@ -340,7 +371,8 @@ def should_retry_without_proxy(error: Exception) -> bool:
 
 
 def download_media(url: str, media_format: str) -> Tuple[Path, Dict]:
-    key = cache_key(url, media_format)
+    normalized_format = normalize_media_format(media_format)
+    key = cache_key(url, normalized_format)
     purge_expired_entries()
     cached_path, cached_meta = fetch_cached_file(key)
     if cached_path:
@@ -348,7 +380,7 @@ def download_media(url: str, media_format: str) -> Tuple[Path, Dict]:
 
     def extract(force_no_proxy: bool = False) -> Dict:
         ydl_opts = build_ydl_options(
-            media_format, cache_key_value=key, force_no_proxy=force_no_proxy
+            normalized_format, cache_key_value=key, force_no_proxy=force_no_proxy
         )
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -376,7 +408,7 @@ def download_media(url: str, media_format: str) -> Tuple[Path, Dict]:
         "title": title,
         "filename": filepath.name,
         "source_url": url,
-        "media_format": media_format,
+        "media_format": normalized_format,
         "downloaded_at": time.time(),
         "cache_key": key,
     }
@@ -629,8 +661,16 @@ async def api_docs(request: Request) -> HTMLResponse:
             "app_name": APP_TITLE,
             "formats": [
                 {
+                    "name": "video_high",
+                    "description": "MP4 en la mejor calidad disponible (mezcla best video + best audio)",
+                },
+                {
+                    "name": "video_low",
+                    "description": "MP4 comprimido hasta 480p para descargas ligeras",
+                },
+                {
                     "name": "video",
-                    "description": "MP4 procesado mediante yt-dlp",
+                    "description": "Alias histórico de video_high para compatibilidad",
                 },
                 {
                     "name": "audio",
@@ -666,34 +706,42 @@ async def health() -> Dict[str, str]:
 async def download_endpoint(
     request: Request,
     url: str = Query(..., description="URL del video a descargar"),
-    media_format: str = Query("video", pattern=MEDIA_FORMAT_PATTERN, alias="format"),
+    media_format: str = Query(
+        DEFAULT_VIDEO_FORMAT, pattern=MEDIA_FORMAT_PATTERN, alias="format"
+    ),
 ):
     format_value = media_format.lower()
     if format_value not in SUPPORTED_MEDIA_FORMATS:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Formato inválido. Usa 'video', 'audio', 'audio_low', 'transcripcion', "
-                "'transcripcion_txt' o 'transcripcion_srt'."
+                "Formato inválido. Usa uno de: "
+                + ", ".join(sorted(SUPPORTED_MEDIA_FORMATS))
+                + "."
             ),
         )
+    normalized_format = normalize_media_format(format_value)
 
     try:
-        if format_value in {"transcripcion", "transcripcion_txt", "transcripcion_srt"}:
+        if normalized_format in {
+            "transcripcion",
+            "transcripcion_txt",
+            "transcripcion_srt",
+        }:
             file_path, metadata = await run_in_threadpool(
-                generate_transcription_file, url, format_value
+                generate_transcription_file, url, normalized_format
             )
         else:
             file_path, metadata = await run_in_threadpool(
-                download_media, url, format_value
+                download_media, url, normalized_format
             )
     except DownloadError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     download_name = build_download_name(
-        metadata.get("title", "videorama"), file_path, format_value
+        metadata.get("title", "videorama"), file_path, normalized_format
     )
-    media_type = media_type_for_format(format_value)
+    media_type = media_type_for_format(normalized_format)
     response = FileResponse(
         path=file_path,
         filename=download_name,
@@ -701,7 +749,7 @@ async def download_endpoint(
     )
     await run_in_threadpool(
         record_download_event,
-        format_value,
+        normalized_format,
         bool(metadata.get("_cache_hit")),
         metadata.get("transcription_stats"),
     )

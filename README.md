@@ -5,10 +5,10 @@ videos o pistas de audio y mantener un caché local durante 24 horas.
 
 ## Características
 
-- Interfaz web simple (SPA) para solicitar descargas de video (MP4), audio (MP3 en dos calidades) o transcripciones en texto plano utilizando la API de OpenAI.
+- Interfaz web simple (SPA) para solicitar descargas de video (MP4 en alta o baja calidad), audio (MP3 en dos calidades) o transcripciones en texto plano utilizando la API de OpenAI.
 - API REST en `/api` con endpoints:
   - `GET /api/health`: verificación rápida del servicio.
-- `GET /api/download?url=...&format=video|audio|audio_low|transcripcion`: genera y devuelve el archivo (o transcripción).
+- `GET /api/download?url=...&format=video_high|video_low|video|audio|audio_low|transcripcion|transcripcion_txt|transcripcion_srt`: genera y devuelve el archivo (o transcripción).
   - `GET /api/cache`: listado informativo del contenido en caché.
 - Caché de descargas en disco durante 24h (configurable mediante `CACHE_TTL_SECONDS`).
 - Basado en FastAPI + yt-dlp para aprovechar todos los proveedores soportados.
@@ -55,7 +55,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ## Flujo de trabajo
 
-1. Introduce la URL de cualquier proveedor soportado por yt-dlp y elige si deseas video o audio (normal o ligero).
+1. Introduce la URL de cualquier proveedor soportado por yt-dlp y elige si deseas video (alta o baja calidad), audio (normal o ligero) o transcripción.
 2. El backend busca en caché, descarga en caso necesario y devuelve el archivo.
 3. Las descargas se guardan durante 24h para acelerar solicitudes repetidas y reducir el uso de red.
 
