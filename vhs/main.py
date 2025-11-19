@@ -11,7 +11,16 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import certifi
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -279,15 +288,29 @@ TRANSCRIPTION_FILE_SUFFIX = ".transcript.json"
 
 def media_type_for_format(media_format: str) -> str:
     normalized = normalize_media_format(media_format)
-    if media_format == "transcripcion":
+    if normalized == "transcripcion":
         return "application/json"
-    if media_format in {"transcripcion_txt", "transcripcion_srt"}:
+    if normalized in TRANSCRIPTION_FORMATS - {"transcripcion"}:
         return "text/plain"
-    if media_format in FFMPEG_PRESETS:
-        return FFMPEG_PRESETS[media_format]["media_type"]
+    if normalized in FFMPEG_PRESETS:
+        return FFMPEG_PRESETS[normalized]["media_type"]
     if normalized in AUDIO_FORMAT_PROFILES:
         return "audio/mpeg"
     return "video/mp4"
+
+
+TRANSCRIPTION_FORMATS = {"transcripcion", "transcripcion_txt", "transcripcion_srt"}
+
+
+def categorize_media_format(media_format: str) -> str:
+    normalized = normalize_media_format(media_format)
+    if normalized in FFMPEG_PRESETS:
+        return "recoding"
+    if normalized in TRANSCRIPTION_FORMATS:
+        return "transcription"
+    if normalized in AUDIO_FORMAT_PROFILES:
+        return "audio"
+    return "video"
 
 
 def record_download_event(
@@ -299,6 +322,7 @@ def record_download_event(
         "timestamp": time.time(),
         "media_format": media_format,
         "cache_hit": bool(cache_hit),
+        "category": categorize_media_format(media_format),
     }
     if transcription_stats:
         word_count = transcription_stats.get("word_count")
@@ -333,12 +357,17 @@ def summarize_usage(days: int = 7) -> Dict[str, Any]:
             "cache_hits": 0,
             "word_count": 0,
             "token_count": 0,
+            "recodings": 0,
+            "transcriptions": 0,
         }
 
     total_downloads = 0
     total_cache_hits = 0
     total_word_count = 0
     total_token_count = 0
+    total_recodings = 0
+    total_transcriptions = 0
+    format_totals: Dict[str, int] = {}
     for event in points:
         timestamp = event.get("timestamp")
         if timestamp is None:
@@ -361,16 +390,35 @@ def summarize_usage(days: int = 7) -> Dict[str, Any]:
         aggregates[day_key]["token_count"] += token_count
         total_word_count += word_count
         total_token_count += token_count
+        media_format = event.get("media_format", "")
+        label = media_format or "desconocido"
+        format_totals[label] = format_totals.get(label, 0) + 1
+        category = event.get("category") or categorize_media_format(media_format)
+        if category == "recoding":
+            aggregates[day_key]["recodings"] += 1
+            total_recodings += 1
+        if category == "transcription":
+            aggregates[day_key]["transcriptions"] += 1
+            total_transcriptions += 1
 
     series = [
         {"date": day, **aggregates[day]} for day in sorted(aggregates.keys())
     ]
+    top_formats = sorted(
+        format_totals.items(), key=lambda item: item[1], reverse=True
+    )[:3]
     return {
         "points": series,
         "total": total_downloads,
         "cache_hits": total_cache_hits,
         "total_words": total_word_count,
         "total_tokens": total_token_count,
+        "ffmpeg_runs": total_recodings,
+        "transcriptions": total_transcriptions,
+        "unique_formats": len(format_totals),
+        "top_formats": [
+            {"media_format": name, "count": count} for name, count in top_formats
+        ],
         "days": days,
     }
 
@@ -749,6 +797,25 @@ async def save_upload_file(upload: UploadFile) -> Path:
     return Path(tmp.name)
 
 
+def cleanup_path(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def convert_uploaded_file_with_ffmpeg(source_path: Path, media_format: str) -> Path:
+    preset = FFMPEG_PRESETS.get(media_format)
+    if not preset:
+        raise DownloadError("Perfil ffmpeg no soportado")
+    if not source_path.exists():
+        raise DownloadError("El archivo subido no está disponible para su procesamiento")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=preset["extension"]) as tmp:
+        output_path = Path(tmp.name)
+    run_ffmpeg(source_path, output_path, preset["args"])
+    return output_path
+
+
 def extract_audio_low_from_file(source_path: Path) -> Path:
     if not source_path.exists():
         raise DownloadError("El archivo subido no está disponible para su procesamiento")
@@ -1074,6 +1141,47 @@ async def remove_cached_entry(cache_key: str) -> Dict[str, Any]:
 @app.get("/api/stats/usage", response_class=JSONResponse)
 async def usage_stats() -> Dict[str, Any]:
     return summarize_usage()
+
+
+@app.post("/api/ffmpeg/upload")
+async def ffmpeg_upload(
+    background_tasks: BackgroundTasks,
+    media_format: str = Form("ffmpeg_audio"),
+    file: UploadFile = File(...),
+):
+    format_value = (media_format or "").strip().lower()
+    if format_value not in FFMPEG_PRESETS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Perfil inválido. Usa uno de: "
+                + ", ".join(sorted(FFMPEG_PRESETS))
+                + "."
+            ),
+        )
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Incluye un archivo de audio o video")
+
+    temp_path = await save_upload_file(file)
+    try:
+        output_path = await run_in_threadpool(
+            convert_uploaded_file_with_ffmpeg, temp_path, format_value
+        )
+    except DownloadError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        cleanup_path(temp_path)
+
+    download_name = build_download_name(file.filename or "ffmpeg", output_path, format_value)
+    background_tasks.add_task(cleanup_path, output_path)
+    response = FileResponse(
+        path=output_path,
+        media_type=media_type_for_format(format_value),
+        filename=download_name,
+        background=background_tasks,
+    )
+    await run_in_threadpool(record_download_event, format_value, False, None)
+    return response
 
 
 @app.post("/api/transcribe/upload")

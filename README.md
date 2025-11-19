@@ -92,20 +92,17 @@ Clona `example.env`, renómbralo a `.env` y ajusta los valores según tu entorno
 
 - `GET /api/health`: verificación del servicio.
 - `GET /api/probe?url=...`: inspecciona metadatos sin descargar nada.
-- `GET /api/download?url=...&format=...`: descarga/codifica contenido. Además de
-  los formatos ya conocidos (`video_high`, `audio`, `transcripcion`, etc.) ahora
-  dispones de:
-  - `ffmpeg_audio`: extrae MP3 usando `ffmpeg`.
-  - `ffmpeg_audio_wav`: genera un WAV sin pérdidas.
-  - `ffmpeg_1440p` y `ffmpeg_1080p`: recodificaciones listas para ediciones o
-    streaming en alta calidad.
-  - `ffmpeg_720p` y `ffmpeg_480p`: copias comprimidas perfectas para hardware
-    antiguo o streaming ligero.
+- `GET /api/download?url=...&format=...`: descarga/codifica contenido remoto en
+  formatos `video_*`, `audio_*` o `transcripcion_*`.
 - `POST /api/transcribe/upload`: sube un fichero local para obtener subtítulos en
   JSON/TXT/SRT.
+- `POST /api/ffmpeg/upload`: aplica cualquiera de los perfiles `ffmpeg_*`
+  (`ffmpeg_audio`, `ffmpeg_1080p`, etc.) sobre un archivo que subas desde tu
+  equipo y devuelve la conversión.
 - `GET /api/cache`: lista los elementos en caché (con endpoints para descargar o
   eliminar cada uno).
-- `GET /api/stats/usage`: desglose de descargas y transcripciones.
+- `GET /api/stats/usage`: descargas, recodificaciones, formatos populares y
+  métricas de transcripción.
 
 ### Videorama
 

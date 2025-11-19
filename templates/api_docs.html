@@ -121,10 +121,21 @@
         </dl>
         <pre><code>curl -L "${BASE_URL:-http://localhost:8601}/api/download?url=https://youtu.be/&amp;format=audio" \
   -o audio.mp3</code></pre>
+      </section>
+      <section>
+        <h2>Operaciones con ffmpeg</h2>
         <p>
-          También puedes elegir los formatos <code>ffmpeg_audio</code>, <code>ffmpeg_audio_wav</code>,
-          <code>ffmpeg_1440p</code>, <code>ffmpeg_1080p</code>, <code>ffmpeg_720p</code> o <code>ffmpeg_480p</code>
-          para ejecutar conversiones rápidas una vez descargado el material original.
+          Usa el endpoint <code>POST /api/ffmpeg/upload</code> para subir un archivo local y recodificarlo con uno de
+          los presets <code>ffmpeg_*</code>. Puedes elegir entre <code>ffmpeg_audio</code>, <code>ffmpeg_audio_wav</code>,
+          <code>ffmpeg_1440p</code>, <code>ffmpeg_1080p</code>, <code>ffmpeg_720p</code> y <code>ffmpeg_480p</code>.
+        </p>
+        <pre><code>curl -X POST "${BASE_URL:-http://localhost:8601}/api/ffmpeg/upload" \
+  -F "media_format=ffmpeg_1080p" \
+  -F "file=@/ruta/al/video.mov" \
+  -o master-1080p.mp4</code></pre>
+        <p>
+          El servidor no almacena el archivo original, solo la conversión temporal que se devuelve inmediatamente, y
+          aplica los parámetros de ffmpeg predefinidos para cada preset.
         </p>
       </section>
       <section>
@@ -157,8 +168,8 @@
         <ul>
           <li><code>GET /api/health</code>: devuelve <code>{"status": "ok"}</code> cuando el servicio responde.</li>
           <li>
-            <code>GET /api/stats/usage</code>: totales, aciertos de caché y conteo aproximado de palabras/tokens
-            transcritos en los últimos 7 días.
+            <code>GET /api/stats/usage</code>: totales, aciertos de caché, número de recodificaciones <code>ffmpeg_*</code>,
+            métricas de transcripción y los formatos más solicitados en los últimos 7 días.
           </li>
         </ul>
       </section>
