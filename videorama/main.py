@@ -78,7 +78,7 @@ def _build_prompt_context(entry: Dict[str, Any], transcription: Optional[str]) -
         f"Canal / autor: {normalized.get('uploader') or entry.get('uploader')}",
         f"Categoría: {normalized.get('category') or entry.get('category')}",
         f"Etiquetas existentes: {', '.join(normalized.get('tags') or entry.get('tags') or [])}",
-        f"Notas: {(entry.get('notes') or '').strip()}",
+        f"Resumen: {(entry.get('notes') or '').strip()}",
     ]
     description = normalized.get("description") or normalized.get("description_short")
     if description:
