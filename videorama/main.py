@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 import requests
+from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -27,6 +28,7 @@ DEFAULT_CATEGORY = "miscelánea"
 
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 store = SQLiteStore(LIBRARY_DB_PATH)
 
 

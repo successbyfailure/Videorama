@@ -48,15 +48,15 @@
         gap: 1rem;
       }
       .brand-mark {
-        width: 64px;
-        height: 64px;
+        width: clamp(80px, 14vw, 132px);
+        height: clamp(80px, 14vw, 132px);
         border-radius: 18px;
         background: rgba(15, 23, 42, 0.8);
         border: 1px solid rgba(148, 163, 184, 0.4);
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 0.35rem;
+        padding: clamp(0.35rem, 1vw, 0.85rem);
         box-shadow: inset 0 0 15px rgba(15, 23, 42, 0.6);
       }
       .brand-mark img {
@@ -288,7 +288,7 @@
       <header class="hero">
         <div class="hero-brand">
           <div class="brand-mark">
-            <img src="{{ favicon_svg_data }}" alt="Logotipo de VHS" />
+            <img src="/assets/LogoVHS.png" alt="Logotipo de VHS" loading="lazy" />
           </div>
           <div>
             <h1>{{ app_name }}</h1>
