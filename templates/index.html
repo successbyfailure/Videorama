@@ -37,10 +37,38 @@
         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
         backdrop-filter: blur(14px);
       }
+      .hero {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .hero-brand {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+      .brand-mark {
+        width: 64px;
+        height: 64px;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.35rem;
+        box-shadow: inset 0 0 15px rgba(15, 23, 42, 0.6);
+      }
+      .brand-mark img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+      }
       .hero-actions {
         display: flex;
         justify-content: flex-end;
-        margin: 1rem 0 0;
+        margin: 0.5rem 0 0;
       }
       .hero-actions .ghost-button {
         text-transform: uppercase;
@@ -257,20 +285,29 @@
   </head>
   <body>
     <main class="card">
-      <h1>{{ app_name }}</h1>
-      <p>
-        Servicio de cosecha de video basado en
-        <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noreferrer">yt-dlp</a>
-        + <code>ffmpeg</code>: descarga, extrae audio, reduce resolución y genera
-        transcripciones listas para compartir.
-      </p>
-      <p class="hint">
-        Las descargas y conversiones se guardan en caché 24h para reutilizar
-        archivos, acelerar el bot de Telegram y alimentar la biblioteca de Videorama.
-      </p>
-      <div class="hero-actions">
-        <a class="ghost-button" href="/docs/api">API docs</a>
-      </div>
+      <header class="hero">
+        <div class="hero-brand">
+          <div class="brand-mark">
+            <img src="{{ favicon_svg_data }}" alt="Logotipo de VHS" />
+          </div>
+          <div>
+            <h1>{{ app_name }}</h1>
+            <p>
+              Servicio de cosecha de video basado en
+              <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noreferrer">yt-dlp</a>
+              + <code>ffmpeg</code>: descarga, extrae audio, reduce resolución y genera
+              transcripciones listas para compartir.
+            </p>
+          </div>
+        </div>
+        <p class="hint">
+          Las descargas y conversiones se guardan en caché 24h para reutilizar
+          archivos, acelerar el bot de Telegram y alimentar la biblioteca de Videorama.
+        </p>
+        <div class="hero-actions">
+          <a class="ghost-button" href="/docs/api">API docs</a>
+        </div>
+      </header>
       <section class="services">
         <p class="services-title">Servicios soportados</p>
         <ul class="services-list">
@@ -288,11 +325,7 @@
           <label for="format">Formato</label>
           <select name="format" id="format">
             <option value="video_high" selected>Video alta calidad (MP4)</option>
-            <option value="ffmpeg_1440p">Video ffmpeg 1440p (recodificado)</option>
-            <option value="ffmpeg_1080p">Video ffmpeg 1080p (recodificado)</option>
             <option value="video_low">Video ligera (MP4 hasta 480p)</option>
-            <option value="ffmpeg_720p">Video ffmpeg 720p (recodificado)</option>
-            <option value="ffmpeg_480p">Video ffmpeg 480p (recodificado)</option>
             <option value="audio">Audio (MP3 192 kbps)</option>
             <option value="audio_low">Audio ligero (MP3 96 kbps)</option>
             <option value="transcripcion">Transcripción completa (JSON vía OpenAI)</option>
@@ -339,6 +372,42 @@
           <p class="status" id="upload-status"></p>
         </form>
       </section>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Operaciones con ffmpeg</h2>
+            <p class="hint">
+              Convierte un archivo local con los presets <code>ffmpeg_*</code>. Ideal para generar masters ligeros sin
+              salir del navegador.
+            </p>
+          </div>
+        </div>
+        <form id="ffmpeg-form" class="upload-form">
+          <div>
+            <label for="ffmpeg-file">Archivo</label>
+            <input type="file" id="ffmpeg-file" name="file" accept="audio/*,video/*" required />
+          </div>
+          <div>
+            <label for="ffmpeg-format">Perfil ffmpeg</label>
+            <select name="media_format" id="ffmpeg-format">
+              <option value="ffmpeg_audio" selected>ffmpeg_audio · MP3 a 192 kbps</option>
+              <option value="ffmpeg_audio_wav">ffmpeg_audio_wav · WAV sin pérdidas</option>
+              <option value="ffmpeg_1440p">ffmpeg_1440p · Recodifica video a 1440p</option>
+              <option value="ffmpeg_1080p">ffmpeg_1080p · Copia equilibrada a 1080p</option>
+              <option value="ffmpeg_720p">ffmpeg_720p · Video optimizado a 720p</option>
+              <option value="ffmpeg_480p">ffmpeg_480p · Copia ligera a 480p</option>
+            </select>
+          </div>
+          <button type="submit">Convertir archivo con ffmpeg</button>
+          <div class="progress" id="ffmpeg-progress" hidden>
+            <p class="progress-label" id="ffmpeg-progress-label">Preparando…</p>
+            <div class="progress-bar">
+              <div class="progress-fill" id="ffmpeg-progress-fill"></div>
+            </div>
+          </div>
+          <p class="status" id="ffmpeg-status"></p>
+        </form>
+      </section>
       <section class="dashboard">
         <section class="panel">
           <div class="panel-header">
@@ -373,6 +442,10 @@
     <script>
       const form = document.getElementById('download-form');
       const statusEl = document.getElementById('status');
+      const ffmpegForm = document.getElementById('ffmpeg-form');
+      const ffmpegStatusEl = document.getElementById('ffmpeg-status');
+      const ffmpegFileInput = document.getElementById('ffmpeg-file');
+      const ffmpegFormatSelect = document.getElementById('ffmpeg-format');
       const cacheContent = document.getElementById('cache-content');
       const cacheStatusEl = document.getElementById('cache-status');
       const refreshCacheBtn = document.getElementById('refresh-cache');
@@ -381,6 +454,9 @@
       const progressContainer = document.getElementById('progress');
       const progressLabel = document.getElementById('progress-label');
       const progressFill = document.getElementById('progress-fill');
+      const ffmpegProgressContainer = document.getElementById('ffmpeg-progress');
+      const ffmpegProgressLabel = document.getElementById('ffmpeg-progress-label');
+      const ffmpegProgressFill = document.getElementById('ffmpeg-progress-fill');
       const uploadForm = document.getElementById('upload-form');
       const uploadStatusEl = document.getElementById('upload-status');
       const uploadProgressContainer = document.getElementById('upload-progress');
@@ -397,6 +473,12 @@
           'Solicitando transcripción…',
           'Construyendo subtítulos…',
           'Empaquetando archivo final…',
+        ],
+        ffmpeg: [
+          'Preparando archivo local…',
+          'Subiendo archivo…',
+          'Convirtiendo con ffmpeg…',
+          'Empaquetando descarga…',
         ],
       };
 
@@ -450,6 +532,11 @@
       }
 
       const downloadProgress = createProgressTracker(progressContainer, progressLabel, progressFill);
+      const ffmpegProgress = createProgressTracker(
+        ffmpegProgressContainer,
+        ffmpegProgressLabel,
+        ffmpegProgressFill,
+      );
       const uploadProgress = createProgressTracker(
         uploadProgressContainer,
         uploadProgressLabel,
@@ -498,21 +585,56 @@
         }
       }
 
-      form.addEventListener('submit', async (event) => {
+      function setupDownloadHandler(formElement, statusElement, tracker, options = {}) {
+        if (!formElement || !statusElement || !tracker) {
+          return;
+        }
+        const { detectTranscription = false } = options;
+        formElement.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const formData = new FormData(formElement);
+          const format = String(formData.get('format') || 'video_high');
+          const steps =
+            detectTranscription && format.startsWith('transcripcion')
+              ? PROGRESS_STEPS.transcription
+              : PROGRESS_STEPS.default;
+          tracker.reset();
+          tracker.start(steps);
+          statusElement.textContent = steps[0] || 'Preparando solicitud…';
+          const params = new URLSearchParams(formData);
+          try {
+            await downloadFromEndpoint(`/api/download?${params.toString()}`, {
+              statusTarget: statusElement,
+              progress: tracker,
+            });
+          } catch (error) {
+            console.error(error);
+          }
+        });
+      }
+
+      setupDownloadHandler(form, statusEl, downloadProgress, { detectTranscription: true });
+
+      ffmpegForm?.addEventListener('submit', async (event) => {
         event.preventDefault();
-        const formData = new FormData(form);
-        const format = String(formData.get('format') || 'video_high');
-        const steps = format.startsWith('transcripcion')
-          ? PROGRESS_STEPS.transcription
-          : PROGRESS_STEPS.default;
-        downloadProgress.reset();
-        downloadProgress.start(steps);
-        statusEl.textContent = steps[0];
-        const params = new URLSearchParams(formData);
+        if (!ffmpegFileInput?.files?.length) {
+          ffmpegStatusEl.textContent = 'Selecciona un archivo válido.';
+          return;
+        }
+        const formData = new FormData();
+        formData.append('file', ffmpegFileInput.files[0]);
+        formData.append('media_format', ffmpegFormatSelect?.value || 'ffmpeg_audio');
+        ffmpegProgress.reset();
+        ffmpegProgress.start(PROGRESS_STEPS.ffmpeg);
+        ffmpegStatusEl.textContent = 'Preparando archivo local…';
         try {
-          await downloadFromEndpoint(`/api/download?${params.toString()}`, {
-            statusTarget: statusEl,
-            progress: downloadProgress,
+          await downloadFromEndpoint('/api/ffmpeg/upload', {
+            statusTarget: ffmpegStatusEl,
+            progress: ffmpegProgress,
+            fetchOptions: {
+              method: 'POST',
+              body: formData,
+            },
           });
         } catch (error) {
           console.error(error);
@@ -666,6 +788,10 @@
           const downloads = payload.points.map((point) => point.downloads);
           const cacheHits = payload.points.map((point) => point.cache_hits);
           const wordCounts = payload.points.map((point) => point.word_count || 0);
+          const recodings = payload.points.map((point) => point.recodings || 0);
+          const transcriptionJobs = payload.points.map(
+            (point) => point.transcriptions || 0,
+          );
           const datasets = [
             {
               label: 'Descargas',
@@ -693,6 +819,24 @@
               tension: 0.3,
               fill: false,
               yAxisID: 'y1',
+            },
+            {
+              label: 'Recodificaciones ffmpeg',
+              data: recodings,
+              borderColor: '#4ade80',
+              backgroundColor: 'rgba(74, 222, 128, 0.25)',
+              tension: 0.3,
+              fill: false,
+              yAxisID: 'y',
+            },
+            {
+              label: 'Transcripciones listas',
+              data: transcriptionJobs,
+              borderColor: '#f472b6',
+              backgroundColor: 'rgba(244, 114, 182, 0.25)',
+              tension: 0.3,
+              fill: false,
+              yAxisID: 'y',
             },
           ];
           if (usageChart) {
@@ -743,6 +887,21 @@
           }
           if (totalTokens && totalTokens !== totalWords) {
             summary += ` · ${totalTokens.toLocaleString('es-ES')} tokens estimados`;
+          }
+          if (payload.ffmpeg_runs) {
+            summary += ` · ${payload.ffmpeg_runs} recodificaciones ffmpeg`;
+          }
+          if (payload.transcriptions) {
+            summary += ` · ${payload.transcriptions} entregas de texto`;
+          }
+          if (payload.unique_formats) {
+            summary += ` · ${payload.unique_formats} formatos solicitados`;
+          }
+          if (payload.top_formats?.length) {
+            const formatsLabel = payload.top_formats
+              .map((entry) => `${entry.media_format} (${entry.count})`)
+              .join(', ');
+            summary += ` · Top: ${formatsLabel}`;
           }
           usageStatusEl.textContent = summary;
         } catch (error) {
