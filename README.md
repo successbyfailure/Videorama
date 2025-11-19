@@ -72,6 +72,36 @@ Puedes seguir usando solo algunos de los servicios si lo prefieres; basta con
 eliminar la entrada correspondiente del `docker-compose.yml` o ajustar el comando
 que ejecuta cada contenedor.
 
+### Monitorización automática y redeploy
+
+El script `scripts/auto_update.sh` comprueba periódicamente si hay cambios en el
+repositorio remoto, sincroniza nuevas variables de `example.env` hacia `.env` y
+reinicia los servicios con `docker compose` si detecta novedades. Uso básico:
+
+```bash
+INTERVAL_SECONDS=300 ./scripts/auto_update.sh
+```
+
+- `INTERVAL_SECONDS` define el intervalo de sondeo en segundos (por defecto
+  `300`).
+- El script infiere la rama remota a partir de la `upstream` configurada; puedes
+  forzarlo con `UPSTREAM_REF=origin/main`.
+- Si hay nuevas variables en `example.env`, se añaden a `.env` conservando los
+  valores que ya tuvieses definidos.
+
+También puedes ejecutarlo en un contenedor que tenga acceso al socket de Docker
+del host y a este repositorio, por ejemplo:
+
+```bash
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$(pwd)":/workspace/Videorama \
+  -w /workspace/Videorama \
+  -e INTERVAL_SECONDS=180 \
+  docker:27-cli \
+  sh -c "apk add --no-cache git && ./scripts/auto_update.sh"
+```
+
 ## Variables de entorno destacadas
 
 | Variable | Descripción | Servicio | Valor por defecto |
