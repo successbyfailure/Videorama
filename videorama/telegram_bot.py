@@ -6,7 +6,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import secrets
 
 import requests
@@ -87,6 +87,92 @@ def parse_content_disposition(headers: Dict[str, str], fallback: str) -> str:
     if match:
         return match.group(1)
     return fallback
+
+
+def probe_url_metadata(url: str) -> Dict[str, Any]:
+    try:
+        response = requests.get(f"{VHS_API_URL}/api/probe", params={"url": url}, timeout=60)
+        if response.status_code >= 400:
+            return {}
+        data = response.json()
+        return data if isinstance(data, dict) else {}
+    except requests.RequestException:
+        return {}
+
+
+async def fetch_transcription_text(url: str) -> Optional[str]:
+    def _request() -> Optional[str]:
+        try:
+            response = requests.get(
+                f"{VHS_API_URL}/api/download",
+                params={"url": url, "format": "transcripcion_txt"},
+                timeout=300,
+            )
+        except requests.RequestException:
+            return None
+        if response.status_code >= 400:
+            return None
+        text = response.text.strip()
+        return text or None
+
+    return await asyncio.to_thread(_request)
+
+
+async def fetch_summary_text(url: str) -> Optional[str]:
+    metadata = await asyncio.to_thread(probe_url_metadata, url)
+    payload = {
+        "url": url,
+        "title": metadata.get("title") if isinstance(metadata, dict) else None,
+        "metadata": metadata if isinstance(metadata, dict) else {},
+        "prefer_transcription": True,
+    }
+
+    def _request() -> Optional[str]:
+        try:
+            response = requests.post(
+                f"{VIDEORAMA_API_URL}/api/import/auto-summary",
+                json=payload,
+                timeout=300,
+            )
+        except requests.RequestException:
+            return None
+        if response.status_code >= 400:
+            return None
+        try:
+            data = response.json()
+        except ValueError:
+            return None
+        summary = (data.get("summary") or "").strip()
+        return summary or None
+
+    return await asyncio.to_thread(_request)
+
+
+async def download_vhs_media(url: str, media_format: str, fallback_name: str) -> Tuple[Optional[Path], Optional[str]]:
+    def _request() -> Tuple[Optional[Path], Optional[str]]:
+        try:
+            with requests.get(
+                f"{VHS_API_URL}/api/download",
+                params={"url": url, "format": media_format},
+                timeout=600,
+                stream=True,
+            ) as response:
+                if response.status_code >= 400:
+                    return None, None
+                output_name = safe_filename(
+                    parse_content_disposition(response.headers, fallback_name), fallback_name
+                )
+                temp_handle = tempfile.NamedTemporaryFile(delete=False)
+                temp_path = Path(temp_handle.name)
+                with temp_handle:
+                    for chunk in response.iter_content(1 << 20):
+                        if chunk:
+                            temp_handle.write(chunk)
+        except requests.RequestException:
+            return None, None
+        return temp_path, output_name
+
+    return await asyncio.to_thread(_request)
 
 
 async def download_to_tempfile(context: ContextTypes.DEFAULT_TYPE, file_id: str) -> Path:
@@ -236,6 +322,15 @@ async def handle_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         keyboard = InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton("Añadir a Videorama", callback_data=f"addurl:{token}")],
+                [
+                    InlineKeyboardButton("Ver transcripción", callback_data=f"transcript:{token}"),
+                    InlineKeyboardButton("Ver resumen", callback_data=f"summary:{token}"),
+                ],
+                [
+                    InlineKeyboardButton("Recibir vídeo", callback_data=f"video:{token}"),
+                    InlineKeyboardButton("Recibir audio", callback_data=f"audio:{token}"),
+                ],
+                [InlineKeyboardButton("Subtítulos (SRT)", callback_data=f"subs:{token}")],
                 [InlineKeyboardButton("Ignorar", callback_data=f"cancelurl:{token}")],
             ]
         )
@@ -336,6 +431,85 @@ async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_
         return
     if action == "cancelurl":
         await query.message.reply_text("Acción cancelada.")
+        return
+
+    if action in {"transcript", "summary", "video", "audio", "subs"}:
+        if not pending_url:
+            await query.message.reply_text("No guardé la URL. Vuelve a enviarla, por favor.")
+            return
+
+        if action == "transcript":
+            await context.bot.send_chat_action(chat_id=query.message.chat_id, action=ChatAction.TYPING)
+            transcription = await fetch_transcription_text(pending_url)
+            if not transcription:
+                await query.message.reply_text(
+                    "No pude obtener la transcripción. ¿Está disponible VHS?"
+                )
+                return
+            if len(transcription) <= 3500:
+                await query.message.reply_text(f"Transcripción:\n{transcription}")
+                return
+            preview = transcription[:3500] + "…"
+            await query.message.reply_text(
+                "Transcripción (vista previa):\n" + preview
+            )
+            temp_handle = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+            temp_path = Path(temp_handle.name)
+            try:
+                with temp_handle:
+                    temp_handle.write(transcription.encode("utf-8", errors="ignore"))
+                with temp_path.open("rb") as payload:
+                    await query.message.reply_document(
+                        document=payload,
+                        filename="transcripcion.txt",
+                        caption="Transcripción completa",
+                    )
+            finally:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            return
+
+        if action == "summary":
+            await context.bot.send_chat_action(chat_id=query.message.chat_id, action=ChatAction.TYPING)
+            summary = await fetch_summary_text(pending_url)
+            if not summary:
+                await query.message.reply_text(
+                    "No pude generar un resumen ahora mismo. ¿Está configurada la API de Videorama?"
+                )
+                return
+            await query.message.reply_text(f"Resumen:\n{summary}")
+            return
+
+        format_map = {
+            "video": ("video_high", "video.mp4", "Descargando vídeo desde VHS…"),
+            "audio": ("audio", "audio.mp3", "Descargando audio desde VHS…"),
+            "subs": (
+                "transcripcion_srt",
+                "subtitulos.srt",
+                "Generando subtítulos en SRT…",
+            ),
+        }
+        media_format, fallback_name, pending_text = format_map[action]
+        await query.message.reply_text(pending_text, disable_web_page_preview=True)
+        await context.bot.send_chat_action(chat_id=query.message.chat_id, action=ChatAction.UPLOAD_DOCUMENT)
+        temp_path, output_name = await download_vhs_media(pending_url, media_format, fallback_name)
+        if not temp_path or not output_name:
+            await query.message.reply_text("No pude descargar el archivo solicitado.")
+            return
+        try:
+            with temp_path.open("rb") as payload:
+                await query.message.reply_document(
+                    document=payload,
+                    filename=output_name,
+                    caption=pending_url,
+                )
+        finally:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
         return
 
     if not file_info:
