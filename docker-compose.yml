@@ -1,8 +1,24 @@
 services:
+  env-sync:
+    container_name: env-sync
+    image: $VIDEORAMA_IMAGE
+    build: .
+    command: python scripts/sync_env.py
+    volumes:
+      - ./.env:/app/.env
+      - ./example.env:/app/example.env:ro
+    restart: "no"
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+
   vhs:
     container_name: vhs
+    image: $VIDEORAMA_IMAGE
     build: .
     command: uvicorn vhs.main:app --host 0.0.0.0 --port 8601
+    depends_on:
+      env-sync:
+        condition: service_completed_successfully
     ports:
       - "8601:8601"
     env_file:
@@ -10,6 +26,9 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=videorama
     healthcheck:
       test:
         - CMD-SHELL
@@ -24,17 +43,24 @@ services:
 
   videorama:
     container_name: videorama
+    image: $VIDEORAMA_IMAGE
     build: .
     command: uvicorn videorama.main:app --host 0.0.0.0 --port 8600
+    depends_on:
+      env-sync:
+        condition: service_completed_successfully
+      vhs:
+        condition: service_started
     ports:
       - "8600:8600"
-    depends_on:
-      - vhs
     env_file:
       - .env
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=videorama
     healthcheck:
       test:
         - CMD-SHELL
@@ -49,13 +75,20 @@ services:
 
   videorama-bot:
     container_name: videorama-bot
+    image: $VIDEORAMA_IMAGE
     build: .
     command: python -m videorama.telegram_bot
     depends_on:
-      - videorama
+      env-sync:
+        condition: service_completed_successfully
+      videorama:
+        condition: service_started
     env_file:
       - .env
     restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=videorama
     healthcheck:
       test:
         - CMD-SHELL
@@ -70,6 +103,7 @@ services:
 
   videorama-mcp:
     container_name: videorama-mcp
+    image: $VIDEORAMA_IMAGE
     build: .
     command: >-
       python -m videorama.mcp_server
@@ -78,12 +112,18 @@ services:
       --host 0.0.0.0
       --port 8765
     depends_on:
-      - videorama
+      env-sync:
+        condition: service_completed_successfully
+      videorama:
+        condition: service_started
     env_file:
       - .env
     ports:
       - "8765:8765"
     restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=videorama
     healthcheck:
       test:
         - CMD-SHELL
@@ -100,6 +140,18 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    networks:
+      - videorama-net
+
+  watchtower:
+    container_name: videorama-watchtower
+    image: containrrr/watchtower:1.7.1
+    command: --interval 60 --label-enable --scope videorama --cleanup
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
     networks:
       - videorama-net
 
