@@ -1,5 +1,9 @@
 # Videorama · VHS Suite
 
+**Versiones**: Videorama 0.4.1 · VHS 0.4.1 · Bot de Telegram 0.1.1 · Servidor MCP 0.1.1
+
+Las versiones se cargan desde variables compartidas, aparecen en el _footer_ de las páginas y pueden consultarse desde todos los canales (MCP, bot de Telegram y web).
+
 Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil: un **API de captura y transformación (VHS)**, una **biblioteca web retro** y un **bot opcional de Telegram**. Todos comparten la misma base de dependencias y pueden convivir en un único `docker compose` o desplegarse por separado.
 
 ## Tabla de contenido
