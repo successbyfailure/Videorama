@@ -7,6 +7,7 @@ import re
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+import secrets
 
 import requests
 from telegram import (
@@ -225,7 +226,27 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def handle_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.message.text:
         return
-    text = update.message.text.strip().lower()
+    text = update.message.text.strip()
+    urls = re.findall(r"https?://\S+", text)
+    if urls:
+        url = urls[0]
+        token = secrets.token_hex(4)
+        store = context.user_data.setdefault("pending_urls", {})
+        store[token] = url
+        keyboard = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("Añadir a Videorama", callback_data=f"addurl:{token}")],
+                [InlineKeyboardButton("Ignorar", callback_data=f"cancelurl:{token}")],
+            ]
+        )
+        await update.message.reply_text(
+            f"Detecté un enlace: {url}\n¿Qué quieres hacer?",
+            reply_markup=keyboard,
+            disable_web_page_preview=True,
+        )
+        return
+
+    text = text.lower()
     if text.startswith("añadir"):
         await update.message.reply_text(
             "Usa /add <url> para guardar enlaces o envíame el vídeo directamente.",
@@ -299,7 +320,24 @@ async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_
         await query.message.reply_text("Acción desconocida.")
         return
     pending = context.user_data.get("pending_uploads", {})
+    pending_urls = context.user_data.get("pending_urls", {})
     file_info = pending.pop(file_key, None)
+    pending_url = pending_urls.pop(file_key, None)
+    if pending_url and action not in {"addurl", "cancelurl"}:
+        pending_urls[file_key] = pending_url
+    if not file_info and not pending_url:
+        await query.message.reply_text(
+            "El archivo o enlace ya no está disponible. Reenvíalo, por favor."
+        )
+        return
+
+    if action == "addurl":
+        await process_url_upload(query.message, pending_url)
+        return
+    if action == "cancelurl":
+        await query.message.reply_text("Acción cancelada.")
+        return
+
     if not file_info:
         await query.message.reply_text("El archivo ya no está disponible. Reenvíalo, por favor.")
         return
@@ -337,6 +375,38 @@ async def process_videorama_upload(query, file_info: Dict[str, str], file_path: 
     entry_url = build_absolute_url(entry.get("url") or entry.get("original_url") or "")
     await query.message.reply_text(
         f"Listo, añadí {entry.get('title')} a la biblioteca.\n{entry_url}",
+        disable_web_page_preview=True,
+    )
+
+
+async def process_url_upload(message, url: str) -> None:
+    await message.reply_text("Añadiendo el enlace a Videorama…", disable_web_page_preview=True)
+
+    payload = {"url": url, "auto_download": True}
+
+    def _request():
+        return requests.post(
+            f"{VIDEORAMA_API_URL}/api/library", json=payload, timeout=120
+        )
+
+    try:
+        response = await asyncio.to_thread(_request)
+    except requests.RequestException as exc:
+        await message.reply_text(f"No pude contactar con Videorama: {exc}")
+        return
+
+    if response.status_code >= 400:
+        try:
+            detail = response.json().get("detail")
+        except ValueError:
+            detail = response.text
+        await message.reply_text(f"Videorama respondió con un error: {detail}")
+        return
+
+    entry = response.json()
+    entry_url = build_absolute_url(entry.get("url") or entry.get("original_url") or url)
+    await message.reply_text(
+        f"Añadido {entry.get('title') or url} a la biblioteca retro.\n{entry_url}",
         disable_web_page_preview=True,
     )
 
