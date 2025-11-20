@@ -44,12 +44,20 @@ TELEGRAM_DOWNLOAD_LIMIT_BYTES = int(
 MEDIA_FILTER = filters.Document.ALL | filters.VIDEO | filters.AUDIO
 
 MAIN_MENU = ReplyKeyboardMarkup(
-    [
-        [KeyboardButton("Añadir URL"), KeyboardButton("Ver biblioteca")],
-        [KeyboardButton("Ayuda")],
-    ],
+    [[KeyboardButton("Instrucciones")]],
     resize_keyboard=True,
     one_time_keyboard=False,
+)
+
+HELP_TEXT = (
+    "Envíame un enlace o un archivo de audio/vídeo y te mostraré opciones para "
+    "guardarlo en Videorama, descargar copias desde VHS o convertirlo."
+    "\n\n"
+    "• Enlaces: pega la URL y elige si quieres añadirla a la biblioteca, pedir un "
+    "resumen, una transcripción o descargar el audio/vídeo."
+    "\n"
+    "• Archivos: reenvía el audio o vídeo y decide si lo subes a Videorama o lo "
+    "conviertes con VHS al perfil configurado."
 )
 
 
@@ -288,7 +296,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=MAIN_MENU,
     )
     await update.message.reply_text(
-        "¿Qué te gustaría hacer? Usa los botones o mándame un archivo de audio/vídeo.",
+        "Pulsa \"Instrucciones\" para ver cómo usarme o mándame directamente "
+        "un archivo de audio/vídeo o una URL.",
         reply_markup=MAIN_MENU,
     )
 
@@ -305,7 +314,8 @@ async def list_entries(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message:
         await update.message.reply_text(
-            "Elige una opción o reenvíame un archivo.", reply_markup=MAIN_MENU
+            "Pulsa \"Instrucciones\" o envíame un archivo o enlace.",
+            reply_markup=MAIN_MENU,
         )
 
 
@@ -342,22 +352,14 @@ async def handle_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     text = text.lower()
-    if text.startswith("añadir"):
-        await update.message.reply_text(
-            "Usa /add <url> para guardar enlaces o envíame el vídeo directamente.",
-            reply_markup=MAIN_MENU,
-        )
-    elif text.startswith("ver"):
-        await list_entries(update, context)
-    elif text.startswith("ayuda"):
-        await update.message.reply_text(
-            "Puedo listar la biblioteca, añadir enlaces y convertir archivos con VHS.",
-            reply_markup=MAIN_MENU,
-        )
-    else:
-        await update.message.reply_text(
-            "No reconocí esa opción. Usa /menu o los botones.", reply_markup=MAIN_MENU
-        )
+    if text.startswith("ayuda") or text.startswith("instrucciones"):
+        await update.message.reply_text(HELP_TEXT, reply_markup=MAIN_MENU)
+        return
+
+    await update.message.reply_text(
+        "No reconocí esa opción. Pulsa \"Instrucciones\" o envíame un enlace o archivo.",
+        reply_markup=MAIN_MENU,
+    )
 
 
 async def handle_media_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
