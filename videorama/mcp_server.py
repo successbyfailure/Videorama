@@ -11,6 +11,7 @@ from mcp.server.fastmcp import FastMCP
 
 DEFAULT_API_URL = os.getenv("VIDEORAMA_API_URL", "http://localhost:8600").rstrip("/")
 DEFAULT_TIMEOUT = int(os.getenv("VIDEORAMA_API_TIMEOUT", "30"))
+DEFAULT_TRANSPORT = os.getenv("VIDEORAMA_MCP_TRANSPORT", "http").lower()
 
 load_dotenv()
 
@@ -188,12 +189,19 @@ def main() -> None:
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="Timeout en segundos para peticiones HTTP")
     parser.add_argument("--host", default=os.getenv("VIDEORAMA_MCP_HOST", "0.0.0.0"), help="Host para transporte HTTP")
     parser.add_argument("--port", type=int, default=int(os.getenv("VIDEORAMA_MCP_PORT", "8765")), help="Puerto para transporte HTTP")
+    parser.add_argument(
+        "--transport",
+        choices=["http", "streamable-http"],
+        default=DEFAULT_TRANSPORT,
+        help="Transporte para el servidor MCP (solo disponible vía HTTP)",
+    )
     args = parser.parse_args()
 
     client = VideoramaClient(base_url=args.api_url, timeout=args.timeout)
     server = build_server(client, host=args.host, port=args.port)
 
-    server.run(transport="streamable-http")
+    transport = "streamable-http" if args.transport == "http" else args.transport
+    server.run(transport=transport)
 
 
 if __name__ == "__main__":
