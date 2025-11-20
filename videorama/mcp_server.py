@@ -2,13 +2,12 @@
 
 import argparse
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 import anyio
 import requests
 from dotenv import load_dotenv
-from mcp import types, stdio_server
-from mcp.server import Server
+from mcp.server.fastmcp import FastMCP
 
 DEFAULT_API_URL = os.getenv("VIDEORAMA_API_URL", "http://localhost:8600").rstrip("/")
 DEFAULT_TIMEOUT = int(os.getenv("VIDEORAMA_API_TIMEOUT", "30"))
@@ -69,157 +68,100 @@ def _entry_text(entry: Dict[str, Any]) -> str:
     return " | ".join(parts)
 
 
-def _error_result(message: str) -> types.CallToolResult:
-    return types.CallToolResult(
-        content=[types.TextContent(type="text", text=f"❌ {message}")],
-        structuredContent={"error": message},
-        isError=True,
-    )
-
-
-def _success_result(text: str, payload: Dict[str, Any]) -> Tuple[List[types.Content], Dict[str, Any]]:
-    return [types.TextContent(type="text", text=text)], payload
-
-
-def build_server(client: VideoramaClient) -> Server:
-    server = Server(
+def build_server(client: VideoramaClient, host: str, port: int) -> FastMCP:
+    server = FastMCP(
         name="Videorama MCP",
         instructions=(
             "Herramientas MCP para inspeccionar y poblar la biblioteca de Videorama. "
             "Recuerda que los cambios se aplican en la API que responde en VIDEORAMA_API_URL."
         ),
+        host=host,
+        port=port,
+        streamable_http_path="/mcp",
     )
 
-    @server.list_tools()
-    async def list_tools() -> List[types.Tool]:
-        return [
-            types.Tool(
-                name="health",
-                description="Comprueba el estado del servicio y el total de elementos en la biblioteca",
-                inputSchema={"type": "object", "properties": {}},
-                outputSchema={
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "items": {"type": "integer"},
-                    },
-                    "required": ["status"],
-                },
-            ),
-            types.Tool(
-                name="list_recent_entries",
-                description="Devuelve las entradas más recientes ordenadas por fecha de alta",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {"type": "integer", "minimum": 1, "maximum": 200},
-                    },
-                },
-                outputSchema={
-                    "type": "object",
-                    "properties": {
-                        "items": {"type": "array", "items": {"type": "object"}},
-                        "count": {"type": "integer"},
-                        "source_count": {"type": "integer"},
-                    },
-                    "required": ["items", "count"],
-                },
-            ),
-            types.Tool(
-                name="get_entry",
-                description="Recupera los detalles completos de una entrada concreta por id",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "entry_id": {"type": "string", "description": "Identificador de Videorama"},
-                    },
-                    "required": ["entry_id"],
-                },
-                outputSchema={"type": "object", "properties": {"entry": {"type": "object"}}},
-            ),
-            types.Tool(
-                name="add_entry_from_url",
-                description="Añade una URL a la biblioteca y (opcional) lanza la descarga en VHS",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "url": {"type": "string", "description": "Enlace al vídeo o audio"},
-                        "title": {"type": "string"},
-                        "category": {"type": "string"},
-                        "notes": {"type": "string"},
-                        "tags": {"type": "array", "items": {"type": "string"}},
-                        "format": {"type": "string", "description": "Preset preferido en VHS"},
-                        "auto_download": {"type": "boolean"},
-                    },
-                    "required": ["url"],
-                },
-                outputSchema={
-                    "type": "object",
-                    "properties": {
-                        "entry": {"type": "object"},
-                        "message": {"type": "string"},
-                    },
-                },
-            ),
-        ]
+    @server.tool(description="Comprueba el estado del servicio y el total de elementos en la biblioteca")
+    async def health() -> Dict[str, Any]:
+        return await _tool_health(client)
 
-    @server.call_tool()
-    async def handle_tool_call(tool_name: str, arguments: Dict[str, Any]) -> types.CallToolResult | Tuple[List[types.Content], Dict[str, Any]]:
-        if tool_name == "health":
-            return await _tool_health(client)
-        if tool_name == "list_recent_entries":
-            return await _tool_list_recent(client, arguments)
-        if tool_name == "get_entry":
-            return await _tool_get_entry(client, arguments)
-        if tool_name == "add_entry_from_url":
-            return await _tool_add_entry(client, arguments)
+    @server.tool(description="Devuelve las entradas más recientes ordenadas por fecha de alta")
+    async def list_recent_entries(limit: int | None = None) -> Dict[str, Any]:
+        return await _tool_list_recent(client, {"limit": limit})
 
-        return _error_result(f"Herramienta desconocida: {tool_name}")
+    @server.tool(description="Recupera los detalles completos de una entrada concreta por id")
+    async def get_entry(entry_id: str) -> Dict[str, Any]:
+        result = await _tool_get_entry(client, {"entry_id": entry_id})
+        if isinstance(result, dict):
+            return result
+        raise RuntimeError("No se pudo recuperar la entrada")
+
+    @server.tool(description="Añade una URL a la biblioteca y (opcional) lanza la descarga en VHS")
+    async def add_entry_from_url(
+        url: str,
+        title: str | None = None,
+        category: str | None = None,
+        notes: str | None = None,
+        tags: List[str] | None = None,
+        format: str | None = None,
+        auto_download: bool | None = None,
+    ) -> Dict[str, Any]:
+        return await _tool_add_entry(
+            client,
+            {
+                "url": url,
+                "title": title,
+                "category": category,
+                "notes": notes,
+                "tags": tags,
+                "format": format,
+                "auto_download": auto_download,
+            },
+        )
 
     return server
 
 
-async def _tool_health(client: VideoramaClient) -> Tuple[List[types.Content], Dict[str, Any]]:
+async def _tool_health(client: VideoramaClient) -> Dict[str, Any]:
     data = await client.request("GET", "/api/health")
     status = data.get("status", "desconocido")
     items = data.get("items", "?")
-    text = f"Videorama responde: {status} (elementos en biblioteca: {items})."
-    return _success_result(text, data)
+    return {
+        "message": f"Videorama responde: {status} (elementos en biblioteca: {items}).",
+        "status": status,
+        "items": items,
+    }
 
 
-async def _tool_list_recent(client: VideoramaClient, arguments: Dict[str, Any]) -> Tuple[List[types.Content], Dict[str, Any]]:
+async def _tool_list_recent(client: VideoramaClient, arguments: Dict[str, Any]) -> Dict[str, Any]:
     limit = int(arguments.get("limit")) if arguments.get("limit") else 20
     data = await client.request("GET", "/api/library")
     entries = data.get("items", [])
     trimmed = entries[: max(1, min(limit, 200))]
     simplified = [_summarize_entry(entry) for entry in trimmed]
-    text_lines = ["Entradas recientes:"] + [f"- {_entry_text(entry)}" for entry in simplified]
-    payload = {
+    return {
         "items": simplified,
         "count": len(simplified),
         "source_count": data.get("count", len(entries)),
     }
-    return _success_result("\n".join(text_lines), payload)
 
 
-async def _tool_get_entry(client: VideoramaClient, arguments: Dict[str, Any]) -> types.CallToolResult | Tuple[List[types.Content], Dict[str, Any]]:
+async def _tool_get_entry(client: VideoramaClient, arguments: Dict[str, Any]) -> Dict[str, Any]:
     entry_id = (arguments.get("entry_id") or "").strip()
     if not entry_id:
-        return _error_result("Debes indicar entry_id")
+        raise ValueError("Debes indicar entry_id")
 
     try:
         entry = await client.request("GET", f"/api/library/{entry_id}")
     except requests.HTTPError as exc:
-        return _error_result(str(exc))
+        raise requests.HTTPError(str(exc)) from exc
 
-    text = _entry_text(entry)
-    return _success_result(text, {"entry": entry})
+    return {"entry": entry, "summary": _entry_text(entry)}
 
 
-async def _tool_add_entry(client: VideoramaClient, arguments: Dict[str, Any]) -> types.CallToolResult | Tuple[List[types.Content], Dict[str, Any]]:
+async def _tool_add_entry(client: VideoramaClient, arguments: Dict[str, Any]) -> Dict[str, Any]:
     url = (arguments.get("url") or "").strip()
     if not url:
-        return _error_result("Debes indicar una URL")
+        raise ValueError("Debes indicar una URL")
 
     payload = {
         "url": url,
@@ -234,23 +176,30 @@ async def _tool_add_entry(client: VideoramaClient, arguments: Dict[str, Any]) ->
     try:
         entry = await client.request("POST", "/api/library", json=payload)
     except requests.HTTPError as exc:
-        return _error_result(str(exc))
+        raise requests.HTTPError(str(exc)) from exc
 
     text = f"Entrada creada: {_entry_text(entry)}"
-    return _success_result(text, {"entry": entry, "message": "Entrada añadida"})
+    return {"entry": entry, "message": text}
 
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Servidor MCP para Videorama")
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help="Base URL del API de Videorama")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="Timeout en segundos para peticiones HTTP")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default=os.getenv("VIDEORAMA_MCP_TRANSPORT", "stdio"),
+        help="Transporte MCP (stdio para clientes locales, http para servidores HTTP)",
+    )
+    parser.add_argument("--host", default=os.getenv("VIDEORAMA_MCP_HOST", "0.0.0.0"), help="Host para transporte HTTP")
+    parser.add_argument("--port", type=int, default=int(os.getenv("VIDEORAMA_MCP_PORT", "8765")), help="Puerto para transporte HTTP")
     args = parser.parse_args()
 
     client = VideoramaClient(base_url=args.api_url, timeout=args.timeout)
-    server = build_server(client)
-    initialization_options = server.create_initialization_options()
+    server = build_server(client, host=args.host, port=args.port)
 
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, initialization_options)
+    transport = "stdio" if args.transport == "stdio" else "streamable-http"
+    server.run(transport=transport)
 if __name__ == "__main__":
     anyio.run(main)
