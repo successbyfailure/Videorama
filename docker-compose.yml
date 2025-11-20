@@ -7,11 +7,6 @@ services:
       - "8601:8601"
     env_file:
       - .env
-    environment:
-      - CACHE_TTL_SECONDS=86400
-      - CACHE_DIR=/app/data/cache
-      - USAGE_LOG_PATH=/app/data/usage_log.jsonl
-      - FFMPEG_BINARY=ffmpeg
     volumes:
       - ./data:/app/data
     restart: unless-stopped
@@ -37,10 +32,6 @@ services:
       - vhs
     env_file:
       - .env
-    environment:
-      - VHS_BASE_URL=http://vhs:8601
-      - VIDEORAMA_LIBRARY_PATH=/app/data/videorama/library.json
-      - VIDEORAMA_DEFAULT_FORMAT=video_high
     volumes:
       - ./data:/app/data
     restart: unless-stopped
@@ -64,10 +55,6 @@ services:
       - videorama
     env_file:
       - .env
-    environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - VIDEORAMA_API_URL=http://videorama:8600
-      - VHS_API_URL=http://vhs:8601
     restart: unless-stopped
     healthcheck:
       test:
@@ -94,11 +81,6 @@ services:
       - videorama
     env_file:
       - .env
-    environment:
-      - VIDEORAMA_API_URL=http://videorama:8600
-      - VIDEORAMA_MCP_TRANSPORT=http
-      - VIDEORAMA_MCP_HOST=0.0.0.0
-      - VIDEORAMA_MCP_PORT=8765
     ports:
       - "8765:8765"
     restart: unless-stopped
