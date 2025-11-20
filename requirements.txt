@@ -7,5 +7,5 @@ certifi
 openai
 python-dotenv
 requests
-python-telegram-bot==20.7
-mcp==1.21.2
+python-telegram-bot>=21.0
+mcp
