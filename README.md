@@ -49,7 +49,7 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
 
 ## Arquitectura y flujo
 
-- **Puertos**: VHS expone `:8601`, Videorama `:8600`. El bot consume la API de Videorama.
+- **Puertos**: VHS expone `:8601`, Videorama `:8600` y el servidor MCP HTTP `:8765/mcp`. El bot consume la API de Videorama.
 - **Datos**: todo lo que se descarga o sube vive bajo `data/` (montado como volumen en Docker). Las rutas clave se configuran con variables de entorno.
 - **Cacheo y precarga**: Videorama solicita a VHS que precargue contenido con el formato por defecto definido en `VIDEORAMA_DEFAULT_FORMAT`.
 - **Imágenes**: un único `Dockerfile` sirve a los tres servicios; el `docker-compose.yml` arranca contenedores separados reutilizando la misma imagen.
@@ -97,6 +97,7 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
 2. Una vez arriba:
    - VHS: <http://localhost:8601>
    - Videorama: <http://localhost:8600>
+   - Servidor MCP (HTTP): <http://localhost:8765/mcp>
    - El bot se conectará automáticamente si `TELEGRAM_BOT_TOKEN` está definido.
 
 3. El contexto de construcción excluye `data/` y cualquier `*.env`, evitando subir datos o credenciales a la imagen final.
@@ -137,10 +138,15 @@ un servicio opcional y separado del API principal.
    pip install -r requirements-mcp.txt
    ```
 
-2. Lanza el servidor conectado al API de Videorama (usa `VIDEORAMA_API_URL` o `--api-url` para apuntar a otro host):
+2. Lanza el servidor conectado al API de Videorama (usa `VIDEORAMA_API_URL` o `--api-url` para apuntar a otro host). Puedes elegir
+   transporte `stdio` (modo local) o `http` (expuesto en `/mcp`):
 
    ```bash
+   # Stdio (por defecto)
    python -m videorama.mcp_server --api-url http://localhost:8600
+
+   # HTTP accesible en http://localhost:8765/mcp
+   python -m videorama.mcp_server --api-url http://localhost:8600 --transport http --host 0.0.0.0 --port 8765
    ```
 
 3. Herramientas disponibles:
