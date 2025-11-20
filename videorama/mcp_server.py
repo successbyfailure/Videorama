@@ -182,16 +182,10 @@ async def _tool_add_entry(client: VideoramaClient, arguments: Dict[str, Any]) ->
     return {"entry": entry, "message": text}
 
 
-async def main() -> None:
+def main() -> None:
     parser = argparse.ArgumentParser(description="Servidor MCP para Videorama")
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help="Base URL del API de Videorama")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="Timeout en segundos para peticiones HTTP")
-    parser.add_argument(
-        "--transport",
-        choices=["stdio", "http"],
-        default=os.getenv("VIDEORAMA_MCP_TRANSPORT", "stdio"),
-        help="Transporte MCP (stdio para clientes locales, http para servidores HTTP)",
-    )
     parser.add_argument("--host", default=os.getenv("VIDEORAMA_MCP_HOST", "0.0.0.0"), help="Host para transporte HTTP")
     parser.add_argument("--port", type=int, default=int(os.getenv("VIDEORAMA_MCP_PORT", "8765")), help="Puerto para transporte HTTP")
     args = parser.parse_args()
@@ -199,7 +193,8 @@ async def main() -> None:
     client = VideoramaClient(base_url=args.api_url, timeout=args.timeout)
     server = build_server(client, host=args.host, port=args.port)
 
-    transport = "stdio" if args.transport == "stdio" else "streamable-http"
-    server.run(transport=transport)
+    server.run(transport="streamable-http")
+
+
 if __name__ == "__main__":
-    anyio.run(main)
+    main()
