@@ -406,7 +406,7 @@ async def process_url_upload(message, url: str) -> None:
     entry = response.json()
     entry_url = build_absolute_url(entry.get("url") or entry.get("original_url") or url)
     await message.reply_text(
-        f"Añadido {entry.get('title') or url} a la biblioteca retro.\n{entry_url}",
+        f"Añadido {entry.get('title') or url} a la biblioteca personal.\n{entry_url}",
         disable_web_page_preview=True,
     )
 
@@ -455,7 +455,7 @@ async def add_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     entry = response.json()
     await update.message.reply_text(
-        f"Añadido {entry.get('title') or url} a la biblioteca retro."
+        f"Añadido {entry.get('title') or url} a la biblioteca personal."
     )
 
 
