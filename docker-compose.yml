@@ -1,5 +1,6 @@
 services:
   vhs:
+    container_name: vhs
     build: .
     command: uvicorn vhs.main:app --host 0.0.0.0 --port 8601
     ports:
@@ -27,6 +28,7 @@ services:
       - videorama-net
 
   videorama:
+    container_name: videorama
     build: .
     command: uvicorn videorama.main:app --host 0.0.0.0 --port 8600
     ports:
@@ -55,6 +57,7 @@ services:
       - videorama-net
 
   videorama-bot:
+    container_name: videorama-bot
     build: .
     command: python -m videorama.telegram_bot
     depends_on:
@@ -78,6 +81,7 @@ services:
       - videorama-net
 
   videorama-mcp:
+    container_name: videorama-mcp
     build: .
     command: >-
       python -m videorama.mcp_server
