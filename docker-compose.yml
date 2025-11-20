@@ -67,6 +67,7 @@ services:
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - VIDEORAMA_API_URL=http://videorama:8600
+      - VHS_API_URL=http://vhs:8601
     restart: unless-stopped
     healthcheck:
       test:
