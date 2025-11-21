@@ -785,7 +785,7 @@ def _proxy_vhs_stream(
             endpoint,
             params=params,
             stream=True,
-            timeout=30,
+            timeout=VHS_HTTP_TIMEOUT,
             headers=request_headers or None,
         )
     except requests.RequestException as exc:  # pragma: no cover - network errors
