@@ -37,7 +37,7 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
 - API `/api/library` para guardar, consultar o eliminar elementos de la colección.
 - Clasificación automática por proveedor, duración y etiquetas devueltas por VHS.
 - Sincroniza nuevas entradas con VHS para precachear en segundo plano.
-- Guarda datos en SQLite (`data/videorama/library.db`) y migra bibliotecas antiguas en JSON.
+- Guarda datos en SQLite (`data/videorama/library.db`).
 - Panel web retro en `/import` con formulario, vista previa y confirmaciones instantáneas.
 - Gestor de listas estáticas/dinámicas y categorías directamente desde la biblioteca.
 

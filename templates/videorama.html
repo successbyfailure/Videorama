@@ -967,6 +967,7 @@
           </div>
         </details>
         <div class="player-actions">
+          <button class="ghost-link" id="refresh-metadata-button" type="button">Reescanear metadatos</button>
           <button class="danger-button" id="player-delete" type="button">Eliminar video</button>
         </div>
       </div>
@@ -1170,6 +1171,7 @@
         playerElements.editStatus = document.getElementById('edit-status');
         playerElements.autoTagsButton = document.getElementById('auto-tags-button');
         playerElements.autoSummaryButton = document.getElementById('auto-summary-button');
+        playerElements.refreshMetadataButton = document.getElementById('refresh-metadata-button');
         playerElements.refreshThumbnailButton = document.getElementById('refresh-thumbnail-button');
         playerElements.metadata = document.getElementById('player-metadata');
         playerElements.facts = document.getElementById('player-facts');
@@ -1192,6 +1194,9 @@
         }
         if (playerElements.autoSummaryButton) {
           playerElements.autoSummaryButton.addEventListener('click', handleAutoSummary);
+        }
+        if (playerElements.refreshMetadataButton) {
+          playerElements.refreshMetadataButton.addEventListener('click', handleRefreshMetadata);
         }
         if (playerElements.refreshThumbnailButton) {
           playerElements.refreshThumbnailButton.addEventListener('click', handleRefreshThumbnail);
@@ -1536,6 +1541,37 @@
         } catch (error) {
           console.error(error);
           setEditStatus(error.message || 'No se pudo generar la descripción.');
+        }
+      }
+
+      async function handleRefreshMetadata() {
+        if (!playerState.currentEntry || !playerElements.refreshMetadataButton) {
+          return;
+        }
+        const button = playerElements.refreshMetadataButton;
+        const originalLabel = button.textContent;
+        button.disabled = true;
+        button.textContent = 'Reescaneando…';
+        setEditStatus('Actualizando metadatos…');
+        try {
+          const response = await fetch(`/api/library/${playerState.currentEntry.id}/metadata`, {
+            method: 'POST',
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(result.detail || 'No se pudo reescanear los metadatos.');
+          }
+          playerState.currentEntry = result;
+          updateEntryInLibrary(result);
+          applyFilters();
+          openPlayer(result);
+          setEditStatus('Metadatos actualizados.');
+        } catch (error) {
+          console.error(error);
+          setEditStatus(error.message || 'No se pudo actualizar metadatos.');
+        } finally {
+          button.disabled = false;
+          button.textContent = originalLabel;
         }
       }
 
