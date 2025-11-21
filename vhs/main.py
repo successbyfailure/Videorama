@@ -78,6 +78,7 @@ TRANSCRIPTION_MODEL = os.getenv("TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")
 WHISPER_ASR_URL = os.getenv("WHISPER_ASR_URL")
 WHISPER_ASR_TIMEOUT = int(os.getenv("WHISPER_ASR_TIMEOUT", "600"))
 FFMPEG_BINARY = os.getenv("FFMPEG_BINARY", "ffmpeg")
+VHS_VERSION = (os.getenv("VHS_VERSION") or "").strip()
 
 AUDIO_FORMAT_PROFILES = {
     "audio": {"codec": "mp3", "preferred_quality": "192"},
@@ -242,6 +243,16 @@ for preset_name, preset in FFMPEG_PRESETS.items():
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+
+
+def template_context(request: Request, **kwargs: Any) -> Dict[str, Any]:
+    context = {
+        "request": request,
+        "app_name": APP_TITLE,
+        "vhs_version": VHS_VERSION,
+    }
+    context.update(kwargs)
+    return context
 
 
 class DownloadError(RuntimeError):
@@ -1008,11 +1019,10 @@ def generate_transcription_file(url: str, media_format: str) -> Tuple[Path, Dict
 async def index(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         "index.html",
-        {
-            "request": request,
-            "app_name": APP_TITLE,
-            "supported_services": SUPPORTED_SERVICES,
-        },
+        template_context(
+            request,
+            supported_services=SUPPORTED_SERVICES,
+        ),
     )
 
 
@@ -1020,17 +1030,19 @@ async def index(request: Request) -> HTMLResponse:
 async def api_docs(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         "api_docs.html",
-        {
-            "request": request,
-            "app_name": APP_TITLE,
-            "formats": FORMAT_DESCRIPTIONS,
-        },
+        template_context(
+            request,
+            formats=FORMAT_DESCRIPTIONS,
+        ),
     )
 
 
 @app.get("/api/health")
 async def health() -> Dict[str, str]:
-    return {"status": "ok"}
+    payload: Dict[str, str] = {"status": "ok"}
+    if VHS_VERSION:
+        payload["version"] = VHS_VERSION
+    return payload
 
 
 @app.get("/api/probe", response_class=JSONResponse)

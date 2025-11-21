@@ -23,6 +23,8 @@ services:
       - "8601:8601"
     env_file:
       - .env
+    environment:
+      - VHS_VERSION=0.1.0
     volumes:
       - ./data:/app/data
     restart: unless-stopped
@@ -55,6 +57,8 @@ services:
       - "8600:8600"
     env_file:
       - .env
+    environment:
+      - VIDEORAMA_VERSION=0.1.0
     volumes:
       - ./data:/app/data
     restart: unless-stopped
@@ -85,6 +89,8 @@ services:
         condition: service_started
     env_file:
       - .env
+    environment:
+      - VIDEORAMA_BOT_VERSION=0.1.0
     restart: unless-stopped
     labels:
       - com.centurylinklabs.watchtower.enable=true
@@ -118,6 +124,8 @@ services:
         condition: service_started
     env_file:
       - .env
+    environment:
+      - VIDEORAMA_MCP_VERSION=0.1.0
     ports:
       - "8765:8765"
     restart: unless-stopped

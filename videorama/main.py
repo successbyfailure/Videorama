@@ -51,10 +51,22 @@ TAGS_PROMPT = os.getenv(
     ),
 )
 
+VIDEORAMA_VERSION = (os.getenv("VIDEORAMA_VERSION") or "").strip()
+
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 store = SQLiteStore(LIBRARY_DB_PATH)
+
+
+def _template_context(request: Request, **kwargs: Any) -> Dict[str, Any]:
+    context = {
+        "request": request,
+        "app_name": APP_TITLE,
+        "videorama_version": VIDEORAMA_VERSION,
+    }
+    context.update(kwargs)
+    return context
 
 
 def _llm_client() -> OpenAI:
@@ -932,10 +944,31 @@ async def auto_tags(payload: EnrichmentPayload) -> Dict[str, Any]:
     return {"tags": suggested_tags, "metadata": metadata}
 
 
+def _fetch_vhs_health(timeout: int = 8) -> Dict[str, Any]:
+    try:
+        response = requests.get(f"{VHS_BASE_URL}/api/health", timeout=timeout)
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data, dict) else {"status": "error", "message": "Respuesta inválida"}
+    except requests.RequestException:
+        return {"status": "unreachable"}
+
+
 @app.get("/api/health")
 async def health() -> Dict[str, Any]:
     entries = load_library()
-    return {"status": "ok", "items": len(entries)}
+    payload: Dict[str, Any] = {"status": "ok", "items": len(entries)}
+    if VIDEORAMA_VERSION:
+        payload["version"] = VIDEORAMA_VERSION
+    return payload
+
+
+@app.get("/api/vhs/health")
+async def vhs_health() -> Dict[str, Any]:
+    status = _fetch_vhs_health()
+    if status.get("status") == "ok":
+        return status
+    raise HTTPException(status_code=503, detail=status.get("message") or "VHS no responde")
 
 
 @app.get("/api/library")
@@ -1070,13 +1103,12 @@ async def home(request: Request) -> HTMLResponse:
         }
     )
     preview_categories = [category.title() for category in categories[:6]]
-    context = {
-        "request": request,
-        "app_name": APP_TITLE,
-        "library_count": len(entries),
-        "preview_categories": preview_categories,
-        "default_format": DEFAULT_VHS_FORMAT,
-    }
+    context = _template_context(
+        request,
+        library_count=len(entries),
+        preview_categories=preview_categories,
+        default_format=DEFAULT_VHS_FORMAT,
+    )
     return templates.TemplateResponse("videorama.html", context)
 
 
@@ -1085,12 +1117,11 @@ async def stats_page(request: Request) -> HTMLResponse:
     entries = load_library()
     downloads = store.list_download_events(1000)
     summary = summarize_library(entries, downloads)
-    context = {
-        "request": request,
-        "app_name": APP_TITLE,
-        "summary": summary,
-        "generated_at": time.time(),
-    }
+    context = _template_context(
+        request,
+        summary=summary,
+        generated_at=time.time(),
+    )
     return templates.TemplateResponse("stats.html", context)
 
 
@@ -1126,29 +1157,27 @@ async def import_manager(request: Request) -> HTMLResponse:
     if prefill_url:
         default_tab_name = "tab-url"
 
-    context = {
-        "request": request,
-        "app_name": APP_TITLE,
-        "library_count": len(entries),
-        "recent_entries": recent_entries,
-        "default_format": DEFAULT_VHS_FORMAT,
-        "library_path": str(LIBRARY_PATH.resolve()),
-        "categories": categories,
-        "popular_tags": popular_tags,
-        "default_tab": default_tab_name,
-        "prefill_url": prefill_url,
-    }
+    context = _template_context(
+        request,
+        library_count=len(entries),
+        recent_entries=recent_entries,
+        default_format=DEFAULT_VHS_FORMAT,
+        library_path=str(LIBRARY_PATH.resolve()),
+        categories=categories,
+        popular_tags=popular_tags,
+        default_tab=default_tab_name,
+        prefill_url=prefill_url,
+    )
     return templates.TemplateResponse("import_manager.html", context)
 
 
 @app.get("/external-player", response_class=HTMLResponse)
 async def external_player(request: Request) -> HTMLResponse:
-    context = {
-        "request": request,
-        "app_name": APP_TITLE,
-        "library_count": len(load_library()),
-        "default_url": request.query_params.get("url") or "https://piped.video",
-    }
+    context = _template_context(
+        request,
+        library_count=len(load_library()),
+        default_url=request.query_params.get("url") or "https://piped.video",
+    )
     return templates.TemplateResponse("external_player.html", context)
 
 

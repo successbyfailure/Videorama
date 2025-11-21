@@ -351,17 +351,57 @@
         font-size: 0.9rem;
         color: #94a3b8;
       }
-        .steps-label {
-          font-size: 0.85rem;
-          text-transform: uppercase;
-          letter-spacing: 0.15em;
-          color: #94a3b8;
+      .steps-label {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        color: #94a3b8;
+      }
+      .version-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 999px;
+        background: rgba(99, 102, 241, 0.18);
+        color: #c7d2fe;
+        font-size: 0.85rem;
+        border: 1px solid rgba(99, 102, 241, 0.35);
+      }
+      .service-health {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.5rem 0.9rem;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(15, 23, 42, 0.7);
+      }
+      .service-health .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #f87171;
+        box-shadow: 0 0 10px rgba(248, 113, 113, 0.8);
+      }
+      .service-health .dot.ok {
+        background: #4ade80;
+        box-shadow: 0 0 10px rgba(74, 222, 128, 0.8);
+      }
+      .service-health .dot.warn {
+        background: #facc15;
+        box-shadow: 0 0 10px rgba(250, 204, 21, 0.8);
       }
     </style>
   </head>
   <body>
     <nav class="top-nav">
-      <span class="brand">{{ app_name }}</span>
+      <span class="brand">
+        {{ app_name }}
+        {% if videorama_version %}
+        <span class="version-pill">v{{ videorama_version }}</span>
+        {% endif %}
+      </span>
       <div class="nav-links">
         <a href="/">Biblioteca</a>
         <a href="/import" class="active">Importador</a>
@@ -377,7 +417,13 @@
           </div>
           <div>
             <p class="eyebrow">Central de importación</p>
-            <h1>VHS</h1>
+            <h1>
+              VHS
+              <span class="service-health" id="vhs-health-indicator">
+                <span class="dot" id="vhs-health-dot"></span>
+                <span id="vhs-health-text">Comprobando…</span>
+              </span>
+            </h1>
             <p>
               Gestiona nuevas capturas, valida metadatos y vigila cómo se almacenan los {{ library_count }} elementos de la
               biblioteca ({{ library_path }}).
@@ -547,6 +593,10 @@
       const defaultTab = {{ default_tab|tojson }};
       const prefillUrl = {{ prefill_url|tojson }};
 
+      const vhsHealthIndicator = document.getElementById('vhs-health-indicator');
+      const vhsHealthDot = document.getElementById('vhs-health-dot');
+      const vhsHealthText = document.getElementById('vhs-health-text');
+
       const probeForm = document.getElementById('probe-form');
       const probeUrlInput = document.getElementById('probe-url');
       const probeStatus = document.getElementById('probe-status');
@@ -593,6 +643,34 @@
       let searchItems = [];
       let searchPage = 1;
       let lastSearchServices = [];
+
+      async function refreshVhsHealth() {
+        if (!vhsHealthIndicator) {
+          return;
+        }
+
+        try {
+          const response = await fetch('/api/vhs/health');
+          if (!response.ok) {
+            throw new Error('vhs-health-error');
+          }
+          const data = await response.json();
+          const status = data?.status || 'unknown';
+          vhsHealthDot.classList.remove('ok', 'warn');
+
+          if (status === 'ok') {
+            vhsHealthDot.classList.add('ok');
+            const versionLabel = data?.version ? ` · v${data.version}` : '';
+            vhsHealthText.textContent = `Disponible${versionLabel}`;
+          } else {
+            vhsHealthDot.classList.add('warn');
+            vhsHealthText.textContent = 'Conectividad inestable';
+          }
+        } catch (error) {
+          vhsHealthDot.classList.remove('ok', 'warn');
+          vhsHealthText.textContent = 'VHS no responde';
+        }
+      }
 
       function mergeMetadata(extra) {
         if (!extra || typeof extra !== 'object') {
@@ -1042,6 +1120,9 @@
           console.error(error);
         }
       }
+
+      refreshVhsHealth();
+      setInterval(refreshVhsHealth, 30000);
 
       renderTagSuggestions(popularTagSeeds);
       resetEditor();
