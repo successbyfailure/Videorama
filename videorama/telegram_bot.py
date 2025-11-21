@@ -32,9 +32,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 VIDEORAMA_API_URL = os.getenv("VIDEORAMA_API_URL", "http://localhost:8600").rstrip("/")
-VHS_API_URL = (os.getenv("VHS_API_URL") or os.getenv("VHS_BASE_URL") or "http://localhost:8601").rstrip(
-    "/"
-)
+VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
 DEFAULT_VHS_PRESET = os.getenv("TELEGRAM_VHS_PRESET", "ffmpeg_720p")
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_DOWNLOAD_LIMIT_BYTES = int(
@@ -99,7 +97,7 @@ def parse_content_disposition(headers: Dict[str, str], fallback: str) -> str:
 
 def probe_url_metadata(url: str) -> Dict[str, Any]:
     try:
-        response = requests.get(f"{VHS_API_URL}/api/probe", params={"url": url}, timeout=60)
+        response = requests.get(f"{VHS_BASE_URL}/api/probe", params={"url": url}, timeout=60)
         if response.status_code >= 400:
             return {}
         data = response.json()
@@ -112,7 +110,7 @@ async def fetch_transcription_text(url: str) -> Optional[str]:
     def _request() -> Optional[str]:
         try:
             response = requests.get(
-                f"{VHS_API_URL}/api/download",
+                f"{VHS_BASE_URL}/api/download",
                 params={"url": url, "format": "transcripcion_txt"},
                 timeout=300,
             )
@@ -160,7 +158,7 @@ async def download_vhs_media(url: str, media_format: str, fallback_name: str) ->
     def _request() -> Tuple[Optional[Path], Optional[str]]:
         try:
             with requests.get(
-                f"{VHS_API_URL}/api/download",
+                f"{VHS_BASE_URL}/api/download",
                 params={"url": url, "format": media_format},
                 timeout=600,
                 stream=True,
@@ -233,7 +231,7 @@ async def convert_with_vhs(file_path: Path, file_name: str) -> Tuple[Optional[Pa
             data = {"media_format": DEFAULT_VHS_PRESET}
             try:
                 with requests.post(
-                    f"{VHS_API_URL}/api/ffmpeg/upload",
+                    f"{VHS_BASE_URL}/api/ffmpeg/upload",
                     data=data,
                     files=files,
                     timeout=600,
