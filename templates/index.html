@@ -371,7 +371,7 @@
         <form id="upload-form" class="upload-form">
           <div>
             <label for="upload-file">Archivo</label>
-            <input type="file" id="upload-file" name="file" accept="audio/*,video/*" required />
+            <input type="file" id="upload-file" name="file" accept="*/*" required />
           </div>
           <div>
             <label for="upload-format">Formato</label>
@@ -404,7 +404,7 @@
         <form id="ffmpeg-form" class="upload-form">
           <div>
             <label for="ffmpeg-file">Archivo</label>
-            <input type="file" id="ffmpeg-file" name="file" accept="audio/*,video/*" required />
+            <input type="file" id="ffmpeg-file" name="file" accept="*/*" required />
           </div>
           <div>
             <label for="ffmpeg-format">Perfil ffmpeg</label>
@@ -596,11 +596,19 @@
           statusTarget && (statusTarget.textContent = 'Descarga lista.');
           progress?.complete('Archivo listo para guardar.');
         } catch (error) {
-          progress?.fail(error.message);
+          const fallbackMessage =
+            error instanceof Error && typeof error.message === 'string'
+              ? error.message
+              : 'Ha ocurrido un error inesperado.';
+          const message =
+            error instanceof TypeError
+              ? 'No se pudo contactar con el servidor. Revisa la conexión o si hay un bloqueador en la red.'
+              : fallbackMessage;
+          progress?.fail(message);
           if (statusTarget) {
-            statusTarget.textContent = error.message;
+            statusTarget.textContent = message;
           }
-          throw error;
+          throw error instanceof Error ? error : new Error(message);
         }
       }
 
