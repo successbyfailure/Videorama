@@ -78,7 +78,7 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
    | `USAGE_LOG_PATH` | Log JSONL para estadísticas | VHS | `data/usage_log.jsonl` |
    | `FFMPEG_BINARY` | Binario usado para conversiones | VHS | `ffmpeg` |
    | `TRANSCRIPTION_*` / `WHISPER_ASR_*` | Configuración del endpoint de transcripción | VHS | Ver `example.env` |
-   | `VHS_BASE_URL` | URL que Videorama usa para hablar con VHS | Videorama | `http://localhost:8601` |
+   | `VHS_BASE_URL` | URL que Videorama y el bot usan para hablar con VHS | Videorama/Bot | `http://localhost:8601` |
    | `VIDEORAMA_UPLOADS_DIR` | Carpeta para archivos subidos | Videorama | `data/videorama/uploads` |
    | `VIDEORAMA_DB_PATH` | Ruta del fichero SQLite de la biblioteca | Videorama | `data/videorama/library.db` |
    | `VIDEORAMA_DEFAULT_FORMAT` | Formato que Videorama pedirá a VHS al precachear | Videorama | `video_high` |
