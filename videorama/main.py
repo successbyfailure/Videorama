@@ -6,7 +6,8 @@ import time
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, Iterable, List, Literal, Optional
+from urllib.parse import urlparse
 
 import requests
 from fastapi.staticfiles import StaticFiles
@@ -23,8 +24,12 @@ logger = logging.getLogger(__name__)
 APP_TITLE = "Videorama Retro Library"
 UPLOADS_DIR = Path(os.getenv("VIDEORAMA_UPLOADS_DIR", "data/videorama/uploads"))
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+THUMBNAILS_DIR = Path(os.getenv("VIDEORAMA_THUMBNAILS_DIR", "data/videorama/thumbnails"))
+THUMBNAILS_DIR.mkdir(parents=True, exist_ok=True)
+THUMBNAILS_URL_PREFIX = "/thumbnails"
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
 VHS_HTTP_TIMEOUT = int(os.getenv("VHS_HTTP_TIMEOUT", "60"))
+THUMBNAIL_HTTP_TIMEOUT = int(os.getenv("VIDEORAMA_THUMBNAIL_TIMEOUT", "20"))
 DEFAULT_VHS_FORMAT = os.getenv("VIDEORAMA_DEFAULT_FORMAT", "video_high")
 LIBRARY_DB_PATH = Path(os.getenv("VIDEORAMA_DB_PATH", "data/videorama/library.db"))
 DEFAULT_CATEGORY = "miscelánea"
@@ -56,6 +61,7 @@ VIDEORAMA_VERSION = (os.getenv("VIDEORAMA_VERSION") or "").strip()
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+app.mount(THUMBNAILS_URL_PREFIX, StaticFiles(directory=THUMBNAILS_DIR), name="thumbnails")
 store = SQLiteStore(LIBRARY_DB_PATH)
 
 
@@ -409,6 +415,10 @@ def normalize_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     metadata_blob = sanitize_metadata(entry.get("metadata"))
 
+    cached_thumbnail = cache_thumbnail(entry_id, thumbnail)
+    if cached_thumbnail:
+        thumbnail = cached_thumbnail
+
     return {
         "id": entry_id,
         "url": url,
@@ -446,7 +456,9 @@ def normalize_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def load_library() -> List[Dict[str, Any]]:
     entries = store.list_entries()
-    return normalize_entries(entries)
+    normalized = normalize_entries(entries)
+    purge_cached_thumbnails([entry["id"] for entry in normalized])
+    return normalized
 
 
 def entry_id_for_url(url: str) -> str:
@@ -481,6 +493,84 @@ def sanitize_filename(name: str) -> str:
     ).strip()
     cleaned = cleaned.replace(" ", "_")
     return cleaned or "videorama.bin"
+
+
+def _thumbnail_extension_from_type(content_type: Optional[str]) -> str:
+    if not content_type:
+        return ".jpg"
+    content_type = content_type.lower()
+    if "png" in content_type:
+        return ".png"
+    if "webp" in content_type:
+        return ".webp"
+    if "jpeg" in content_type or "/jpg" in content_type:
+        return ".jpg"
+    return ".jpg"
+
+
+def _thumbnail_path(entry_id: str, ext: str) -> Path:
+    safe_ext = ext if ext.startswith(".") else f".{ext}"
+    return THUMBNAILS_DIR / f"{entry_id}{safe_ext}"
+
+
+def cache_thumbnail(entry_id: Optional[str], thumbnail_url: Optional[str]) -> Optional[str]:
+    if not entry_id or not thumbnail_url:
+        return None
+    cleaned_url = str(thumbnail_url).strip()
+    if not cleaned_url:
+        return None
+
+    if cleaned_url.startswith(THUMBNAILS_URL_PREFIX):
+        local_name = cleaned_url.replace(THUMBNAILS_URL_PREFIX, "", 1).lstrip("/")
+        local_path = THUMBNAILS_DIR / local_name
+        if local_path.exists():
+            return cleaned_url
+        return None
+
+    existing = next(THUMBNAILS_DIR.glob(f"{entry_id}.*"), None)
+    if existing and existing.exists():
+        return f"{THUMBNAILS_URL_PREFIX}/{existing.name}"
+
+    parsed = urlparse(cleaned_url)
+    if parsed.scheme and parsed.scheme not in {"http", "https"}:
+        return cleaned_url
+
+    ext = Path(parsed.path or "").suffix or ".jpg"
+
+    try:
+        response = requests.get(cleaned_url, timeout=THUMBNAIL_HTTP_TIMEOUT)
+        response.raise_for_status()
+        if not ext or ext == ".":
+            ext = _thumbnail_extension_from_type(response.headers.get("Content-Type"))
+        target_path = _thumbnail_path(entry_id, ext)
+        target_path.write_bytes(response.content)
+        return f"{THUMBNAILS_URL_PREFIX}/{target_path.name}"
+    except requests.RequestException as exc:
+        logger.warning("No se pudo cachear miniatura %s: %s", cleaned_url, exc)
+        return cleaned_url
+    except OSError as exc:  # pylint: disable=broad-except
+        logger.warning("No se pudo guardar miniatura local para %s: %s", entry_id, exc)
+        return cleaned_url
+
+
+def purge_cached_thumbnails(entry_ids: Iterable[str]) -> None:
+    valid_ids = {str(entry_id) for entry_id in entry_ids}
+    for thumb_path in THUMBNAILS_DIR.glob("*"):
+        if not thumb_path.is_file():
+            continue
+        if thumb_path.stem not in valid_ids:
+            try:
+                thumb_path.unlink()
+            except OSError:
+                logger.debug("No se pudo eliminar miniatura obsoleta %s", thumb_path)
+
+
+def remove_entry_thumbnails(entry_id: str) -> None:
+    for thumb_path in THUMBNAILS_DIR.glob(f"{entry_id}.*"):
+        try:
+            thumb_path.unlink()
+        except OSError:
+            logger.debug("No se pudo eliminar miniatura %s", thumb_path)
 
 
 def _download_filename(entry: Dict[str, Any]) -> str:
@@ -1013,9 +1103,12 @@ async def get_entry(entry_id: str) -> Dict[str, Any]:
 
 @app.delete("/api/library/{entry_id}")
 async def delete_entry(entry_id: str) -> Dict[str, Any]:
-    deleted = store.delete_entry(entry_id)
-    if not deleted:
+    stored_entry = store.get_entry(entry_id)
+    if not stored_entry:
         raise HTTPException(status_code=404, detail="Entrada no encontrada")
+    deleted = store.delete_entry(entry_id)
+    if deleted:
+        remove_entry_thumbnails(entry_id)
     return {"status": "deleted", "id": entry_id}
 
 
@@ -1052,7 +1145,9 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     if payload.metadata:
         metadata_blob.update(sanitize_metadata(payload.metadata))
     metadata_blob = ensure_metadata_source(metadata_blob, payload.url)
-    thumbnail = extract_thumbnail(metadata_blob)
+    remove_entry_thumbnails(entry_id)
+    raw_thumbnail = extract_thumbnail(metadata_blob)
+    thumbnail = cache_thumbnail(entry_id, raw_thumbnail) or raw_thumbnail
     category = (payload.category or "").strip() or classify_entry(metadata)
 
     title = payload.title or metadata.get("title") or payload.url
@@ -1182,7 +1277,8 @@ async def refresh_entry_thumbnail(entry_id: str) -> Dict[str, Any]:
         logger.warning("No se pudo refrescar la miniatura para %s: %s", source_url, exc)
         raise HTTPException(status_code=502, detail="No se pudo obtener metadatos para la miniatura")
 
-    thumbnail = extract_thumbnail(metadata_blob)
+    raw_thumbnail = extract_thumbnail(metadata_blob)
+    thumbnail = cache_thumbnail(entry_id, raw_thumbnail) or raw_thumbnail
     if not thumbnail:
         raise HTTPException(status_code=404, detail="No se pudo generar una miniatura para esta entrada")
 

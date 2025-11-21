@@ -625,6 +625,23 @@
         color: #94a3b8;
         font-size: 0.95rem;
       }
+      .player-layout {
+        display: grid;
+        grid-template-columns: 1.4fr 1fr;
+        gap: 1.25rem;
+        align-items: start;
+      }
+      .player-column {
+        display: flex;
+        flex-direction: column;
+        gap: 0.85rem;
+      }
+      .player-controls {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(99, 102, 241, 0.25);
+        border-radius: 18px;
+        padding: 1rem;
+      }
       .player-tags {
         display: flex;
         flex-wrap: wrap;
@@ -659,10 +676,36 @@
         color: #e2e8f0;
         margin: 0;
       }
+      .thumbnail-card {
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        border-radius: 16px;
+        padding: 0.75rem;
+        background: rgba(15, 23, 42, 0.4);
+      }
+      .thumbnail-frame {
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: #0f172a;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 180px;
+      }
+      .thumbnail-frame img {
+        width: 100%;
+        display: block;
+        object-fit: cover;
+      }
       .edit-form {
         display: grid;
         gap: 0.65rem;
         margin-top: 0.75rem;
+      }
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 0.65rem;
       }
       .edit-form label {
         font-size: 0.8rem;
@@ -691,8 +734,33 @@
         flex-wrap: wrap;
         align-items: center;
       }
+      .quick-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 0.35rem;
+      }
+      .quick-actions .ghost-link {
+        border: 1px solid rgba(99, 102, 241, 0.35);
+        border-radius: 10px;
+        padding: 0.55rem 0.85rem;
+      }
       .status.inline {
         margin: 0;
+      }
+      .auto-tag-results {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin-top: 0.35rem;
+      }
+      .auto-tag-results button {
+        border: 1px dashed rgba(99, 102, 241, 0.4);
+        background: rgba(99, 102, 241, 0.12);
+        color: inherit;
+        border-radius: 999px;
+        padding: 0.3rem 0.8rem;
+        cursor: pointer;
       }
       .metadata-grid {
         display: grid;
@@ -725,6 +793,14 @@
         color: #c7d2fe;
         font-size: 0.85rem;
         border: 1px solid rgba(99, 102, 241, 0.35);
+      }
+      @media (max-width: 1024px) {
+        .player-layout {
+          grid-template-columns: 1fr;
+        }
+        .player-controls {
+          order: -1;
+        }
       }
     </style>
   </head>
@@ -913,62 +989,82 @@
           <span id="player-category"></span>
           <span id="player-duration"></span>
         </div>
-        <div class="player-preview">
-          <video id="player-video" controls preload="metadata" poster=""></video>
-        </div>
-        <p class="player-notes" id="player-notes"></p>
-        <div class="player-tags" id="player-tags"></div>
-        <section class="player-sections">
-          <h3>Editar información</h3>
-          <form id="player-edit-form" class="edit-form">
-            <div>
-              <label for="edit-title">Título</label>
-              <input id="edit-title" name="title" maxlength="300" />
+        <div class="player-layout">
+          <div class="player-column">
+            <div class="player-preview">
+              <video id="player-video" controls preload="metadata" poster=""></video>
             </div>
-            <div>
-              <label for="edit-category">Categoría</label>
-              <input id="edit-category" name="category" maxlength="120" />
-            </div>
-            <div>
-              <label for="edit-tags">Etiquetas (separadas por comas)</label>
-              <input id="edit-tags" name="tags" />
-              <div class="tag-suggestions" id="tag-suggestions"></div>
-            </div>
-            <div>
-              <label for="edit-notes">Descripción o notas</label>
-              <textarea id="edit-notes" name="notes" maxlength="2000"></textarea>
-            </div>
-            <div class="edit-actions">
-              <button class="ghost-link" type="button" id="auto-tags-button">Sugerir etiquetas</button>
-              <button class="ghost-link" type="button" id="auto-summary-button">Sugerir descripción</button>
-              <button class="ghost-link" type="button" id="refresh-thumbnail-button">Regenerar miniatura</button>
+            <p class="player-notes" id="player-notes"></p>
+            <div class="player-tags" id="player-tags"></div>
+            <section class="player-sections">
+              <h3>Ficha técnica</h3>
+              <dl class="metadata-grid" id="player-facts"></dl>
+            </section>
+            <section class="player-sections">
+              <h3>Metadatos originales</h3>
+              <dl class="metadata-grid" id="player-metadata"></dl>
+            </section>
+            <details class="download-menu" id="player-download-menu">
+              <summary>Descargas y recodificación</summary>
+              <div class="download-menu-body">
+                <label for="player-format">Formato de descarga</label>
+                <select class="format-select" id="player-format"></select>
+                <div class="menu-actions">
+                  <a class="primary-button" id="player-download" target="_blank" rel="noreferrer">Descargar</a>
+                  <a class="ghost-link" id="player-source" target="_blank" rel="noreferrer">Ver origen</a>
+                </div>
+              </div>
+            </details>
+          </div>
+          <div class="player-column player-controls">
+            <section class="player-sections">
+              <h3>Miniatura</h3>
+              <div class="thumbnail-card">
+                <div class="thumbnail-frame">
+                  <img id="player-thumbnail-image" alt="Miniatura del video" loading="lazy" />
+                </div>
+                <p class="hint">Las miniaturas se guardan en caché local y se limpian automáticamente.</p>
+              </div>
+            </section>
+            <section class="player-sections">
+              <h3>Editar información</h3>
+              <div class="quick-actions">
+                <button class="ghost-link" type="button" id="auto-tags-button">Sugerir etiquetas</button>
+                <button class="ghost-link" type="button" id="auto-summary-button">Sugerir descripción</button>
+                <button class="ghost-link" type="button" id="refresh-thumbnail-button">Regenerar miniatura</button>
+                <button class="ghost-link" type="button" id="refresh-metadata-button">Reescanear metadatos</button>
+              </div>
               <p class="status inline" id="edit-status"></p>
-            </div>
-            <button class="primary-button" type="submit">Guardar cambios</button>
-          </form>
-        </section>
-        <section class="player-sections">
-          <h3>Ficha técnica</h3>
-          <dl class="metadata-grid" id="player-facts"></dl>
-        </section>
-        <section class="player-sections">
-          <h3>Metadatos originales</h3>
-          <dl class="metadata-grid" id="player-metadata"></dl>
-        </section>
-        <details class="download-menu" id="player-download-menu">
-          <summary>Descargas y recodificación</summary>
-          <div class="download-menu-body">
-            <label for="player-format">Formato de descarga</label>
-            <select class="format-select" id="player-format"></select>
-            <div class="menu-actions">
-              <a class="primary-button" id="player-download" target="_blank" rel="noreferrer">Descargar</a>
-              <a class="ghost-link" id="player-source" target="_blank" rel="noreferrer">Ver origen</a>
+              <form id="player-edit-form" class="edit-form">
+                <div class="form-grid">
+                  <div>
+                    <label for="edit-title">Título</label>
+                    <input id="edit-title" name="title" maxlength="300" />
+                  </div>
+                  <div>
+                    <label for="edit-category">Categoría</label>
+                    <input id="edit-category" name="category" maxlength="120" />
+                  </div>
+                </div>
+                <div>
+                  <label for="edit-tags">Etiquetas (separadas por comas)</label>
+                  <input id="edit-tags" name="tags" />
+                  <div class="tag-suggestions" id="tag-suggestions"></div>
+                  <div class="auto-tag-results" id="auto-tag-results"></div>
+                </div>
+                <div>
+                  <label for="edit-notes">Descripción o notas</label>
+                  <textarea id="edit-notes" name="notes" maxlength="2000"></textarea>
+                </div>
+                <div class="edit-actions">
+                  <button class="primary-button" type="submit">Guardar cambios</button>
+                </div>
+              </form>
+            </section>
+            <div class="player-actions">
+              <button class="danger-button" id="player-delete" type="button">Eliminar video</button>
             </div>
           </div>
-        </details>
-        <div class="player-actions">
-          <button class="ghost-link" id="refresh-metadata-button" type="button">Reescanear metadatos</button>
-          <button class="danger-button" id="player-delete" type="button">Eliminar video</button>
         </div>
       </div>
     </div>
@@ -1167,12 +1263,14 @@
         playerElements.editCategory = document.getElementById('edit-category');
         playerElements.editTags = document.getElementById('edit-tags');
         playerElements.tagSuggestions = document.getElementById('tag-suggestions');
+        playerElements.autoTagResults = document.getElementById('auto-tag-results');
         playerElements.editNotes = document.getElementById('edit-notes');
         playerElements.editStatus = document.getElementById('edit-status');
         playerElements.autoTagsButton = document.getElementById('auto-tags-button');
         playerElements.autoSummaryButton = document.getElementById('auto-summary-button');
         playerElements.refreshMetadataButton = document.getElementById('refresh-metadata-button');
         playerElements.refreshThumbnailButton = document.getElementById('refresh-thumbnail-button');
+        playerElements.thumbnailImage = document.getElementById('player-thumbnail-image');
         playerElements.metadata = document.getElementById('player-metadata');
         playerElements.facts = document.getElementById('player-facts');
         playerElements.formatSelect = document.getElementById('player-format');
@@ -1240,15 +1338,21 @@
         }
         const streamUrl = buildStreamUrl(entry, entry.preferred_format || DEFAULT_FORMAT);
         if (playerElements.video) {
+          const poster = entry.thumbnail || 'https://placehold.co/640x360?text=Videorama';
           playerElements.video.src = streamUrl;
-          playerElements.video.poster = entry.thumbnail || '';
+          playerElements.video.poster = poster;
           playerElements.video.load();
+        }
+        if (playerElements.thumbnailImage) {
+          playerElements.thumbnailImage.src = entry.thumbnail || 'https://placehold.co/640x360?text=Videorama';
+          playerElements.thumbnailImage.alt = entry.title ? `Miniatura de ${entry.title}` : 'Miniatura del video';
         }
         if (playerElements.formatSelect) {
           playerElements.formatSelect.innerHTML = formatOptions(entry.preferred_format || DEFAULT_FORMAT)
             .map((option) => `<option value="${option.value}" ${option.selected ? 'selected' : ''}>${option.label}</option>`)
             .join('');
         }
+        renderAutoTagResults([]);
         updatePlayerDownloadLink();
         openModal('player-modal');
       }
@@ -1419,6 +1523,26 @@
         }
       }
 
+      function renderAutoTagResults(tags) {
+        if (!playerElements.autoTagResults) return;
+        playerElements.autoTagResults.innerHTML = '';
+        const cleaned = Array.isArray(tags) ? tags.filter(Boolean) : [];
+        if (!cleaned.length) {
+          const hint = document.createElement('p');
+          hint.className = 'hint';
+          hint.textContent = 'Usa "Sugerir etiquetas" para rellenarlas automáticamente.';
+          playerElements.autoTagResults.appendChild(hint);
+          return;
+        }
+        cleaned.forEach((tag) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = tag;
+          button.addEventListener('click', () => addSuggestedTag(tag));
+          playerElements.autoTagResults.appendChild(button);
+        });
+      }
+
       function renderTagSuggestions() {
         if (!playerElements.tagSuggestions) return;
         const seeds = Array.isArray(suggestedTags) ? suggestedTags.slice(0, 12) : [];
@@ -1506,6 +1630,7 @@
           if (playerElements.editTags) {
             playerElements.editTags.value = (result.tags || []).join(', ');
           }
+          renderAutoTagResults(result.tags || []);
           setEditStatus('Etiquetas sugeridas listas.');
         } catch (error) {
           console.error(error);
@@ -1596,7 +1721,11 @@
           updateEntryInLibrary(result);
           applyFilters();
           if (playerElements.video) {
-            playerElements.video.poster = result.thumbnail || '';
+            const poster = result.thumbnail || 'https://placehold.co/640x360?text=Videorama';
+            playerElements.video.poster = poster;
+          }
+          if (playerElements.thumbnailImage) {
+            playerElements.thumbnailImage.src = result.thumbnail || 'https://placehold.co/640x360?text=Videorama';
           }
           setEditStatus('Miniatura actualizada.');
         } catch (error) {
