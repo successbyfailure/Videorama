@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 VIDEORAMA_API_URL = os.getenv("VIDEORAMA_API_URL", "http://localhost:8600").rstrip("/")
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
+VHS_HTTP_TIMEOUT = int(os.getenv("VHS_HTTP_TIMEOUT", "60"))
 DEFAULT_VHS_PRESET = os.getenv("TELEGRAM_VHS_PRESET", "ffmpeg_720p")
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_DOWNLOAD_LIMIT_BYTES = int(
@@ -97,7 +98,9 @@ def parse_content_disposition(headers: Dict[str, str], fallback: str) -> str:
 
 def probe_url_metadata(url: str) -> Dict[str, Any]:
     try:
-        response = requests.get(f"{VHS_BASE_URL}/api/probe", params={"url": url}, timeout=60)
+        response = requests.get(
+            f"{VHS_BASE_URL}/api/probe", params={"url": url}, timeout=VHS_HTTP_TIMEOUT
+        )
         if response.status_code >= 400:
             return {}
         data = response.json()
