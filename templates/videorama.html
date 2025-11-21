@@ -941,6 +941,7 @@
             <div class="edit-actions">
               <button class="ghost-link" type="button" id="auto-tags-button">Sugerir etiquetas</button>
               <button class="ghost-link" type="button" id="auto-summary-button">Sugerir descripción</button>
+              <button class="ghost-link" type="button" id="refresh-thumbnail-button">Regenerar miniatura</button>
               <p class="status inline" id="edit-status"></p>
             </div>
             <button class="primary-button" type="submit">Guardar cambios</button>
@@ -1169,6 +1170,7 @@
         playerElements.editStatus = document.getElementById('edit-status');
         playerElements.autoTagsButton = document.getElementById('auto-tags-button');
         playerElements.autoSummaryButton = document.getElementById('auto-summary-button');
+        playerElements.refreshThumbnailButton = document.getElementById('refresh-thumbnail-button');
         playerElements.metadata = document.getElementById('player-metadata');
         playerElements.facts = document.getElementById('player-facts');
         playerElements.formatSelect = document.getElementById('player-format');
@@ -1190,6 +1192,9 @@
         }
         if (playerElements.autoSummaryButton) {
           playerElements.autoSummaryButton.addEventListener('click', handleAutoSummary);
+        }
+        if (playerElements.refreshThumbnailButton) {
+          playerElements.refreshThumbnailButton.addEventListener('click', handleRefreshThumbnail);
         }
         renderTagSuggestions();
       }
@@ -1531,6 +1536,39 @@
         } catch (error) {
           console.error(error);
           setEditStatus(error.message || 'No se pudo generar la descripción.');
+        }
+      }
+
+      async function handleRefreshThumbnail() {
+        if (!playerState.currentEntry || !playerElements.refreshThumbnailButton) {
+          return;
+        }
+        const button = playerElements.refreshThumbnailButton;
+        const originalLabel = button.textContent;
+        button.disabled = true;
+        button.textContent = 'Buscando miniatura…';
+        setEditStatus('Obteniendo nueva miniatura…');
+        try {
+          const response = await fetch(`/api/library/${playerState.currentEntry.id}/thumbnail`, {
+            method: 'POST',
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(result.detail || 'No se pudo regenerar la miniatura.');
+          }
+          playerState.currentEntry = result;
+          updateEntryInLibrary(result);
+          applyFilters();
+          if (playerElements.video) {
+            playerElements.video.poster = result.thumbnail || '';
+          }
+          setEditStatus('Miniatura actualizada.');
+        } catch (error) {
+          console.error(error);
+          setEditStatus(error.message || 'No se pudo regenerar la miniatura.');
+        } finally {
+          button.disabled = false;
+          button.textContent = originalLabel;
         }
       }
 

@@ -1144,6 +1144,42 @@ async def update_entry(entry_id: str, payload: UpdateLibraryEntry) -> Dict[str, 
     raise HTTPException(status_code=500, detail="No se pudo actualizar la entrada")
 
 
+@app.post("/api/library/{entry_id}/thumbnail")
+async def refresh_entry_thumbnail(entry_id: str) -> Dict[str, Any]:
+    stored_entry = store.get_entry(entry_id)
+    if not stored_entry:
+        raise HTTPException(status_code=404, detail="Entrada no encontrada")
+
+    source_url = (stored_entry.get("original_url") or stored_entry.get("url") or "").strip()
+    if not source_url:
+        raise HTTPException(
+            status_code=400, detail="La entrada no tiene una URL de origen para regenerar la miniatura",
+        )
+
+    try:
+        metadata_blob = sanitize_metadata(fetch_vhs_metadata(source_url))
+        metadata_blob = ensure_metadata_source(metadata_blob, source_url, label="refresh")
+    except HTTPException:
+        raise
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("No se pudo refrescar la miniatura para %s: %s", source_url, exc)
+        raise HTTPException(status_code=502, detail="No se pudo obtener metadatos para la miniatura")
+
+    thumbnail = extract_thumbnail(metadata_blob)
+    if not thumbnail:
+        raise HTTPException(status_code=404, detail="No se pudo generar una miniatura para esta entrada")
+
+    updated = stored_entry.copy()
+    updated["thumbnail"] = thumbnail
+    updated["metadata"] = metadata_blob or stored_entry.get("metadata")
+
+    store.upsert_entry(updated)
+    normalized = normalize_entry(updated)
+    if normalized:
+        return normalized
+    raise HTTPException(status_code=500, detail="No se pudo actualizar la entrada")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request) -> HTMLResponse:
     entries = load_library()
