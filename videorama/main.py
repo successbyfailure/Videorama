@@ -1,6 +1,7 @@
 import hashlib
 import hashlib
 import json
+import logging
 import os
 import secrets
 import time
@@ -18,6 +19,8 @@ from pydantic import BaseModel, Field, validator
 from openai import OpenAI
 
 from .storage import SQLiteStore
+
+logger = logging.getLogger(__name__)
 
 APP_TITLE = "Videorama Retro Library"
 LIBRARY_PATH = Path(os.getenv("VIDEORAMA_LIBRARY_PATH", "data/videorama/library.json"))
@@ -1183,6 +1186,7 @@ async def external_player(request: Request) -> HTMLResponse:
 
 @app.post("/api/library/upload", status_code=201)
 async def upload_library_entry(
+    request: Request,
     file: UploadFile = File(...),
     title: str = Form(""),
     category: str = Form(DEFAULT_CATEGORY),
@@ -1192,36 +1196,59 @@ async def upload_library_entry(
     entry_id = secrets.token_hex(16)
     file_meta = await store_upload(entry_id, file)
     media_url = f"/media/{entry_id}/{file_meta['file_name']}"
+    absolute_media_url = f"{str(request.base_url).rstrip('/')}{media_url}"
+
+    metadata_blob: Dict[str, Any] = {
+        "source": "upload",
+        "file_name": file_meta["file_name"],
+        "file_size": file_meta["file_size"],
+        "mime_type": file_meta["mime_type"],
+        "local_url": media_url,
+        "public_url": absolute_media_url,
+    }
+
+    vhs_metadata: Dict[str, Any] = {}
+    try:
+        vhs_metadata = sanitize_metadata(fetch_vhs_metadata(absolute_media_url))
+    except HTTPException as exc:
+        logger.warning("No se pudo obtener metadatos del archivo subido: %s", exc.detail)
+
+    metadata_blob.update(vhs_metadata)
+
+    user_tags = tags_from_string(tags)
+    metadata_tags = normalize_tag_list(metadata_blob.get("tags"))
+    merged_tags = sorted({*user_tags, *metadata_tags})
+
+    summary_notes = notes.strip() or None
+    if not summary_notes:
+        description = metadata_blob.get("description") or metadata_blob.get("description_short")
+        if isinstance(description, str) and description.strip():
+            summary_notes = description.strip()
+
     now = time.time()
     entry = {
         "id": entry_id,
         "url": media_url,
         "original_url": media_url,
-        "title": title.strip() or file_meta["file_name"],
-        "duration": None,
-        "uploader": "telegram_upload",
-        "category": category.strip() or DEFAULT_CATEGORY,
-        "tags": tags_from_string(tags),
-        "notes": notes.strip() or None,
-        "thumbnail": None,
-        "extractor": "upload",
+        "title": title.strip() or metadata_blob.get("title") or file_meta["file_name"],
+        "duration": metadata_blob.get("duration"),
+        "uploader": metadata_blob.get("uploader") or "telegram_upload",
+        "category": category.strip() or classify_entry(metadata_blob),
+        "tags": merged_tags,
+        "notes": summary_notes,
+        "thumbnail": metadata_blob.get("thumbnail"),
+        "extractor": metadata_blob.get("extractor_key") or metadata_blob.get("extractor") or "upload",
         "added_at": now,
         "vhs_cache_key": None,
         "preferred_format": DEFAULT_VHS_FORMAT,
-        "metadata": sanitize_metadata(
-            {
-                "source": "upload",
-                "file_name": file_meta["file_name"],
-                "file_size": file_meta["file_size"],
-                "mime_type": file_meta["mime_type"],
-            }
-        ),
+        "metadata": metadata_blob,
     }
-    entries = [item for item in load_library() if item.get("id") != entry_id]
-    entries.append(entry)
-    save_library(entries)
+
+    store.upsert_entry(entry)
     stored_entry = normalize_entry(entry)
-    return stored_entry or entry
+    if stored_entry:
+        return stored_entry
+    raise HTTPException(status_code=500, detail="No se pudo guardar la entrada")
 
 
 @app.get("/media/{entry_id}/{file_name}")
