@@ -185,6 +185,18 @@ def sanitize_metadata(metadata: Any) -> Dict[str, Any]:
     return sanitized
 
 
+def ensure_metadata_source(metadata: Dict[str, Any], source_url: str, label: Optional[str] = None) -> Dict[str, Any]:
+    if not source_url:
+        return metadata
+    if not metadata.get("source"):
+        metadata["source"] = label or source_url
+    if not metadata.get("source_url"):
+        metadata["source_url"] = source_url
+    if not metadata.get("webpage_url"):
+        metadata["webpage_url"] = source_url
+    return metadata
+
+
 def _extract_from_formats(metadata: Dict[str, Any], key: str) -> Optional[Any]:
     for fmt in metadata.get("requested_formats") or metadata.get("formats") or []:
         if not isinstance(fmt, dict):
@@ -856,6 +868,7 @@ async def probe_import(url: str) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="La URL es obligatoria")
     metadata = fetch_vhs_metadata(cleaned_url)
     metadata_blob = sanitize_metadata(metadata)
+    metadata_blob = ensure_metadata_source(metadata_blob, cleaned_url)
     entry = {
         "id": entry_id_for_url(cleaned_url),
         "url": cleaned_url,
@@ -1028,6 +1041,7 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     metadata_blob = sanitize_metadata(metadata)
     if payload.metadata:
         metadata_blob.update(sanitize_metadata(payload.metadata))
+    metadata_blob = ensure_metadata_source(metadata_blob, payload.url)
     category = (payload.category or "").strip() or classify_entry(metadata)
 
     title = payload.title or metadata.get("title") or payload.url
@@ -1214,6 +1228,7 @@ async def upload_library_entry(
         logger.warning("No se pudo obtener metadatos del archivo subido: %s", exc.detail)
 
     metadata_blob.update(vhs_metadata)
+    metadata_blob = ensure_metadata_source(metadata_blob, absolute_media_url, label="upload")
 
     user_tags = tags_from_string(tags)
     metadata_tags = normalize_tag_list(metadata_blob.get("tags"))
