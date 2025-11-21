@@ -110,10 +110,12 @@ class OPNsenseFirewall(InMemoryFirewall):
 
     def get_block(self, ip: str) -> Optional[FirewallBlock]:
         self.refresh_blocks()
+        self._prune_expired_blocks()
         return super().get_block(ip)
 
     def list_blocks(self) -> List[FirewallBlock]:
         self.refresh_blocks()
+        self._prune_expired_blocks()
         return super().list_blocks()
 
     # ------------------------------------------------------------------
@@ -140,6 +142,19 @@ class OPNsenseFirewall(InMemoryFirewall):
         for cached in list(self._blocks.keys()):
             if cached not in addresses:
                 self._blocks.pop(cached, None)
+
+    def _prune_expired_blocks(self) -> None:
+        """Elimina bloqueos expirados tanto en caché como en el alias remoto."""
+
+        expired = [ip for ip, block in self._blocks.items() if not block.active]
+        for ip in expired:
+            try:
+                self._alias_delete(ip)
+            except Exception:
+                self._logger.exception(
+                    "No se pudo eliminar la IP %s expirada del alias OPNsense", ip
+                )
+            self._blocks.pop(ip, None)
 
     def _alias_add(self, ip: str) -> None:
         payload = {"address": ip}
