@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, validator
 from openai import OpenAI
 
+from .firewall import InMemoryFirewall, OPNsenseFirewall, Rule, RuleManager
 from .storage import SQLiteStore
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,95 @@ templates = Jinja2Templates(directory="templates")
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 app.mount(THUMBNAILS_URL_PREFIX, StaticFiles(directory=THUMBNAILS_DIR), name="thumbnails")
 store = SQLiteStore(LIBRARY_DB_PATH)
+_firewall_rules_cache: List[Rule] = []
+
+
+def _firewall_backend() -> InMemoryFirewall:
+    base_url = os.getenv("OPNSENSE_API_URL")
+    api_key = os.getenv("OPNSENSE_API_KEY")
+    api_secret = os.getenv("OPNSENSE_API_SECRET")
+    alias = os.getenv("OPNSENSE_BLOCK_ALIAS", "videorama_blocks")
+    verify_ssl = os.getenv("OPNSENSE_VERIFY_SSL", "true").lower() not in {"0", "false", "no"}
+
+    if base_url and api_key and api_secret:
+        try:
+            return OPNsenseFirewall(
+                api_url=base_url,
+                api_key=api_key,
+                api_secret=api_secret,
+                alias=alias,
+                verify_ssl=verify_ssl,
+            )
+        except Exception:
+            logger.exception("No se pudo inicializar OPNsense, se usará firewall en memoria")
+    return InMemoryFirewall()
+
+
+firewall_manager = RuleManager([], firewall=_firewall_backend())
+
+
+class FirewallRuleInput(BaseModel):
+    plugin: str
+    signature_id: str
+    severity: str
+    description: str
+    offenses_last_hour: int = Field(gt=0)
+    offenses_total: int = Field(gt=0)
+    block_seconds: int = Field(gt=0)
+    block_reason: Optional[str] = None
+
+    @validator("plugin", "signature_id", "severity", "description")
+    def _not_empty(cls, value: str) -> str:  # type: ignore
+        if not str(value).strip():
+            raise ValueError("No puede estar vacío")
+        return value
+
+
+class OffenseInput(BaseModel):
+    ip: str
+    plugin: str
+    signature_id: str
+    severity: str
+    description: str
+
+    @validator("ip", "plugin", "signature_id", "severity", "description")
+    def _not_blank(cls, value: str) -> str:  # type: ignore
+        if not str(value).strip():
+            raise ValueError("Campo requerido")
+        return value
+
+
+def _rule_from_row(row: Dict[str, Any]) -> Rule:
+    return Rule(
+        plugin=row["plugin"],
+        signature_id=row["signature_id"],
+        severity=row["severity"],
+        description=row["description"],
+        offenses_last_hour=int(row["offenses_last_hour"]),
+        offenses_total=int(row["offenses_total"]),
+        block_seconds=int(row["block_seconds"]),
+        block_reason=row.get("block_reason"),
+        rule_id=row.get("id"),
+    )
+
+
+def _hydrate_firewall_rules() -> None:
+    global _firewall_rules_cache, firewall_manager
+    rules = [_rule_from_row(row) for row in store.list_firewall_rules()]
+    _firewall_rules_cache = rules
+    firewall_manager = RuleManager(rules, firewall=firewall_manager.firewall)
+
+
+_hydrate_firewall_rules()
+
+
+def _block_to_dict(block: Any) -> Dict[str, Any]:
+    return {
+        "ip": block.ip,
+        "reason": block.reason,
+        "blocked_until": block.blocked_until.isoformat(),
+        "active": block.active,
+    }
 
 
 def _template_context(request: Request, **kwargs: Any) -> Dict[str, Any]:
@@ -1341,6 +1431,16 @@ async def get_stats() -> Dict[str, Any]:
     return {"summary": summary, "generated_at": time.time()}
 
 
+@app.get("/firewall", response_class=HTMLResponse)
+async def firewall_dashboard(request: Request) -> HTMLResponse:
+    context = _template_context(
+        request,
+        rules=[rule.to_dict() for rule in _firewall_rules_cache],
+        blocks=[_block_to_dict(block) for block in firewall_manager.list_blocks()],
+    )
+    return templates.TemplateResponse("firewall.html", context)
+
+
 @app.get("/import", response_class=HTMLResponse)
 async def import_manager(request: Request) -> HTMLResponse:
     entries = load_library()
@@ -1512,3 +1612,66 @@ async def update_category_settings(payload: CategorySettingsPayload) -> Dict[str
     store.replace_category_preferences([setting.dict() for setting in payload.settings])
     settings = store.list_category_preferences()
     return {"settings": settings, "count": len(settings)}
+
+
+@app.get("/api/firewall/rules")
+async def list_firewall_rules_api() -> Dict[str, Any]:
+    return {
+        "items": [rule.to_dict() for rule in _firewall_rules_cache],
+        "count": len(_firewall_rules_cache),
+    }
+
+
+@app.post("/api/firewall/rules", status_code=201)
+async def create_firewall_rule_api(payload: FirewallRuleInput) -> Dict[str, Any]:
+    record = store.create_firewall_rule(
+        plugin=payload.plugin.strip(),
+        signature_id=payload.signature_id.strip(),
+        severity=payload.severity.strip(),
+        description=payload.description.strip(),
+        offenses_last_hour=payload.offenses_last_hour,
+        offenses_total=payload.offenses_total,
+        block_seconds=payload.block_seconds,
+        block_reason=payload.block_reason.strip() if payload.block_reason else None,
+    )
+    _hydrate_firewall_rules()
+    created = _rule_from_row(record)
+    return created.to_dict()
+
+
+@app.delete("/api/firewall/rules/{rule_id}")
+async def delete_firewall_rule_api(rule_id: str) -> Dict[str, Any]:
+    deleted = store.delete_firewall_rule(rule_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Regla no encontrada")
+    _hydrate_firewall_rules()
+    return {"status": "deleted", "id": rule_id}
+
+
+@app.get("/api/firewall/blocks")
+async def list_firewall_blocks_api() -> Dict[str, Any]:
+    blocks = [_block_to_dict(block) for block in firewall_manager.list_blocks()]
+    return {"items": blocks, "count": len(blocks)}
+
+
+@app.delete("/api/firewall/blocks/{ip}")
+async def unblock_firewall_ip(ip: str) -> Dict[str, Any]:
+    removed = firewall_manager.unblock_ip(ip)
+    if not removed:
+        raise HTTPException(status_code=404, detail="IP no estaba bloqueada")
+    return {"status": "unblocked", "ip": ip}
+
+
+@app.post("/api/firewall/offenses", status_code=201)
+async def add_offense_api(payload: OffenseInput) -> Dict[str, Any]:
+    block = firewall_manager.add_offense(
+        ip=payload.ip.strip(),
+        plugin=payload.plugin.strip(),
+        signature_id=payload.signature_id.strip(),
+        severity=payload.severity.strip(),
+        description=payload.description.strip(),
+    )
+    return {
+        "blocked": bool(block),
+        "block": _block_to_dict(block) if block else None,
+    }

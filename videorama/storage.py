@@ -61,6 +61,19 @@ class SQLiteStore:
                     updated_at REAL NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS firewall_rules (
+                    id TEXT PRIMARY KEY,
+                    plugin TEXT NOT NULL,
+                    signature_id TEXT NOT NULL,
+                    severity TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    offenses_last_hour INTEGER NOT NULL,
+                    offenses_total INTEGER NOT NULL,
+                    block_seconds INTEGER NOT NULL,
+                    block_reason TEXT,
+                    created_at REAL NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS download_events (
                     id TEXT PRIMARY KEY,
                     entry_id TEXT NOT NULL,
@@ -205,6 +218,73 @@ class SQLiteStore:
             "config": config,
             "created_at": now,
         }
+
+    # ------------------------------------------------------------------
+    # Firewall rules
+    # ------------------------------------------------------------------
+
+    def list_firewall_rules(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM firewall_rules ORDER BY created_at DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def create_firewall_rule(
+        self,
+        plugin: str,
+        signature_id: str,
+        severity: str,
+        description: str,
+        offenses_last_hour: int,
+        offenses_total: int,
+        block_seconds: int,
+        block_reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        rule_id = uuid.uuid4().hex
+        now = time.time()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO firewall_rules (
+                    id, plugin, signature_id, severity, description,
+                    offenses_last_hour, offenses_total, block_seconds,
+                    block_reason, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    rule_id,
+                    plugin,
+                    signature_id,
+                    severity,
+                    description,
+                    offenses_last_hour,
+                    offenses_total,
+                    block_seconds,
+                    block_reason,
+                    now,
+                ),
+            )
+        return {
+            "id": rule_id,
+            "plugin": plugin,
+            "signature_id": signature_id,
+            "severity": severity,
+            "description": description,
+            "offenses_last_hour": offenses_last_hour,
+            "offenses_total": offenses_total,
+            "block_seconds": block_seconds,
+            "block_reason": block_reason,
+            "created_at": now,
+        }
+
+    def delete_firewall_rule(self, rule_id: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM firewall_rules WHERE id = ?",
+                (rule_id,),
+            )
+            return cursor.rowcount > 0
 
     def delete_playlist(self, playlist_id: str) -> bool:
         with self._connect() as conn:
