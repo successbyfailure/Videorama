@@ -95,6 +95,11 @@
         grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
         gap: 1rem;
       }
+      .chart-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 0.75rem;
+      }
       .panel {
         border-radius: 18px;
         border: 1px solid rgba(148, 163, 184, 0.25);
@@ -172,6 +177,7 @@
             <label>Almacenamiento estimado</label>
             <strong id="storage-total">—</strong>
             <small class="hint">Sumando archivos locales y tamaños reportados.</small>
+            <small class="hint" id="storage-coverage"></small>
           </article>
           <article class="stat-card">
             <label>Descargas registradas</label>
@@ -200,6 +206,14 @@
           <h2>Formatos preferidos</h2>
           <div class="chart-box"><canvas id="formatChart" height="200"></canvas></div>
           <p class="hint">Distribución de formatos solicitados en la biblioteca.</p>
+        </section>
+        <section class="panel">
+          <h2>Uso de espacio</h2>
+          <div class="chart-grid">
+            <div class="chart-box"><canvas id="sourceChart" height="200"></canvas></div>
+            <div class="chart-box"><canvas id="extractorStorageChart" height="200"></canvas></div>
+          </div>
+          <p class="hint">Comparativa entre material local o remoto y el peso aproximado por extractor.</p>
         </section>
       </div>
       <section class="panel">
@@ -259,6 +273,12 @@
         const durationNode = document.getElementById('duration-total');
         storageNode.textContent = formatBytes(summary?.totals?.bytes || 0);
         durationNode.textContent = formatHours(summary?.totals?.duration_seconds || 0);
+        const coverageNode = document.getElementById('storage-coverage');
+        if (coverageNode) {
+          const known = summary?.storage?.known_entries || 0;
+          const missing = summary?.storage?.unknown_entries || 0;
+          coverageNode.textContent = `Tamaños detectados en ${known} elementos; ${missing} sin dato.`;
+        }
         document.querySelectorAll('[data-bytes]').forEach((cell) => {
           const value = Number(cell.getAttribute('data-bytes'));
           cell.textContent = value ? formatBytes(value) : '—';
@@ -375,10 +395,63 @@
         });
       }
 
+      function renderSourceChart() {
+        const ctx = document.getElementById('sourceChart');
+        const sources = summary?.storage?.by_source || {};
+        if (!ctx || !Object.keys(sources).length) return;
+        const labels = Object.keys(sources).map((key) => key.toUpperCase());
+        const data = Object.values(sources).map((value) => Number(value) / 1024 / 1024 / 1024);
+        new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels,
+            datasets: [
+              {
+                data,
+                backgroundColor: ['#22d3ee', '#f97316', '#a855f7'],
+              },
+            ],
+          },
+          options: {
+            plugins: { legend: { labels: { color: '#e2e8f0' } } },
+          },
+        });
+      }
+
+      function renderExtractorStorageChart() {
+        const ctx = document.getElementById('extractorStorageChart');
+        const extractorData = summary?.storage?.by_extractor || {};
+        if (!ctx || !Object.keys(extractorData).length) return;
+        const labels = Object.keys(extractorData);
+        const data = Object.values(extractorData).map((value) => Number(value) / 1024 / 1024 / 1024);
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'GB estimados',
+                data,
+                backgroundColor: '#10b981',
+              },
+            ],
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: {
+              y: { ticks: { color: '#e2e8f0' }, grid: { color: 'rgba(148, 163, 184, 0.2)' } },
+              x: { ticks: { color: '#e2e8f0' }, grid: { display: false } },
+            },
+          },
+        });
+      }
+
       renderTotals();
       renderCategoryChart();
       renderDownloadChart();
       renderFormatChart();
+      renderSourceChart();
+      renderExtractorStorageChart();
     </script>
   </body>
 </html>
