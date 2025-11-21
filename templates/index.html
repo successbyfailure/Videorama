@@ -371,7 +371,13 @@
         <form id="upload-form" class="upload-form">
           <div>
             <label for="upload-file">Archivo</label>
-            <input type="file" id="upload-file" name="file" accept="*/*" required />
+            <input
+              type="file"
+              id="upload-file"
+              name="file"
+              accept="application/octet-stream,audio/*,video/*"
+              required
+            />
           </div>
           <div>
             <label for="upload-format">Formato</label>
@@ -404,7 +410,13 @@
         <form id="ffmpeg-form" class="upload-form">
           <div>
             <label for="ffmpeg-file">Archivo</label>
-            <input type="file" id="ffmpeg-file" name="file" accept="*/*" required />
+            <input
+              type="file"
+              id="ffmpeg-file"
+              name="file"
+              accept="application/octet-stream,audio/*,video/*"
+              required
+            />
           </div>
           <div>
             <label for="ffmpeg-format">Perfil ffmpeg</label>
