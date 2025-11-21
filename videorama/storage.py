@@ -132,8 +132,8 @@ class SQLiteStore:
                 """,
                 {
                     **payload,
-                    "tags": json.dumps(payload.get("tags") or []),
-                    "metadata": json.dumps(payload.get("metadata") or {}),
+                    "tags": self._dump_json(payload.get("tags") or []),
+                    "metadata": self._dump_json(payload.get("metadata") or {}),
                 },
             )
 
@@ -307,4 +307,11 @@ class SQLiteStore:
         except json.JSONDecodeError:
             return {}
         return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _dump_json(value: Any) -> str:
+        try:
+            return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return "{}" if isinstance(value, dict) else "[]"
 

@@ -1,6 +1,4 @@
 import hashlib
-import hashlib
-import json
 import logging
 import os
 import secrets
@@ -23,8 +21,6 @@ from .storage import SQLiteStore
 logger = logging.getLogger(__name__)
 
 APP_TITLE = "Videorama Retro Library"
-LIBRARY_PATH = Path(os.getenv("VIDEORAMA_LIBRARY_PATH", "data/videorama/library.json"))
-LIBRARY_PATH.parent.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR = Path(os.getenv("VIDEORAMA_UPLOADS_DIR", "data/videorama/uploads"))
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
@@ -450,27 +446,7 @@ def normalize_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def load_library() -> List[Dict[str, Any]]:
     entries = store.list_entries()
-    if entries:
-        return normalize_entries(entries)
-    legacy_entries = _load_legacy_library()
-    if not legacy_entries:
-        return []
-    for entry in legacy_entries:
-        store.upsert_entry(entry)
-    return normalize_entries(store.list_entries())
-
-
-def _load_legacy_library() -> List[Dict[str, Any]]:
-    if not LIBRARY_PATH.exists():
-        return []
-    try:
-        with LIBRARY_PATH.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-    except json.JSONDecodeError:
-        return []
-    if isinstance(data, list):
-        return normalize_entries(data)
-    return []
+    return normalize_entries(entries)
 
 
 def entry_id_for_url(url: str) -> str:
@@ -1145,6 +1121,46 @@ async def update_entry(entry_id: str, payload: UpdateLibraryEntry) -> Dict[str, 
     raise HTTPException(status_code=500, detail="No se pudo actualizar la entrada")
 
 
+@app.post("/api/library/{entry_id}/metadata")
+async def refresh_entry_metadata(entry_id: str) -> Dict[str, Any]:
+    stored_entry = store.get_entry(entry_id)
+    if not stored_entry:
+        raise HTTPException(status_code=404, detail="Entrada no encontrada")
+
+    source_url = (stored_entry.get("original_url") or stored_entry.get("url") or "").strip()
+    if not source_url:
+        raise HTTPException(
+            status_code=400, detail="La entrada no tiene una URL de origen para actualizar metadatos",
+        )
+
+    try:
+        metadata_blob = sanitize_metadata(fetch_vhs_metadata(source_url))
+        metadata_blob = ensure_metadata_source(metadata_blob, source_url, label="refresh")
+    except HTTPException:
+        raise
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("No se pudieron refrescar los metadatos para %s: %s", source_url, exc)
+        raise HTTPException(status_code=502, detail="No se pudo obtener metadatos actualizados")
+
+    updated = stored_entry.copy()
+    updated["metadata"] = metadata_blob or stored_entry.get("metadata")
+    updated["duration"] = metadata_blob.get("duration") or stored_entry.get("duration")
+    updated["uploader"] = metadata_blob.get("uploader") or stored_entry.get("uploader")
+    updated["extractor"] = (
+        metadata_blob.get("extractor_key") or metadata_blob.get("extractor") or stored_entry.get("extractor")
+    )
+    if not (updated.get("category") or "").strip():
+        updated["category"] = classify_entry(metadata_blob)
+    if not (updated.get("title") or "").strip():
+        updated["title"] = metadata_blob.get("title") or stored_entry.get("title")
+
+    store.upsert_entry(updated)
+    normalized = normalize_entry(updated)
+    if normalized:
+        return normalized
+    raise HTTPException(status_code=500, detail="No se pudo actualizar la entrada")
+
+
 @app.post("/api/library/{entry_id}/thumbnail")
 async def refresh_entry_thumbnail(entry_id: str) -> Dict[str, Any]:
     stored_entry = store.get_entry(entry_id)
@@ -1258,7 +1274,7 @@ async def import_manager(request: Request) -> HTMLResponse:
         library_count=len(entries),
         recent_entries=recent_entries,
         default_format=DEFAULT_VHS_FORMAT,
-        library_path=str(LIBRARY_PATH.resolve()),
+        library_path=str(LIBRARY_DB_PATH.resolve()),
         categories=categories,
         popular_tags=popular_tags,
         default_tab=default_tab_name,
