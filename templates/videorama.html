@@ -633,6 +633,27 @@
       .player-tags .tag {
         border-color: rgba(148, 163, 184, 0.5);
       }
+      .tag-suggestions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        margin-top: 0.35rem;
+      }
+      .tag-suggestions button {
+        background: rgba(99, 102, 241, 0.1);
+        border: 1px solid rgba(99, 102, 241, 0.35);
+        color: inherit;
+        border-radius: 999px;
+        padding: 0.35rem 0.85rem;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .tag-suggestions button:hover {
+        background: rgba(99, 102, 241, 0.22);
+      }
+      .tag-suggestions .hint {
+        margin: 0;
+      }
       .player-notes {
         font-size: 0.95rem;
         color: #e2e8f0;
@@ -911,6 +932,7 @@
             <div>
               <label for="edit-tags">Etiquetas (separadas por comas)</label>
               <input id="edit-tags" name="tags" />
+              <div class="tag-suggestions" id="tag-suggestions"></div>
             </div>
             <div>
               <label for="edit-notes">Descripción o notas</label>
@@ -919,6 +941,7 @@
             <div class="edit-actions">
               <button class="ghost-link" type="button" id="auto-tags-button">Sugerir etiquetas</button>
               <button class="ghost-link" type="button" id="auto-summary-button">Sugerir descripción</button>
+              <button class="ghost-link" type="button" id="refresh-thumbnail-button">Regenerar miniatura</button>
               <p class="status inline" id="edit-status"></p>
             </div>
             <button class="primary-button" type="submit">Guardar cambios</button>
@@ -951,6 +974,7 @@
 
     <script>
       const DEFAULT_FORMAT = {{ default_format | tojson }};
+      const suggestedTags = {{ popular_tags | tojson }};
       const libraryState = {
         entries: [],
         filtered: [],
@@ -1141,10 +1165,12 @@
         playerElements.editTitle = document.getElementById('edit-title');
         playerElements.editCategory = document.getElementById('edit-category');
         playerElements.editTags = document.getElementById('edit-tags');
+        playerElements.tagSuggestions = document.getElementById('tag-suggestions');
         playerElements.editNotes = document.getElementById('edit-notes');
         playerElements.editStatus = document.getElementById('edit-status');
         playerElements.autoTagsButton = document.getElementById('auto-tags-button');
         playerElements.autoSummaryButton = document.getElementById('auto-summary-button');
+        playerElements.refreshThumbnailButton = document.getElementById('refresh-thumbnail-button');
         playerElements.metadata = document.getElementById('player-metadata');
         playerElements.facts = document.getElementById('player-facts');
         playerElements.formatSelect = document.getElementById('player-format');
@@ -1167,6 +1193,10 @@
         if (playerElements.autoSummaryButton) {
           playerElements.autoSummaryButton.addEventListener('click', handleAutoSummary);
         }
+        if (playerElements.refreshThumbnailButton) {
+          playerElements.refreshThumbnailButton.addEventListener('click', handleRefreshThumbnail);
+        }
+        renderTagSuggestions();
       }
 
       function openPlayer(entry) {
@@ -1375,6 +1405,35 @@
         return [...new Set(parts)];
       }
 
+      function addSuggestedTag(tag) {
+        if (!playerElements.editTags) return;
+        const existing = parseTagInput(playerElements.editTags.value);
+        if (!existing.includes(tag)) {
+          existing.push(tag);
+          playerElements.editTags.value = existing.join(', ');
+        }
+      }
+
+      function renderTagSuggestions() {
+        if (!playerElements.tagSuggestions) return;
+        const seeds = Array.isArray(suggestedTags) ? suggestedTags.slice(0, 12) : [];
+        playerElements.tagSuggestions.innerHTML = '';
+        if (!seeds.length) {
+          const fallback = document.createElement('p');
+          fallback.className = 'hint';
+          fallback.textContent = 'Aún no hay etiquetas populares que sugerir.';
+          playerElements.tagSuggestions.appendChild(fallback);
+          return;
+        }
+        seeds.forEach((tag) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = tag;
+          button.addEventListener('click', () => addSuggestedTag(tag));
+          playerElements.tagSuggestions.appendChild(button);
+        });
+      }
+
       function setEditStatus(message) {
         if (playerElements.editStatus) {
           playerElements.editStatus.textContent = message || '';
@@ -1477,6 +1536,39 @@
         } catch (error) {
           console.error(error);
           setEditStatus(error.message || 'No se pudo generar la descripción.');
+        }
+      }
+
+      async function handleRefreshThumbnail() {
+        if (!playerState.currentEntry || !playerElements.refreshThumbnailButton) {
+          return;
+        }
+        const button = playerElements.refreshThumbnailButton;
+        const originalLabel = button.textContent;
+        button.disabled = true;
+        button.textContent = 'Buscando miniatura…';
+        setEditStatus('Obteniendo nueva miniatura…');
+        try {
+          const response = await fetch(`/api/library/${playerState.currentEntry.id}/thumbnail`, {
+            method: 'POST',
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(result.detail || 'No se pudo regenerar la miniatura.');
+          }
+          playerState.currentEntry = result;
+          updateEntryInLibrary(result);
+          applyFilters();
+          if (playerElements.video) {
+            playerElements.video.poster = result.thumbnail || '';
+          }
+          setEditStatus('Miniatura actualizada.');
+        } catch (error) {
+          console.error(error);
+          setEditStatus(error.message || 'No se pudo regenerar la miniatura.');
+        } finally {
+          button.disabled = false;
+          button.textContent = originalLabel;
         }
       }
 

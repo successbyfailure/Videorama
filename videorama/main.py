@@ -152,7 +152,7 @@ def _llm_completion(prompt: str, model: str, context: str) -> str:
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "system", "content": prompt}, {"role": "user", "content": context}],
-        max_tokens=256,
+        max_tokens=512,
         temperature=0.4,
     )
     if not response.choices:
@@ -261,12 +261,33 @@ def infer_codecs(metadata: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def extract_thumbnail(metadata: Dict[str, Any]) -> Optional[str]:
+    normalized = sanitize_metadata(metadata)
+    thumbnail = normalized.get("thumbnail")
+    if isinstance(thumbnail, str) and thumbnail.strip():
+        return thumbnail.strip()
+
+    thumbnails = normalized.get("thumbnails")
+    if isinstance(thumbnails, list):
+        for candidate in thumbnails:
+            if isinstance(candidate, dict):
+                url = candidate.get("url") or candidate.get("source") or candidate.get("src")
+                if isinstance(url, str) and url.strip():
+                    return url.strip()
+            elif isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+    return None
+
+
 def summarize_library(entries: List[Dict[str, Any]], downloads: List[Dict[str, Any]]) -> Dict[str, Any]:
     category_totals: Dict[str, Dict[str, Any]] = {}
     format_counts: Counter[str] = Counter()
     extractor_counts: Counter[str] = Counter()
+    extractor_storage: Counter[str] = Counter()
+    storage_sources: Counter[str] = Counter()
     total_duration = 0
     total_size = 0
+    entries_with_size = 0
     for entry in entries:
         category = (entry.get("category") or DEFAULT_CATEGORY).strip() or DEFAULT_CATEGORY
         details = category_totals.setdefault(category, {"count": 0, "duration": 0, "bytes": 0})
@@ -278,6 +299,10 @@ def summarize_library(entries: List[Dict[str, Any]], downloads: List[Dict[str, A
         if size:
             details["bytes"] += size
             total_size += size
+            entries_with_size += 1
+            source_label = "local" if str(entry.get("url", "")).startswith("/media/") else "remoto"
+            storage_sources[source_label] += size
+            extractor_storage[entry.get("extractor") or "desconocido"] += size
         format_counts[entry.get("preferred_format") or DEFAULT_VHS_FORMAT] += 1
         extractor_counts[entry.get("extractor") or "desconocido"] += 1
 
@@ -309,6 +334,13 @@ def summarize_library(entries: List[Dict[str, Any]], downloads: List[Dict[str, A
         ],
         "formats": dict(format_counts),
         "extractors": dict(extractor_counts),
+        "storage": {
+            "known_bytes": total_size,
+            "known_entries": entries_with_size,
+            "unknown_entries": max(0, len(entries) - entries_with_size),
+            "by_source": dict(storage_sources),
+            "by_extractor": dict(extractor_storage),
+        },
         "downloads": {
             "events": download_count,
             "bytes": download_bytes,
@@ -869,6 +901,7 @@ async def probe_import(url: str) -> Dict[str, Any]:
     metadata = fetch_vhs_metadata(cleaned_url)
     metadata_blob = sanitize_metadata(metadata)
     metadata_blob = ensure_metadata_source(metadata_blob, cleaned_url)
+    thumbnail = extract_thumbnail(metadata_blob)
     entry = {
         "id": entry_id_for_url(cleaned_url),
         "url": cleaned_url,
@@ -879,7 +912,7 @@ async def probe_import(url: str) -> Dict[str, Any]:
         "category": classify_entry(metadata),
         "tags": [],
         "notes": None,
-        "thumbnail": metadata.get("thumbnail"),
+        "thumbnail": thumbnail,
         "extractor": metadata.get("extractor_key") or metadata.get("extractor"),
         "preferred_format": DEFAULT_VHS_FORMAT,
         "metadata": metadata_blob,
@@ -1042,6 +1075,7 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     if payload.metadata:
         metadata_blob.update(sanitize_metadata(payload.metadata))
     metadata_blob = ensure_metadata_source(metadata_blob, payload.url)
+    thumbnail = extract_thumbnail(metadata_blob)
     category = (payload.category or "").strip() or classify_entry(metadata)
 
     title = payload.title or metadata.get("title") or payload.url
@@ -1064,7 +1098,7 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
         "category": category,
         "tags": user_tags,
         "notes": payload.notes,
-        "thumbnail": metadata.get("thumbnail"),
+        "thumbnail": thumbnail,
         "extractor": metadata.get("extractor_key") or metadata.get("extractor"),
         "added_at": now,
         "vhs_cache_key": derive_cache_key(payload.url, payload.format),
@@ -1110,6 +1144,42 @@ async def update_entry(entry_id: str, payload: UpdateLibraryEntry) -> Dict[str, 
     raise HTTPException(status_code=500, detail="No se pudo actualizar la entrada")
 
 
+@app.post("/api/library/{entry_id}/thumbnail")
+async def refresh_entry_thumbnail(entry_id: str) -> Dict[str, Any]:
+    stored_entry = store.get_entry(entry_id)
+    if not stored_entry:
+        raise HTTPException(status_code=404, detail="Entrada no encontrada")
+
+    source_url = (stored_entry.get("original_url") or stored_entry.get("url") or "").strip()
+    if not source_url:
+        raise HTTPException(
+            status_code=400, detail="La entrada no tiene una URL de origen para regenerar la miniatura",
+        )
+
+    try:
+        metadata_blob = sanitize_metadata(fetch_vhs_metadata(source_url))
+        metadata_blob = ensure_metadata_source(metadata_blob, source_url, label="refresh")
+    except HTTPException:
+        raise
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("No se pudo refrescar la miniatura para %s: %s", source_url, exc)
+        raise HTTPException(status_code=502, detail="No se pudo obtener metadatos para la miniatura")
+
+    thumbnail = extract_thumbnail(metadata_blob)
+    if not thumbnail:
+        raise HTTPException(status_code=404, detail="No se pudo generar una miniatura para esta entrada")
+
+    updated = stored_entry.copy()
+    updated["thumbnail"] = thumbnail
+    updated["metadata"] = metadata_blob or stored_entry.get("metadata")
+
+    store.upsert_entry(updated)
+    normalized = normalize_entry(updated)
+    if normalized:
+        return normalized
+    raise HTTPException(status_code=500, detail="No se pudo actualizar la entrada")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request) -> HTMLResponse:
     entries = load_library()
@@ -1120,11 +1190,19 @@ async def home(request: Request) -> HTMLResponse:
         }
     )
     preview_categories = [category.title() for category in categories[:6]]
+    tag_counter: Counter[str] = Counter()
+    for entry in entries:
+        for raw_tag in entry.get("tags") or []:
+            tag = (raw_tag or "").strip()
+            if tag:
+                tag_counter[tag] += 1
+    popular_tags = [tag for tag, _ in tag_counter.most_common(12)]
     context = _template_context(
         request,
         library_count=len(entries),
         preview_categories=preview_categories,
         default_format=DEFAULT_VHS_FORMAT,
+        popular_tags=popular_tags,
     )
     return templates.TemplateResponse("videorama.html", context)
 
@@ -1229,6 +1307,7 @@ async def upload_library_entry(
 
     metadata_blob.update(vhs_metadata)
     metadata_blob = ensure_metadata_source(metadata_blob, absolute_media_url, label="upload")
+    thumbnail = extract_thumbnail(metadata_blob)
 
     user_tags = tags_from_string(tags)
     metadata_tags = normalize_tag_list(metadata_blob.get("tags"))
@@ -1251,7 +1330,7 @@ async def upload_library_entry(
         "category": category.strip() or classify_entry(metadata_blob),
         "tags": merged_tags,
         "notes": summary_notes,
-        "thumbnail": metadata_blob.get("thumbnail"),
+        "thumbnail": thumbnail,
         "extractor": metadata_blob.get("extractor_key") or metadata_blob.get("extractor") or "upload",
         "added_at": now,
         "vhs_cache_key": None,
