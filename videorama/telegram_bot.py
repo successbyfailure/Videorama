@@ -279,6 +279,19 @@ def fetch_library(limit: int = 5) -> List[dict]:
         return []
 
 
+def fetch_service_health(base_url: str) -> Dict[str, str]:
+    try:
+        response = requests.get(f"{base_url}/api/health", timeout=10)
+        if response.status_code >= 400:
+            return {"status": "error"}
+        data = response.json()
+        if not isinstance(data, dict):
+            return {"status": "error"}
+        return {"status": data.get("status") or "unknown", "version": data.get("version")}
+    except requests.RequestException:
+        return {"status": "offline"}
+
+
 def build_entry_line(entry: dict) -> str:
     title = entry.get("title") or entry.get("url")
     category = entry.get("category") or "sin categoría"
@@ -299,6 +312,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=MAIN_MENU,
     )
 
+
+async def show_versions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    videorama_health = fetch_service_health(VIDEORAMA_API_URL)
+    vhs_health = fetch_service_health(VHS_BASE_URL)
+
+    lines = []
+    if videorama_health.get("status"):
+        videorama_version = videorama_health.get("version")
+        suffix = f" v{videorama_version}" if videorama_version else ""
+        lines.append(f"Videorama: {videorama_health['status']}{suffix}")
+    if vhs_health.get("status"):
+        vhs_version = vhs_health.get("version")
+        suffix = f" v{vhs_version}" if vhs_version else ""
+        lines.append(f"VHS: {vhs_health['status']}{suffix}")
+
+    if lines:
+        await update.message.reply_text("\n".join(lines))
+    else:
+        await update.message.reply_text("No pude consultar las versiones ahora mismo.")
 
 async def list_entries(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     items = fetch_library()
@@ -634,7 +668,9 @@ async def add_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("No entiendo ese comando. Prueba con /menu, /add o /list.")
+    await update.message.reply_text(
+        "No entiendo ese comando. Prueba con /menu, /add, /list o /versiones."
+    )
 
 
 def main() -> None:
@@ -645,6 +681,7 @@ def main() -> None:
         )
     application = ApplicationBuilder().token(token).build()
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler(['versiones', 'version'], show_versions))
     application.add_handler(CommandHandler("menu", show_menu))
     application.add_handler(CommandHandler("list", list_entries))
     application.add_handler(CommandHandler("add", add_entry))

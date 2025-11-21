@@ -167,11 +167,27 @@
         font-weight: 600;
         color: #cbd5f5;
       }
+      .version-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 999px;
+        background: rgba(99, 102, 241, 0.18);
+        color: #c7d2fe;
+        font-size: 0.85rem;
+        border: 1px solid rgba(99, 102, 241, 0.35);
+      }
     </style>
   </head>
   <body>
     <nav class="top-nav">
-      <span class="brand">{{ app_name }}</span>
+      <span class="brand">
+        {{ app_name }}
+        {% if videorama_version %}
+        <span class="version-pill">v{{ videorama_version }}</span>
+        {% endif %}
+      </span>
       <div class="nav-links">
         <a href="/">Biblioteca</a>
         <a href="/import">Importador</a>

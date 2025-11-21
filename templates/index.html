@@ -279,6 +279,17 @@
       canvas {
         width: 100% !important;
       }
+      .version-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 999px;
+        background: rgba(99, 102, 241, 0.18);
+        color: #c7d2fe;
+        font-size: 0.85rem;
+        border: 1px solid rgba(99, 102, 241, 0.35);
+      }
       @media (max-width: 640px) {
         .card {
           padding: 1.5rem;
@@ -294,7 +305,12 @@
             <img src="/assets/LogoVHS.png" alt="Logotipo de VHS" loading="lazy" />
           </div>
           <div>
-            <h1>{{ app_name }}</h1>
+            <h1>
+              {{ app_name }}
+              {% if vhs_version %}
+              <span class="version-pill">v{{ vhs_version }}</span>
+              {% endif %}
+            </h1>
             <p>
               Servicio de cosecha de video basado en
               <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noreferrer">yt-dlp</a>

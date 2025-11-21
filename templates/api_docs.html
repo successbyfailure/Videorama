@@ -92,12 +92,28 @@
       dd {
         margin: 0;
       }
+      .version-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 999px;
+        background: rgba(99, 102, 241, 0.18);
+        color: #c7d2fe;
+        font-size: 0.85rem;
+        border: 1px solid rgba(99, 102, 241, 0.35);
+      }
     </style>
   </head>
   <body>
     <main>
       <a href="/" class="button-link">← Volver</a>
-      <h1>API de {{ app_name }}</h1>
+      <h1>
+        API de {{ app_name }}
+        {% if vhs_version %}
+        <span class="version-pill">v{{ vhs_version }}</span>
+        {% endif %}
+      </h1>
       <p>
         Utiliza estos endpoints para automatizar descargas, convertir audio en subtítulos o integrar el servicio en
         tus herramientas. Todas las respuestas devuelven errores en formato JSON cuando ocurre algún problema.
