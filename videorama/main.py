@@ -22,7 +22,7 @@ from .storage import SQLiteStore
 
 logger = logging.getLogger(__name__)
 
-APP_TITLE = "Videorama Retro Library"
+APP_TITLE = "Videorama Library"
 UPLOADS_DIR = Path(os.getenv("VIDEORAMA_UPLOADS_DIR", "data/videorama/uploads"))
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 THUMBNAILS_DIR = Path(os.getenv("VIDEORAMA_THUMBNAILS_DIR", "data/videorama/thumbnails"))

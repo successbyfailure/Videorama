@@ -32,7 +32,7 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
 - Endpoint `/api/probe` para inspeccionar URLs soportadas sin necesidad de bajarlas.
 - Panel web minimalista (`/` y `/docs/api`) para pruebas manuales.
 
-### Videorama Retro Library (FastAPI)
+### Videorama Library (FastAPI)
 
 - API `/api/library` para guardar, consultar o eliminar elementos de la colección.
 - Clasificación automática por proveedor, duración y etiquetas devueltas por VHS.
