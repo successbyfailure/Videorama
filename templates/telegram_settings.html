@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bot de Telegram · {{ app_name }}</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #020617;
+        color: #e2e8f0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at top, #0f172a, #020617 60%);
+        padding: clamp(1rem, 2vw, 2.5rem);
+      }
+      a {
+        color: inherit;
+      }
+      nav.top-nav {
+        max-width: 1200px;
+        margin: 0 auto 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1.5rem;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+      }
+      .brand {
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+      }
+      .nav-links {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .nav-links a,
+      .nav-links button {
+        text-decoration: none;
+        border-radius: 999px;
+        padding: 0.4rem 0.9rem;
+        background: rgba(99, 102, 241, 0.15);
+        font-weight: 600;
+        color: inherit;
+        border: none;
+        cursor: pointer;
+      }
+      .nav-links a.active,
+      .nav-links button.active {
+        background: rgba(236, 72, 153, 0.2);
+      }
+      .version-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 999px;
+        background: rgba(99, 102, 241, 0.18);
+        color: #c7d2fe;
+        font-size: 0.85rem;
+        border: 1px solid rgba(99, 102, 241, 0.35);
+      }
+      .layout {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+      }
+      header.hero {
+        background: rgba(15, 23, 42, 0.9);
+        border-radius: 22px;
+        padding: clamp(1.25rem, 3vw, 2.5rem);
+        border: 1px solid rgba(99, 102, 241, 0.35);
+        box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.6);
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .hero h1 {
+        margin: 0;
+        font-size: clamp(2rem, 4vw, 2.75rem);
+      }
+      .hero p {
+        margin: 0;
+        color: #cbd5f5;
+      }
+      .hero-actions {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.35rem 0.75rem;
+        border-radius: 999px;
+        border: 1px solid rgba(74, 222, 128, 0.4);
+        background: rgba(74, 222, 128, 0.15);
+        color: #bbf7d0;
+        font-weight: 700;
+      }
+      .status-pill.offline {
+        border-color: rgba(248, 113, 113, 0.5);
+        background: rgba(248, 113, 113, 0.15);
+        color: #fecdd3;
+      }
+      .grid {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      }
+      .panel {
+        border-radius: 20px;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        background: rgba(15, 23, 42, 0.85);
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.85rem;
+      }
+      .panel h2 {
+        margin: 0;
+      }
+      label {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.8rem;
+        color: #94a3b8;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(2, 6, 23, 0.8);
+        color: inherit;
+        padding: 0.85rem 1rem;
+        font-size: 1rem;
+      }
+      button {
+        border: none;
+        border-radius: 14px;
+        padding: 0.9rem 1.2rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        cursor: pointer;
+        background: linear-gradient(120deg, #6366f1, #ec4899);
+        color: white;
+      }
+      button.ghost {
+        background: transparent;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        color: inherit;
+        text-transform: none;
+        letter-spacing: 0;
+        padding: 0.6rem 0.9rem;
+      }
+      .list-grid {
+        display: grid;
+        gap: 0.75rem;
+      }
+      .access-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.85rem 1rem;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        background: rgba(2, 6, 23, 0.65);
+      }
+      .access-row strong {
+        display: block;
+      }
+      .muted {
+        color: #94a3b8;
+      }
+      .badge {
+        display: inline-block;
+        padding: 0.2rem 0.6rem;
+        border-radius: 999px;
+        background: rgba(99, 102, 241, 0.18);
+        border: 1px solid rgba(99, 102, 241, 0.35);
+        color: #c7d2fe;
+        font-size: 0.85rem;
+      }
+      .banner {
+        padding: 0.75rem 1rem;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(2, 6, 23, 0.7);
+      }
+      .banner.error {
+        border-color: rgba(248, 113, 113, 0.5);
+        color: #fecdd3;
+      }
+      .banner.success {
+        border-color: rgba(74, 222, 128, 0.5);
+        color: #bbf7d0;
+      }
+      .recent-actions {
+        display: flex;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="top-nav">
+      <span class="brand">
+        {{ app_name }}
+        {% if videorama_version %}
+        <span class="version-pill">v{{ videorama_version }}</span>
+        {% endif %}
+      </span>
+      <div class="nav-links">
+        <a href="/">Biblioteca</a>
+        <a href="/import">Importador</a>
+        <a href="/external-player">Player externo</a>
+        <a href="/stats">Estadísticas</a>
+        <a href="/telegram" class="active">Telegram</a>
+      </div>
+    </nav>
+
+    <div class="layout">
+      <header class="hero">
+        <div>
+          <p class="muted">Control de acceso y actividad</p>
+          <h1>Bot de Telegram</h1>
+          <p>Define quién puede hablar con el bot, revisa los últimos contactos y apágalo temporalmente cuando necesites.</p>
+        </div>
+        <div class="hero-actions">
+          <span id="bot-status" class="status-pill offline">Apagado</span>
+          <button id="toggle-bot" type="button">Cargando…</button>
+        </div>
+      </header>
+
+      <div id="status-message" class="banner" role="status" aria-live="polite" style="display: none"></div>
+
+      <div class="grid">
+        <section class="panel">
+          <h2>Estado del bot</h2>
+          <p class="muted">
+            El bot solo responderá a usuarios incluidos en la lista de administradores o usuarios. Desactívalo cuando quieras
+            silenciarlo sin perder la configuración.
+          </p>
+          <button id="toggle-bot-secondary" type="button">Alternar estado</button>
+        </section>
+        <section class="panel">
+          <h2>Agregar acceso</h2>
+          <form id="access-form" class="list-grid">
+            <div>
+              <label for="user-id">ID de Telegram</label>
+              <input id="user-id" name="user_id" type="text" placeholder="123456789" required />
+            </div>
+            <div>
+              <label for="username">Usuario (opcional)</label>
+              <input id="username" name="username" type="text" placeholder="@alias" />
+            </div>
+            <div>
+              <label for="role">Rol</label>
+              <select id="role" name="role">
+                <option value="admin">Administrador</option>
+                <option value="user">Usuario</option>
+              </select>
+            </div>
+            <div>
+              <button type="submit">Guardar acceso</button>
+            </div>
+          </form>
+        </section>
+      </div>
+
+      <div class="grid">
+        <section class="panel">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap">
+            <h2>Administradores</h2>
+            <span class="badge">Control total</span>
+          </div>
+          <div id="admin-list" class="list-grid"></div>
+        </section>
+        <section class="panel">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap">
+            <h2>Usuarios</h2>
+            <span class="badge">Acceso limitado</span>
+          </div>
+          <div id="user-list" class="list-grid"></div>
+        </section>
+      </div>
+
+      <section class="panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap">
+          <h2>Interacciones recientes</h2>
+          <span class="muted">Solo últimos contactos únicos</span>
+        </div>
+        <div id="recent-list" class="list-grid"></div>
+      </section>
+    </div>
+
+    <script>
+      const statusPill = document.getElementById('bot-status');
+      const toggleButtons = [document.getElementById('toggle-bot'), document.getElementById('toggle-bot-secondary')];
+      const statusMessage = document.getElementById('status-message');
+      const adminList = document.getElementById('admin-list');
+      const userList = document.getElementById('user-list');
+      const recentList = document.getElementById('recent-list');
+      const accessForm = document.getElementById('access-form');
+
+      let currentConfig = { enabled: false, admins: [], users: [], recent: [] };
+
+      function showMessage(text, tone = 'info') {
+        if (!text) {
+          statusMessage.style.display = 'none';
+          return;
+        }
+        statusMessage.textContent = text;
+        statusMessage.className = `banner ${tone === 'error' ? 'error' : tone === 'success' ? 'success' : ''}`;
+        statusMessage.style.display = 'block';
+      }
+
+      async function fetchJson(url, options = {}) {
+        const response = await fetch(url, {
+          headers: { 'Content-Type': 'application/json' },
+          ...options,
+        });
+        if (!response.ok) {
+          let detail = await response.text();
+          try {
+            const parsed = JSON.parse(detail);
+            detail = parsed.detail || detail;
+          } catch (err) {
+            // ignore parse errors
+          }
+          throw new Error(detail || 'No se pudo completar la acción');
+        }
+        return response.json();
+      }
+
+      function renderAccessList(target, items, role) {
+        target.innerHTML = '';
+        if (!items || items.length === 0) {
+          const empty = document.createElement('p');
+          empty.className = 'muted';
+          empty.textContent = 'Nada por aquí todavía.';
+          target.appendChild(empty);
+          return;
+        }
+        items.forEach((item) => {
+          const row = document.createElement('div');
+          row.className = 'access-row';
+          const info = document.createElement('div');
+          const username = item.username ? `@${item.username.replace(/^@/, '')}` : 'Sin usuario';
+          info.innerHTML = `<strong>${username}</strong><span class="muted">ID ${item.user_id}</span>`;
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'ghost';
+          removeBtn.type = 'button';
+          removeBtn.textContent = 'Quitar';
+          removeBtn.addEventListener('click', async () => {
+            try {
+              await fetchJson(`/api/telegram/contacts/${encodeURIComponent(item.user_id)}`, { method: 'DELETE' });
+              showMessage('Eliminado de la lista de acceso.', 'success');
+              await loadConfig();
+            } catch (error) {
+              showMessage(error.message, 'error');
+            }
+          });
+          row.appendChild(info);
+          row.appendChild(removeBtn);
+          target.appendChild(row);
+        });
+      }
+
+      function renderRecentList(items) {
+        recentList.innerHTML = '';
+        if (!items || items.length === 0) {
+          const empty = document.createElement('p');
+          empty.className = 'muted';
+          empty.textContent = 'Sin actividad reciente.';
+          recentList.appendChild(empty);
+          return;
+        }
+        items.forEach((item) => {
+          const row = document.createElement('div');
+          row.className = 'access-row';
+          const info = document.createElement('div');
+          const username = item.username ? `@${item.username.replace(/^@/, '')}` : 'Sin usuario';
+          info.innerHTML = `<strong>${username}</strong><span class="muted">ID ${item.user_id}</span>`;
+
+          const actions = document.createElement('div');
+          actions.className = 'recent-actions';
+          const addUser = document.createElement('button');
+          addUser.className = 'ghost';
+          addUser.type = 'button';
+          addUser.textContent = 'Añadir como usuario';
+          addUser.addEventListener('click', () => quickAdd(item, 'user'));
+
+          const addAdmin = document.createElement('button');
+          addAdmin.className = 'ghost';
+          addAdmin.type = 'button';
+          addAdmin.textContent = 'Añadir como admin';
+          addAdmin.addEventListener('click', () => quickAdd(item, 'admin'));
+
+          actions.appendChild(addUser);
+          actions.appendChild(addAdmin);
+
+          row.appendChild(info);
+          row.appendChild(actions);
+          recentList.appendChild(row);
+        });
+      }
+
+      function renderState() {
+        statusPill.textContent = currentConfig.enabled ? 'Bot activo' : 'Bot apagado';
+        statusPill.classList.toggle('offline', !currentConfig.enabled);
+        toggleButtons.forEach((btn) => {
+          btn.textContent = currentConfig.enabled ? 'Apagar bot' : 'Encender bot';
+          btn.disabled = false;
+        });
+        renderAccessList(adminList, currentConfig.admins, 'admin');
+        renderAccessList(userList, currentConfig.users, 'user');
+        renderRecentList(currentConfig.recent);
+      }
+
+      async function loadConfig() {
+        toggleButtons.forEach((btn) => (btn.disabled = true));
+        try {
+          currentConfig = await fetchJson('/api/telegram/config');
+          renderState();
+          showMessage('Configuración sincronizada.', 'success');
+        } catch (error) {
+          showMessage(error.message, 'error');
+        } finally {
+          toggleButtons.forEach((btn) => (btn.disabled = false));
+        }
+      }
+
+      async function toggleBot() {
+        try {
+          toggleButtons.forEach((btn) => (btn.disabled = true));
+          const nextState = !currentConfig.enabled;
+          const payload = await fetchJson('/api/telegram/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ enabled: nextState }),
+          });
+          currentConfig.enabled = payload.enabled;
+          renderState();
+          showMessage(`Bot ${payload.enabled ? 'activado' : 'apagado'}.`, 'success');
+        } catch (error) {
+          showMessage(error.message, 'error');
+        } finally {
+          toggleButtons.forEach((btn) => (btn.disabled = false));
+        }
+      }
+
+      async function quickAdd(item, role) {
+        try {
+          await fetchJson('/api/telegram/contacts', {
+            method: 'POST',
+            body: JSON.stringify({ user_id: item.user_id, username: item.username, role }),
+          });
+          showMessage('Guardado en la lista de acceso.', 'success');
+          await loadConfig();
+        } catch (error) {
+          showMessage(error.message, 'error');
+        }
+      }
+
+      accessForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const formData = new FormData(accessForm);
+        const payload = {
+          user_id: formData.get('user_id'),
+          username: formData.get('username') || null,
+          role: formData.get('role'),
+        };
+        try {
+          await fetchJson('/api/telegram/contacts', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          showMessage('Acceso guardado correctamente.', 'success');
+          accessForm.reset();
+          await loadConfig();
+        } catch (error) {
+          showMessage(error.message, 'error');
+        }
+      });
+
+      toggleButtons.forEach((btn) => btn.addEventListener('click', toggleBot));
+
+      loadConfig();
+    </script>
+  </body>
+</html>

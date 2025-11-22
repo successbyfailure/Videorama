@@ -85,6 +85,24 @@ class SQLiteStore:
                     bytes INTEGER,
                     created_at REAL NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS telegram_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS telegram_contacts (
+                    user_id TEXT PRIMARY KEY,
+                    username TEXT,
+                    role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
+                    updated_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS telegram_interactions (
+                    user_id TEXT PRIMARY KEY,
+                    username TEXT,
+                    seen_at REAL NOT NULL
+                );
                 """
             )
         self._ensure_entry_columns(
@@ -312,6 +330,110 @@ class SQLiteStore:
                 (playlist_id,),
             )
             return cursor.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # Telegram settings
+    # ------------------------------------------------------------------
+
+    def get_telegram_enabled(self) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM telegram_settings WHERE key = 'enabled'"
+            ).fetchone()
+        if not row:
+            return True
+        return str(row["value"]).lower() not in {"0", "false", "no"}
+
+    def set_telegram_enabled(self, enabled: bool) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO telegram_settings (key, value)
+                VALUES ('enabled', :value)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                {"value": "1" if enabled else "0"},
+            )
+
+    def list_telegram_allowed(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT user_id, username, role, updated_at FROM telegram_contacts ORDER BY updated_at DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def upsert_telegram_contact(self, user_id: str, username: Optional[str], role: str) -> Dict[str, Any]:
+        now = time.time()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO telegram_contacts (user_id, username, role, updated_at)
+                VALUES (:user_id, :username, :role, :updated_at)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    username = excluded.username,
+                    role = excluded.role,
+                    updated_at = excluded.updated_at
+                """,
+                {
+                    "user_id": user_id,
+                    "username": username,
+                    "role": role,
+                    "updated_at": now,
+                },
+            )
+        return {
+            "user_id": user_id,
+            "username": username,
+            "role": role,
+            "updated_at": now,
+        }
+
+    def delete_telegram_contact(self, user_id: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM telegram_contacts WHERE user_id = ?",
+                (user_id,),
+            )
+            return cursor.rowcount > 0
+
+    def is_telegram_allowed(self, user_id: Optional[str]) -> bool:
+        if not user_id:
+            return False
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM telegram_contacts WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        return bool(row)
+
+    def log_telegram_interaction(self, user_id: Optional[str], username: Optional[str]) -> None:
+        if not user_id:
+            return
+        now = time.time()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO telegram_interactions (user_id, username, seen_at)
+                VALUES (:user_id, :username, :seen_at)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    username = excluded.username,
+                    seen_at = excluded.seen_at
+                """,
+                {"user_id": user_id, "username": username, "seen_at": now},
+            )
+
+    def list_recent_telegram_interactions(self, limit: int = 30) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT user_id, username, seen_at
+                FROM telegram_interactions
+                ORDER BY seen_at DESC
+                LIMIT ?
+                """,
+                (max(1, limit),),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     # ------------------------------------------------------------------
     # Category preferences
