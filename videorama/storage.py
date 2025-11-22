@@ -31,18 +31,22 @@ class SQLiteStore:
                     id TEXT PRIMARY KEY,
                     url TEXT NOT NULL,
                     original_url TEXT NOT NULL,
+                    library TEXT NOT NULL DEFAULT 'video',
                     title TEXT NOT NULL,
                     duration INTEGER,
                     uploader TEXT,
                     category TEXT,
                     tags TEXT,
                     notes TEXT,
+                    lyrics TEXT,
                     thumbnail TEXT,
                     extractor TEXT,
                     added_at REAL,
                     vhs_cache_key TEXT,
                     preferred_format TEXT,
-                    metadata TEXT
+                    metadata TEXT,
+                    audio_url TEXT,
+                    video_url TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS playlists (
@@ -83,6 +87,12 @@ class SQLiteStore:
                 );
                 """
             )
+        self._ensure_entry_columns(
+            "library",
+            "lyrics",
+            "audio_url",
+            "video_url",
+        )
 
     # ------------------------------------------------------------------
     # Entries
@@ -115,33 +125,42 @@ class SQLiteStore:
         payload = entry.copy()
         payload.setdefault("metadata", {})
         payload.setdefault("tags", [])
+        payload.setdefault("library", "video")
+        payload.setdefault("lyrics", None)
+        payload.setdefault("audio_url", None)
+        payload.setdefault("video_url", None)
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO entries (
-                    id, url, original_url, title, duration, uploader, category,
-                    tags, notes, thumbnail, extractor, added_at, vhs_cache_key,
-                    preferred_format, metadata
+                    id, url, original_url, library, title, duration, uploader, category,
+                    tags, notes, lyrics, thumbnail, extractor, added_at, vhs_cache_key,
+                    preferred_format, metadata, audio_url, video_url
                 ) VALUES (
-                    :id, :url, :original_url, :title, :duration, :uploader,
-                    :category, :tags, :notes, :thumbnail, :extractor,
-                    :added_at, :vhs_cache_key, :preferred_format, :metadata
+                    :id, :url, :original_url, :library, :title, :duration, :uploader,
+                    :category, :tags, :notes, :lyrics, :thumbnail, :extractor,
+                    :added_at, :vhs_cache_key, :preferred_format, :metadata,
+                    :audio_url, :video_url
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     url = excluded.url,
                     original_url = excluded.original_url,
+                    library = excluded.library,
                     title = excluded.title,
                     duration = excluded.duration,
                     uploader = excluded.uploader,
                     category = excluded.category,
                     tags = excluded.tags,
                     notes = excluded.notes,
+                    lyrics = excluded.lyrics,
                     thumbnail = excluded.thumbnail,
                     extractor = excluded.extractor,
                     added_at = excluded.added_at,
                     vhs_cache_key = excluded.vhs_cache_key,
                     preferred_format = excluded.preferred_format,
-                    metadata = excluded.metadata
+                    metadata = excluded.metadata,
+                    audio_url = excluded.audio_url,
+                    video_url = excluded.video_url
                 """,
                 {
                     **payload,
@@ -329,6 +348,25 @@ class SQLiteStore:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _ensure_entry_columns(self, *columns: str) -> None:
+        existing = set()
+        with self._connect() as conn:
+            rows = conn.execute("PRAGMA table_info(entries)").fetchall()
+            for row in rows:
+                existing.add(row[1])
+            for column in columns:
+                if column in existing:
+                    continue
+                if column == "library":
+                    conn.execute("ALTER TABLE entries ADD COLUMN library TEXT NOT NULL DEFAULT 'video'")
+                elif column == "lyrics":
+                    conn.execute("ALTER TABLE entries ADD COLUMN lyrics TEXT")
+                elif column == "audio_url":
+                    conn.execute("ALTER TABLE entries ADD COLUMN audio_url TEXT")
+                elif column == "video_url":
+                    conn.execute("ALTER TABLE entries ADD COLUMN video_url TEXT")
+
+
     def _row_to_entry(self, row: Optional[sqlite3.Row]) -> Dict[str, Any]:
         if row is None:
             return {}
@@ -336,18 +374,22 @@ class SQLiteStore:
             "id": row["id"],
             "url": row["url"],
             "original_url": row["original_url"],
+            "library": row["library"] or "video",
             "title": row["title"],
             "duration": row["duration"],
             "uploader": row["uploader"],
             "category": row["category"],
             "tags": self._safe_json_list(row["tags"]),
             "notes": row["notes"],
+            "lyrics": row["lyrics"],
             "thumbnail": row["thumbnail"],
             "extractor": row["extractor"],
             "added_at": row["added_at"],
             "vhs_cache_key": row["vhs_cache_key"],
             "preferred_format": row["preferred_format"],
             "metadata": self._safe_json_dict(row["metadata"]),
+            "audio_url": row["audio_url"],
+            "video_url": row["video_url"],
         }
 
     def _row_to_playlist(self, row: sqlite3.Row) -> Dict[str, Any]:

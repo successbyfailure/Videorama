@@ -995,6 +995,7 @@
             <div class="player-preview">
               <video id="player-video" controls preload="metadata" poster=""></video>
             </div>
+            <h3 class="player-section-title" id="player-notes-heading">Resumen</h3>
             <p class="player-notes" id="player-notes"></p>
             <div class="player-tags" id="player-tags"></div>
             <section class="player-sections">
@@ -1054,7 +1055,7 @@
                   <div class="auto-tag-results" id="auto-tag-results"></div>
                 </div>
                 <div>
-                  <label for="edit-notes">Descripción o notas</label>
+                  <label for="edit-notes" id="edit-notes-label">Descripción o notas</label>
                   <textarea id="edit-notes" name="notes" maxlength="2000"></textarea>
                 </div>
                 <div class="edit-actions">
@@ -1258,6 +1259,7 @@
         playerElements.category = document.getElementById('player-category');
         playerElements.duration = document.getElementById('player-duration');
         playerElements.notes = document.getElementById('player-notes');
+        playerElements.notesHeading = document.getElementById('player-notes-heading');
         playerElements.tags = document.getElementById('player-tags');
         playerElements.editForm = document.getElementById('player-edit-form');
         playerElements.editTitle = document.getElementById('edit-title');
@@ -1266,6 +1268,7 @@
         playerElements.tagSuggestions = document.getElementById('tag-suggestions');
         playerElements.autoTagResults = document.getElementById('auto-tag-results');
         playerElements.editNotes = document.getElementById('edit-notes');
+        playerElements.editNotesLabel = document.getElementById('edit-notes-label');
         playerElements.editStatus = document.getElementById('edit-status');
         playerElements.autoTagsButton = document.getElementById('auto-tags-button');
         playerElements.autoSummaryButton = document.getElementById('auto-summary-button');
@@ -1320,8 +1323,16 @@
         if (playerElements.duration) {
           playerElements.duration.textContent = `Duración: ${formatDuration(entry.duration)}`;
         }
+        const isMusic = entry.library === 'music';
+        if (playerElements.notesHeading) {
+          playerElements.notesHeading.textContent = isMusic ? 'Letras' : 'Resumen';
+        }
         if (playerElements.notes) {
-          playerElements.notes.textContent = entry.notes || 'Sin notas adicionales.';
+          const text = isMusic ? entry.lyrics || 'Sin letras registradas.' : entry.notes || 'Sin notas adicionales.';
+          playerElements.notes.textContent = text;
+        }
+        if (playerElements.editNotesLabel) {
+          playerElements.editNotesLabel.textContent = isMusic ? 'Letras' : 'Descripción o notas';
         }
         populateEditForm(entry);
         renderTagChips(playerElements.tags, entry.tags || []);
@@ -1383,7 +1394,16 @@
         if (!playerElements.facts) {
           return;
         }
+        const availability = [];
+        if (entry.audio_url) {
+          availability.push('Audio');
+        }
+        if (entry.video_url) {
+          availability.push('Videoclip');
+        }
         const facts = [
+          { label: 'Biblioteca', value: entry.library === 'music' ? 'Música' : 'Videos' },
+          { label: 'Disponibilidad', value: availability.length ? availability.join(' · ') : '—' },
           { label: 'Categoría', value: toTitle(entry.category || 'miscelánea') },
           { label: 'Autor', value: entry.uploader || 'Desconocido' },
           { label: 'Duración', value: formatDuration(entry.duration) },
@@ -1489,6 +1509,7 @@
         if (!playerElements.editForm) {
           return;
         }
+        const isMusic = entry.library === 'music';
         if (playerElements.editTitle) {
           playerElements.editTitle.value = entry.title || '';
         }
@@ -1499,7 +1520,13 @@
           playerElements.editTags.value = (entry.tags || []).join(', ');
         }
         if (playerElements.editNotes) {
-          playerElements.editNotes.value = entry.notes || '';
+          playerElements.editNotes.value = isMusic ? entry.lyrics || '' : entry.notes || '';
+          playerElements.editNotes.placeholder = isMusic
+            ? 'Añade la letra o notas musicales'
+            : 'Idea principal, capítulo destacado, etc.';
+        }
+        if (playerElements.editNotesLabel) {
+          playerElements.editNotesLabel.textContent = isMusic ? 'Letras' : 'Descripción o notas';
         }
         setEditStatus('');
       }
@@ -1579,10 +1606,12 @@
         const category = playerElements.editCategory ? playerElements.editCategory.value.trim() : undefined;
         const notesValue = playerElements.editNotes ? playerElements.editNotes.value.trim() : undefined;
         const tagsValue = playerElements.editTags ? playerElements.editTags.value : '';
+        const isMusic = playerState.currentEntry.library === 'music';
         const payload = {
           title: title === undefined ? undefined : title || null,
           category: category === undefined ? undefined : category || null,
-          notes: notesValue === undefined ? undefined : notesValue || null,
+          notes: isMusic ? null : notesValue === undefined ? undefined : notesValue || null,
+          lyrics: isMusic ? (notesValue === undefined ? undefined : notesValue || null) : undefined,
           tags: parseTagInput(tagsValue),
         };
         setEditStatus('Guardando cambios…');
