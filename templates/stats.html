@@ -109,6 +109,12 @@
       h2 {
         margin-top: 0;
       }
+      .panel h2 {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+      }
       .chart-box {
         background: rgba(30, 41, 59, 0.7);
         border-radius: 14px;
@@ -133,6 +139,38 @@
       }
       .hint {
         color: #94a3b8;
+        font-size: 0.9rem;
+      }
+      .hero-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        margin-top: 0.5rem;
+      }
+      button.action {
+        background: linear-gradient(120deg, #6366f1, #8b5cf6);
+        color: white;
+        border: none;
+        border-radius: 999px;
+        padding: 0.55rem 1rem;
+        font-weight: 700;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        box-shadow: 0 10px 25px -10px rgba(99, 102, 241, 0.7);
+      }
+      button.action[disabled] {
+        opacity: 0.7;
+        cursor: not-allowed;
+      }
+      .chip {
+        background: rgba(148, 163, 184, 0.18);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        padding: 0.35rem 0.7rem;
+        border-radius: 999px;
+        color: #cbd5e1;
         font-size: 0.9rem;
       }
       .version-pill {
@@ -167,6 +205,12 @@
       <header class="hero">
         <p class="hint">Tablero generado el <span id="generated-at"></span></p>
         <h1>Salud de la biblioteca</h1>
+        <div class="hero-actions">
+          <button class="action" id="rescan-button" type="button" onclick="rescanStats()">
+            🔄 Reescanear contenidos
+          </button>
+          <span class="chip" id="refresh-status">Datos cargados</span>
+        </div>
         <div class="hero-grid">
           <article class="stat-card">
             <label>Elementos</label>
@@ -246,8 +290,39 @@
     </div>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
-      const summary = {{ summary|tojson }};
-      const generatedAt = {{ generated_at|tojson }};
+      let summary = {{ summary|tojson }};
+      let generatedAt = {{ generated_at|tojson }};
+      const chartInstances = {
+        category: null,
+        download: null,
+        format: null,
+        source: null,
+        extractor: null,
+      };
+
+      function destroyChart(key) {
+        const instance = chartInstances[key];
+        if (instance) {
+          instance.destroy();
+          chartInstances[key] = null;
+        }
+      }
+
+      function updateRefreshStatus(message, isError = false) {
+        const statusNode = document.getElementById('refresh-status');
+        if (!statusNode) return;
+        statusNode.textContent = message;
+        statusNode.style.borderColor = isError ? 'rgba(248, 113, 113, 0.4)' : 'rgba(148, 163, 184, 0.25)';
+        statusNode.style.background = isError ? 'rgba(248, 113, 113, 0.15)' : 'rgba(148, 163, 184, 0.18)';
+        statusNode.style.color = isError ? '#fecdd3' : '#cbd5e1';
+      }
+
+      function setRescanLoading(loading) {
+        const button = document.getElementById('rescan-button');
+        if (!button) return;
+        button.disabled = loading;
+        button.textContent = loading ? 'Reescanear contenidos…' : '🔄 Reescanear contenidos';
+      }
 
       function formatBytes(bytes) {
         if (!bytes || Number.isNaN(Number(bytes))) return '—';
@@ -302,9 +377,10 @@
 
       function renderCategoryChart() {
         const ctx = document.getElementById('categoryChart');
+        destroyChart('category');
         if (!ctx || !summary?.categories?.length) return;
         const { labels, storageData } = chartDataFromSummary();
-        new Chart(ctx, {
+        chartInstances.category = new Chart(ctx, {
           type: 'bar',
           data: {
             labels,
@@ -337,11 +413,12 @@
       function renderDownloadChart() {
         const ctx = document.getElementById('downloadChart');
         const byDay = summary?.downloads?.by_day || {};
+        destroyChart('download');
         if (!ctx || !Object.keys(byDay).length) return;
         const labels = Object.keys(byDay).sort();
         const counts = labels.map((day) => byDay[day].count || 0);
         const bytes = labels.map((day) => (byDay[day].bytes || 0) / 1024 / 1024);
-        new Chart(ctx, {
+        chartInstances.download = new Chart(ctx, {
           type: 'line',
           data: {
             labels,
@@ -375,10 +452,11 @@
       function renderFormatChart() {
         const ctx = document.getElementById('formatChart');
         const formats = summary?.formats || {};
+        destroyChart('format');
         if (!ctx || !Object.keys(formats).length) return;
         const labels = Object.keys(formats);
         const data = Object.values(formats);
-        new Chart(ctx, {
+        chartInstances.format = new Chart(ctx, {
           type: 'doughnut',
           data: {
             labels,
@@ -398,10 +476,11 @@
       function renderSourceChart() {
         const ctx = document.getElementById('sourceChart');
         const sources = summary?.storage?.by_source || {};
+        destroyChart('source');
         if (!ctx || !Object.keys(sources).length) return;
         const labels = Object.keys(sources).map((key) => key.toUpperCase());
         const data = Object.values(sources).map((value) => Number(value) / 1024 / 1024 / 1024);
-        new Chart(ctx, {
+        chartInstances.source = new Chart(ctx, {
           type: 'doughnut',
           data: {
             labels,
@@ -421,10 +500,11 @@
       function renderExtractorStorageChart() {
         const ctx = document.getElementById('extractorStorageChart');
         const extractorData = summary?.storage?.by_extractor || {};
+        destroyChart('extractor');
         if (!ctx || !Object.keys(extractorData).length) return;
         const labels = Object.keys(extractorData);
         const data = Object.values(extractorData).map((value) => Number(value) / 1024 / 1024 / 1024);
-        new Chart(ctx, {
+        chartInstances.extractor = new Chart(ctx, {
           type: 'bar',
           data: {
             labels,
@@ -446,12 +526,38 @@
         });
       }
 
-      renderTotals();
-      renderCategoryChart();
-      renderDownloadChart();
-      renderFormatChart();
-      renderSourceChart();
-      renderExtractorStorageChart();
+      async function rescanStats() {
+        setRescanLoading(true);
+        updateRefreshStatus('Reescanear contenidos en curso…');
+        try {
+          const response = await fetch('/api/stats');
+          if (!response.ok) {
+            throw new Error('No se pudo refrescar la estadística');
+          }
+          const payload = await response.json();
+          summary = payload?.summary || summary;
+          generatedAt = payload?.generated_at || generatedAt;
+          renderAll();
+          updateRefreshStatus('Datos actualizados');
+        } catch (error) {
+          console.error(error);
+          updateRefreshStatus('No se pudo refrescar', true);
+          alert('No se pudieron recalcular las estadísticas.');
+        } finally {
+          setRescanLoading(false);
+        }
+      }
+
+      function renderAll() {
+        renderTotals();
+        renderCategoryChart();
+        renderDownloadChart();
+        renderFormatChart();
+        renderSourceChart();
+        renderExtractorStorageChart();
+      }
+
+      renderAll();
     </script>
   </body>
 </html>
