@@ -117,7 +117,9 @@ def _guarded(handler):
             logger.info("Bot desactivado, ignorando mensaje de %s", user_id)
             return
         if not settings_store.is_telegram_allowed(user_id):
-            logger.info("Usuario no autorizado: %s", user_id)
+            logger.info(
+                "Usuario no autorizado y acceso restringido: %s", user_id
+            )
             return
         return await handler(update, context)
 

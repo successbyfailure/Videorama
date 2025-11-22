@@ -141,6 +141,7 @@ class TelegramAccessPayload(BaseModel):
 
 class TelegramSettingsPayload(BaseModel):
     enabled: bool
+    allow_all: bool = False
 
 
 def _rule_from_row(row: Dict[str, Any]) -> Rule:
@@ -1768,6 +1769,7 @@ async def telegram_config(limit: int = 30) -> Dict[str, Any]:
     users = [item for item in allowed if item.get("role") == "user"]
     return {
         "enabled": store.get_telegram_enabled(),
+        "allow_all": store.get_telegram_open_access(),
         "admins": admins,
         "users": users,
         "recent": store.list_recent_telegram_interactions(limit),
@@ -1777,7 +1779,11 @@ async def telegram_config(limit: int = 30) -> Dict[str, Any]:
 @app.put("/api/telegram/settings")
 async def update_telegram_settings(payload: TelegramSettingsPayload) -> Dict[str, Any]:
     store.set_telegram_enabled(payload.enabled)
-    return {"enabled": store.get_telegram_enabled()}
+    store.set_telegram_open_access(payload.allow_all)
+    return {
+        "enabled": store.get_telegram_enabled(),
+        "allow_all": store.get_telegram_open_access(),
+    }
 
 
 @app.post("/api/telegram/contacts", status_code=201)

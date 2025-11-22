@@ -256,10 +256,16 @@
         <section class="panel">
           <h2>Estado del bot</h2>
           <p class="muted">
-            El bot solo responderá a usuarios incluidos en la lista de administradores o usuarios. Desactívalo cuando quieras
+            El bot puede funcionar con lista de acceso o permitir el paso a cualquier usuario. Desactívalo cuando quieras
             silenciarlo sin perder la configuración.
           </p>
-          <button id="toggle-bot-secondary" type="button">Alternar estado</button>
+          <div class="list-grid">
+            <label style="display: flex; align-items: center; gap: 0.6rem">
+              <input id="allow-all-toggle" type="checkbox" />
+              <span>Permitir a cualquiera hablar con el bot (sin lista)</span>
+            </label>
+            <button id="toggle-bot-secondary" type="button">Alternar estado</button>
+          </div>
         </section>
         <section class="panel">
           <h2>Agregar acceso</h2>
@@ -320,8 +326,9 @@
       const userList = document.getElementById('user-list');
       const recentList = document.getElementById('recent-list');
       const accessForm = document.getElementById('access-form');
+      const allowAllToggle = document.getElementById('allow-all-toggle');
 
-      let currentConfig = { enabled: false, admins: [], users: [], recent: [] };
+      let currentConfig = { enabled: false, allow_all: false, admins: [], users: [], recent: [] };
 
       function showMessage(text, tone = 'info') {
         if (!text) {
@@ -431,6 +438,7 @@
           btn.textContent = currentConfig.enabled ? 'Apagar bot' : 'Encender bot';
           btn.disabled = false;
         });
+        allowAllToggle.checked = Boolean(currentConfig.allow_all);
         renderAccessList(adminList, currentConfig.admins, 'admin');
         renderAccessList(userList, currentConfig.users, 'user');
         renderRecentList(currentConfig.recent);
@@ -455,15 +463,40 @@
           const nextState = !currentConfig.enabled;
           const payload = await fetchJson('/api/telegram/settings', {
             method: 'PUT',
-            body: JSON.stringify({ enabled: nextState }),
+            body: JSON.stringify({ enabled: nextState, allow_all: currentConfig.allow_all }),
           });
           currentConfig.enabled = payload.enabled;
+          currentConfig.allow_all = payload.allow_all;
           renderState();
           showMessage(`Bot ${payload.enabled ? 'activado' : 'apagado'}.`, 'success');
         } catch (error) {
           showMessage(error.message, 'error');
         } finally {
           toggleButtons.forEach((btn) => (btn.disabled = false));
+        }
+      }
+
+      async function toggleAllowAll() {
+        try {
+          allowAllToggle.disabled = true;
+          const payload = await fetchJson('/api/telegram/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ enabled: currentConfig.enabled, allow_all: allowAllToggle.checked }),
+          });
+          currentConfig.allow_all = payload.allow_all;
+          currentConfig.enabled = payload.enabled;
+          renderState();
+          showMessage(
+            payload.allow_all
+              ? 'Modo abierto activado: cualquier usuario puede hablar con el bot.'
+              : 'Lista de acceso requerida de nuevo.',
+            'success'
+          );
+        } catch (error) {
+          showMessage(error.message, 'error');
+          allowAllToggle.checked = Boolean(currentConfig.allow_all);
+        } finally {
+          allowAllToggle.disabled = false;
         }
       }
 
@@ -502,6 +535,7 @@
       });
 
       toggleButtons.forEach((btn) => btn.addEventListener('click', toggleBot));
+      allowAllToggle.addEventListener('change', toggleAllowAll);
 
       loadConfig();
     </script>

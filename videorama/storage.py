@@ -397,6 +397,8 @@ class SQLiteStore:
             return cursor.rowcount > 0
 
     def is_telegram_allowed(self, user_id: Optional[str]) -> bool:
+        if self.get_telegram_open_access():
+            return bool(user_id)
         if not user_id:
             return False
         with self._connect() as conn:
@@ -434,6 +436,26 @@ class SQLiteStore:
                 (max(1, limit),),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_telegram_open_access(self) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM telegram_settings WHERE key = 'open_access'"
+            ).fetchone()
+        if not row:
+            return False
+        return str(row["value"]).lower() not in {"0", "false", "no"}
+
+    def set_telegram_open_access(self, open_access: bool) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO telegram_settings (key, value)
+                VALUES ('open_access', :value)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                {"value": "1" if open_access else "0"},
+            )
 
     # ------------------------------------------------------------------
     # Category preferences
