@@ -127,6 +127,23 @@ class OffenseInput(BaseModel):
         return value
 
 
+class TelegramAccessPayload(BaseModel):
+    user_id: str
+    username: Optional[str] = None
+    role: Literal["admin", "user"]
+
+    @validator("user_id")
+    def _sanitize_user_id(cls, value: str) -> str:  # type: ignore
+        if not str(value).strip():
+            raise ValueError("El ID de usuario es obligatorio")
+        return str(value).strip()
+
+
+class TelegramSettingsPayload(BaseModel):
+    enabled: bool
+    allow_all: bool = False
+
+
 def _rule_from_row(row: Dict[str, Any]) -> Rule:
     return Rule(
         plugin=row["plugin"],
@@ -1503,6 +1520,22 @@ async def get_stats() -> Dict[str, Any]:
     return {"summary": summary, "generated_at": time.time()}
 
 
+@app.get("/telegram", response_class=HTMLResponse)
+async def telegram_settings_page(request: Request) -> HTMLResponse:
+    allowed = store.list_telegram_allowed()
+    admins = [item for item in allowed if item.get("role") == "admin"]
+    users = [item for item in allowed if item.get("role") == "user"]
+    recent = store.list_recent_telegram_interactions(40)
+    context = _template_context(
+        request,
+        telegram_enabled=store.get_telegram_enabled(),
+        admin_users=admins,
+        allowed_users=users,
+        recent_users=recent,
+    )
+    return templates.TemplateResponse("telegram_settings.html", context)
+
+
 @app.get("/firewall", response_class=HTMLResponse)
 async def firewall_dashboard(request: Request) -> HTMLResponse:
     context = _template_context(
@@ -1727,6 +1760,45 @@ async def update_category_settings(payload: CategorySettingsPayload) -> Dict[str
     store.replace_category_preferences([setting.dict() for setting in payload.settings])
     settings = store.list_category_preferences()
     return {"settings": settings, "count": len(settings)}
+
+
+@app.get("/api/telegram/config")
+async def telegram_config(limit: int = 30) -> Dict[str, Any]:
+    allowed = store.list_telegram_allowed()
+    admins = [item for item in allowed if item.get("role") == "admin"]
+    users = [item for item in allowed if item.get("role") == "user"]
+    return {
+        "enabled": store.get_telegram_enabled(),
+        "allow_all": store.get_telegram_open_access(),
+        "admins": admins,
+        "users": users,
+        "recent": store.list_recent_telegram_interactions(limit),
+    }
+
+
+@app.put("/api/telegram/settings")
+async def update_telegram_settings(payload: TelegramSettingsPayload) -> Dict[str, Any]:
+    store.set_telegram_enabled(payload.enabled)
+    store.set_telegram_open_access(payload.allow_all)
+    return {
+        "enabled": store.get_telegram_enabled(),
+        "allow_all": store.get_telegram_open_access(),
+    }
+
+
+@app.post("/api/telegram/contacts", status_code=201)
+async def add_telegram_contact(payload: TelegramAccessPayload) -> Dict[str, Any]:
+    username = payload.username.strip().lstrip("@") if payload.username else None
+    contact = store.upsert_telegram_contact(payload.user_id.strip(), username, payload.role)
+    return {"item": contact}
+
+
+@app.delete("/api/telegram/contacts/{user_id}")
+async def delete_telegram_contact(user_id: str) -> Dict[str, Any]:
+    deleted = store.delete_telegram_contact(user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"deleted": deleted}
 
 
 @app.get("/api/firewall/rules")

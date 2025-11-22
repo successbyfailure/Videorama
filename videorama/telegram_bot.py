@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import re
+from functools import wraps
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -28,6 +29,8 @@ from telegram.ext import (
     filters,
 )
 
+from .storage import SQLiteStore
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,8 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_DOWNLOAD_LIMIT_BYTES = int(
     os.getenv("TELEGRAM_DOWNLOAD_LIMIT_BYTES", 20 * 1024 * 1024)
 )
+VIDEORAMA_DB_PATH = Path(os.getenv("VIDEORAMA_DB_PATH", "data/videorama/library.db"))
+settings_store = SQLiteStore(VIDEORAMA_DB_PATH)
 
 MEDIA_FILTER = filters.Document.ALL | filters.VIDEO | filters.AUDIO
 
@@ -94,6 +99,31 @@ def parse_content_disposition(headers: Dict[str, str], fallback: str) -> str:
     if match:
         return match.group(1)
     return fallback
+
+
+def _extract_user(update: Update) -> Tuple[Optional[str], Optional[str]]:
+    user = update.effective_user
+    user_id = str(user.id) if user else None
+    username = user.username if user and user.username else None
+    return user_id, username
+
+
+def _guarded(handler):
+    @wraps(handler)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id, username = _extract_user(update)
+        settings_store.log_telegram_interaction(user_id, username)
+        if not settings_store.get_telegram_enabled():
+            logger.info("Bot desactivado, ignorando mensaje de %s", user_id)
+            return
+        if not settings_store.is_telegram_allowed(user_id):
+            logger.info(
+                "Usuario no autorizado y acceso restringido: %s", user_id
+            )
+            return
+        return await handler(update, context)
+
+    return wrapper
 
 
 def probe_url_metadata(url: str) -> Dict[str, Any]:
@@ -301,6 +331,7 @@ def build_entry_line(entry: dict) -> str:
     return f"• {title} ({category})"
 
 
+@_guarded
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
@@ -316,6 +347,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+@_guarded
 async def show_versions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
@@ -337,6 +369,7 @@ async def show_versions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     else:
         await update.message.reply_text("No pude consultar las versiones ahora mismo.")
 
+@_guarded
 async def list_entries(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     items = fetch_library()
     if not items:
@@ -346,6 +379,7 @@ async def list_entries(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text("\n".join(lines))
 
 
+@_guarded
 async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message:
         await update.message.reply_text(
@@ -354,6 +388,7 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
+@_guarded
 async def handle_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.message.text:
         return
@@ -362,8 +397,8 @@ async def handle_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if urls:
         url = urls[0]
         token = secrets.token_hex(4)
-        store = context.user_data.setdefault("pending_urls", {})
-        store[token] = url
+        pending_urls = context.user_data.setdefault("pending_urls", {})
+        pending_urls[token] = url
         keyboard = InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton("Añadir a Videorama", callback_data=f"addurl:{token}")],
@@ -397,6 +432,7 @@ async def handle_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     )
 
 
+@_guarded
 async def handle_media_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
@@ -421,8 +457,8 @@ async def handle_media_message(update: Update, context: ContextTypes.DEFAULT_TYP
     file_name = safe_filename(
         getattr(file_obj, "file_name", None), f"archivo_{unique_id}{extension}"
     )
-    store = context.user_data.setdefault("pending_uploads", {})
-    store[unique_id] = {
+    pending_uploads = context.user_data.setdefault("pending_uploads", {})
+    pending_uploads[unique_id] = {
         "file_id": file_obj.file_id,
         "file_name": file_name,
         "notes": update.message.caption or "",
@@ -441,6 +477,7 @@ async def handle_media_message(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 
+@_guarded
 async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if not query or not query.data:
@@ -642,6 +679,7 @@ async def process_vhs_conversion(query, file_info: Dict[str, str], file_path: Pa
             pass
 
 
+@_guarded
 async def add_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.args:
         await update.message.reply_text("Uso: /add <url>")
@@ -670,6 +708,7 @@ async def add_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+@_guarded
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "No entiendo ese comando. Prueba con /menu, /add, /list o /versiones."
