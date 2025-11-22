@@ -2,6 +2,7 @@ import hashlib
 import logging
 import os
 import secrets
+import shutil
 import time
 from collections import Counter
 from datetime import datetime, timedelta
@@ -27,6 +28,10 @@ UPLOADS_DIR = Path(os.getenv("VIDEORAMA_UPLOADS_DIR", "data/videorama/uploads"))
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 THUMBNAILS_DIR = Path(os.getenv("VIDEORAMA_THUMBNAILS_DIR", "data/videorama/thumbnails"))
 THUMBNAILS_DIR.mkdir(parents=True, exist_ok=True)
+MUSIC_AUDIO_DIR = Path(os.getenv("VIDEORAMA_MUSIC_AUDIO_DIR", "data/videorama/music/audio"))
+MUSIC_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+MUSIC_VIDEO_DIR = Path(os.getenv("VIDEORAMA_MUSIC_VIDEO_DIR", "data/videorama/music/video"))
+MUSIC_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 THUMBNAILS_URL_PREFIX = "/thumbnails"
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
 VHS_HTTP_TIMEOUT = int(os.getenv("VHS_HTTP_TIMEOUT", "60"))
@@ -449,6 +454,7 @@ def normalize_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not entry_id or not url:
         return None
 
+    library = str(entry.get("library") or "video").strip().lower() or "video"
     title = str(entry.get("title") or url).strip() or url
 
     duration = entry.get("duration")
@@ -470,6 +476,12 @@ def normalize_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         notes = notes.strip() or None
     else:
         notes = None
+
+    lyrics = entry.get("lyrics")
+    if isinstance(lyrics, str):
+        lyrics = lyrics.strip() or None
+    else:
+        lyrics = None
 
     category = str(entry.get("category") or DEFAULT_CATEGORY).strip() or DEFAULT_CATEGORY
     uploader = entry.get("uploader")
@@ -505,26 +517,49 @@ def normalize_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     metadata_blob = sanitize_metadata(entry.get("metadata"))
 
+    audio_url = entry.get("audio_url") or metadata_blob.get("audio_url")
+    if isinstance(audio_url, str):
+        audio_url = audio_url.strip() or None
+    else:
+        audio_url = None
+
+    video_url = entry.get("video_url") or metadata_blob.get("video_url")
+    if isinstance(video_url, str):
+        video_url = video_url.strip() or None
+    else:
+        video_url = None
+
+    primary_url = url
+    if library == "music":
+        if audio_url:
+            primary_url = audio_url
+        elif video_url:
+            primary_url = video_url
+
     cached_thumbnail = cache_thumbnail(entry_id, thumbnail)
     if cached_thumbnail:
         thumbnail = cached_thumbnail
 
     return {
         "id": entry_id,
-        "url": url,
+        "url": primary_url,
         "original_url": str(entry.get("original_url") or url),
+        "library": library,
         "title": title,
         "duration": duration,
         "uploader": uploader,
         "category": category,
         "tags": cleaned_tags,
         "notes": notes,
+        "lyrics": lyrics,
         "thumbnail": thumbnail,
         "extractor": extractor,
         "added_at": added_at,
         "vhs_cache_key": cache_key or derive_cache_key(url, preferred_format),
         "preferred_format": preferred_format,
         "metadata": metadata_blob,
+        "audio_url": audio_url,
+        "video_url": video_url,
     }
 
 
@@ -688,13 +723,13 @@ def _resolve_local_media(entry: Dict[str, Any]) -> Optional[Path]:
     metadata = entry.get("metadata") or {}
     file_name = metadata.get("file_name") or Path(url).name
     safe_name = sanitize_filename(str(file_name))
-    file_path = (UPLOADS_DIR / entry_id / safe_name).resolve()
-    uploads_root = UPLOADS_DIR.resolve()
-    if uploads_root not in file_path.parents:
-        return None
-    if not file_path.exists():
-        return None
-    return file_path
+    for base_dir in (UPLOADS_DIR, MUSIC_AUDIO_DIR, MUSIC_VIDEO_DIR):
+        file_path = (base_dir / entry_id / safe_name).resolve()
+        if base_dir.resolve() not in file_path.parents:
+            continue
+        if file_path.exists():
+            return file_path
+    return None
 
 
 def _stream_local_file(
@@ -841,9 +876,9 @@ def stream_entry_content(
     return _proxy_vhs_stream(entry, media_format, as_attachment, request)
 
 
-async def store_upload(entry_id: str, upload: UploadFile) -> Dict[str, Any]:
+async def store_upload(entry_id: str, upload: UploadFile, base_dir: Optional[Path] = None) -> Dict[str, Any]:
     safe_name = sanitize_filename(upload.filename or "upload.bin")
-    target_dir = UPLOADS_DIR / entry_id
+    target_dir = (base_dir or UPLOADS_DIR) / entry_id
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / safe_name
     total_bytes = 0
@@ -919,9 +954,11 @@ class AddLibraryEntry(BaseModel):
     title: Optional[str] = Field(default=None, max_length=300)
     tags: List[str] = Field(default_factory=list)
     notes: Optional[str] = Field(default=None, max_length=2000)
+    lyrics: Optional[str] = Field(default=None, max_length=5000)
     category: Optional[str] = Field(default=None, max_length=120)
     format: str = Field(default=DEFAULT_VHS_FORMAT)
     auto_download: bool = True
+    library: Literal["video", "music"] = "video"
     metadata: Optional[Dict[str, Any]] = None
 
     @validator("category")
@@ -943,8 +980,12 @@ class UpdateLibraryEntry(BaseModel):
     title: Optional[str] = Field(default=None, max_length=300)
     tags: Optional[List[str]] = None
     notes: Optional[str] = Field(default=None, max_length=2000)
+    lyrics: Optional[str] = Field(default=None, max_length=5000)
     category: Optional[str] = Field(default=None, max_length=120)
     preferred_format: Optional[str] = Field(default=None, max_length=50)
+    library: Optional[Literal["video", "music"]] = None
+    audio_url: Optional[str] = None
+    video_url: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
     @validator("title")
@@ -963,6 +1004,13 @@ class UpdateLibraryEntry(BaseModel):
 
     @validator("notes")
     def strip_notes(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @validator("lyrics")
+    def strip_lyrics(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
         cleaned = value.strip()
@@ -1235,12 +1283,24 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     if payload.metadata:
         metadata_blob.update(sanitize_metadata(payload.metadata))
     metadata_blob = ensure_metadata_source(metadata_blob, payload.url)
+    metadata_blob["library"] = payload.library
     remove_entry_thumbnails(entry_id)
     raw_thumbnail = extract_thumbnail(metadata_blob)
     thumbnail = cache_thumbnail(entry_id, raw_thumbnail) or raw_thumbnail
     category = (payload.category or "").strip() or classify_entry(metadata)
 
     title = payload.title or metadata.get("title") or payload.url
+
+    lyrics = payload.lyrics
+    notes = payload.notes
+    if payload.library == "music":
+        lyrics = lyrics or notes
+        notes = None
+
+    audio_url = metadata_blob.get("audio_url") if payload.library == "music" else None
+    video_url = metadata_blob.get("video_url") if payload.library == "music" else None
+    if payload.library == "music" and not video_url:
+        video_url = payload.url
 
     user_tags = sorted(
         {
@@ -1254,18 +1314,22 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
         "id": entry_id,
         "url": payload.url,
         "original_url": payload.url,
+        "library": payload.library,
         "title": title,
         "duration": metadata.get("duration"),
         "uploader": metadata.get("uploader"),
         "category": category,
         "tags": user_tags,
-        "notes": payload.notes,
+        "notes": notes,
+        "lyrics": lyrics,
         "thumbnail": thumbnail,
         "extractor": metadata.get("extractor_key") or metadata.get("extractor"),
         "added_at": now,
         "vhs_cache_key": derive_cache_key(payload.url, payload.format),
         "preferred_format": payload.format,
         "metadata": metadata_blob,
+        "audio_url": audio_url,
+        "video_url": video_url,
     }
 
     store.upsert_entry(entry)
@@ -1292,8 +1356,16 @@ async def update_entry(entry_id: str, payload: UpdateLibraryEntry) -> Dict[str, 
         updated["category"] = update_data.get("category") or DEFAULT_CATEGORY
     if "notes" in update_data:
         updated["notes"] = update_data.get("notes")
+    if "lyrics" in update_data:
+        updated["lyrics"] = update_data.get("lyrics")
     if "preferred_format" in update_data:
         updated["preferred_format"] = update_data.get("preferred_format") or DEFAULT_VHS_FORMAT
+    if "library" in update_data:
+        updated["library"] = update_data.get("library") or "video"
+    if "audio_url" in update_data:
+        updated["audio_url"] = update_data.get("audio_url")
+    if "video_url" in update_data:
+        updated["video_url"] = update_data.get("video_url")
     if "tags" in update_data:
         updated["tags"] = normalize_tag_list(update_data.get("tags"))
     if "metadata" in update_data:
@@ -1497,9 +1569,20 @@ async def upload_library_entry(
     category: str = Form(DEFAULT_CATEGORY),
     tags: str = Form(""),
     notes: str = Form(""),
+    library: str = Form("video"),
+    save_video: bool = Form(True),
+    save_audio: bool = Form(True),
 ) -> Dict[str, Any]:
     entry_id = secrets.token_hex(16)
-    file_meta = await store_upload(entry_id, file)
+    normalized_library = (library or "video").strip().lower()
+    is_music = normalized_library == "music"
+    is_video_upload = (file.content_type or "").startswith("video/") or str(file.filename or "").lower().endswith(
+        (".mp4", ".mkv", ".webm", ".mov")
+    )
+    upload_base = UPLOADS_DIR
+    if is_music:
+        upload_base = MUSIC_VIDEO_DIR if (is_video_upload and save_video) else MUSIC_AUDIO_DIR
+    file_meta = await store_upload(entry_id, file, base_dir=upload_base)
     media_url = f"/media/{entry_id}/{file_meta['file_name']}"
     absolute_media_url = f"{str(request.base_url).rstrip('/')}{media_url}"
 
@@ -1520,6 +1603,30 @@ async def upload_library_entry(
 
     metadata_blob.update(vhs_metadata)
     metadata_blob = ensure_metadata_source(metadata_blob, absolute_media_url, label="upload")
+    metadata_blob["library"] = normalized_library
+    audio_url = None
+    video_url = None
+    if is_music:
+        if is_video_upload:
+            if save_video:
+                video_url = media_url
+            if save_audio:
+                audio_dir = MUSIC_AUDIO_DIR / entry_id
+                audio_dir.mkdir(parents=True, exist_ok=True)
+                audio_target = audio_dir / file_meta["file_name"]
+                if not audio_target.exists():
+                    try:
+                        shutil.copy(file_meta["file_path"], audio_target)
+                    except OSError:
+                        audio_target = None
+                if audio_target and audio_target.exists():
+                    audio_url = f"/media/{entry_id}/{audio_target.name}"
+        else:
+            audio_url = media_url
+    else:
+        video_url = media_url
+    metadata_blob["audio_url"] = audio_url
+    metadata_blob["video_url"] = video_url
     thumbnail = extract_thumbnail(metadata_blob)
 
     user_tags = tags_from_string(tags)
@@ -1531,24 +1638,32 @@ async def upload_library_entry(
         description = metadata_blob.get("description") or metadata_blob.get("description_short")
         if isinstance(description, str) and description.strip():
             summary_notes = description.strip()
+    lyrics_value = None
+    if is_music:
+        lyrics_value = summary_notes
+        summary_notes = None
 
     now = time.time()
     entry = {
         "id": entry_id,
-        "url": media_url,
+        "url": audio_url or video_url or media_url,
         "original_url": media_url,
+        "library": normalized_library,
         "title": title.strip() or metadata_blob.get("title") or file_meta["file_name"],
         "duration": metadata_blob.get("duration"),
         "uploader": metadata_blob.get("uploader") or "telegram_upload",
         "category": category.strip() or classify_entry(metadata_blob),
         "tags": merged_tags,
         "notes": summary_notes,
+        "lyrics": lyrics_value,
         "thumbnail": thumbnail,
         "extractor": metadata_blob.get("extractor_key") or metadata_blob.get("extractor") or "upload",
         "added_at": now,
         "vhs_cache_key": None,
         "preferred_format": DEFAULT_VHS_FORMAT,
         "metadata": metadata_blob,
+        "audio_url": audio_url,
+        "video_url": video_url,
     }
 
     store.upsert_entry(entry)

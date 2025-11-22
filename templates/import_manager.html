@@ -510,6 +510,14 @@
               <small class="hint">Usa la existente o déjala vacía para clasificar automáticamente.</small>
             </div>
             <div>
+              <label for="library-input">Biblioteca destino</label>
+              <select id="library-input" name="library">
+                <option value="video">Videos</option>
+                <option value="music">Música</option>
+              </select>
+              <small class="hint">Elige dónde guardar el registro y sus ficheros asociados.</small>
+            </div>
+            <div>
               <label for="tags-input">Etiquetas (separadas por comas)</label>
               <input id="tags-input" name="tags" type="text" placeholder="retro, demo, vhs" />
               <div class="chip-group popular-tags" id="tag-suggestions">
@@ -519,7 +527,7 @@
               </div>
             </div>
             <div>
-              <label for="notes-input">Resumen</label>
+              <label for="notes-input" id="notes-label">Resumen</label>
               <textarea
                 id="notes-input"
                 name="notes"
@@ -619,8 +627,10 @@
       const urlInput = document.getElementById('url-input');
       const titleInput = document.getElementById('title-input');
       const categoryInput = document.getElementById('category-input');
+      const libraryInput = document.getElementById('library-input');
       const tagInput = document.getElementById('tags-input');
       const notesInput = document.getElementById('notes-input');
+      const notesLabel = document.getElementById('notes-label');
       const formatInput = document.getElementById('format-input');
       const autoDownloadInput = document.getElementById('auto-download');
       const submitButton = document.getElementById('submit-button');
@@ -643,6 +653,18 @@
       let searchItems = [];
       let searchPage = 1;
       let lastSearchServices = [];
+
+      function refreshNotesCopy() {
+        const isMusic = libraryInput && libraryInput.value === 'music';
+        if (notesLabel) {
+          notesLabel.textContent = isMusic ? 'Letras' : 'Resumen';
+        }
+        if (notesInput) {
+          notesInput.placeholder = isMusic
+            ? 'Añade la letra o notas musicales'
+            : 'Idea principal, capítulo destacado, etc.';
+        }
+      }
 
       async function refreshVhsHealth() {
         if (!vhsHealthIndicator) {
@@ -699,6 +721,9 @@
         urlInput.value = '';
         titleInput.value = '';
         categoryInput.value = '';
+        if (libraryInput) {
+          libraryInput.value = 'video';
+        }
         tagInput.value = '';
         notesInput.value = '';
         formatInput.value = defaultFormat;
@@ -713,6 +738,7 @@
         if (llmStatusLine) {
           llmStatusLine.textContent = '';
         }
+        refreshNotesCopy();
       }
 
       function renderSupportedServices(services) {
@@ -921,6 +947,8 @@
           statusLine.textContent = 'Primero analiza una URL.';
           return;
         }
+        const selectedLibrary = (libraryInput?.value || 'video').toLowerCase();
+        const notesValue = notesInput.value.trim();
         const payload = {
           url: urlInput.value,
           title: titleInput.value.trim() || undefined,
@@ -928,7 +956,9 @@
             .split(',')
             .map((tag) => tag.trim())
             .filter(Boolean),
-          notes: notesInput.value.trim() || undefined,
+          notes: selectedLibrary === 'music' ? undefined : notesValue || undefined,
+          lyrics: selectedLibrary === 'music' ? notesValue || undefined : undefined,
+          library: selectedLibrary,
           category: categoryInput.value.trim() || undefined,
           format: formatInput.value || defaultFormat,
           auto_download: autoDownloadInput.checked,
@@ -1019,6 +1049,10 @@
             }
           }),
         );
+      }
+
+      if (libraryInput) {
+        libraryInput.addEventListener('change', refreshNotesCopy);
       }
 
       function renderTagSuggestions(extraTags) {
