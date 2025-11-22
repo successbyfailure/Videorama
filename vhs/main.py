@@ -326,10 +326,32 @@ def categorize_media_format(media_format: str) -> str:
     return "video"
 
 
+def detect_request_source(request: Request) -> str:
+    raw_source = (
+        request.query_params.get("source")
+        or request.headers.get("X-VHS-Source")
+        or ""
+    )
+    source = raw_source.strip().lower()
+    if source in {"api", "web"}:
+        return source
+
+    referer = (request.headers.get("referer") or "").lower()
+    if referer and "/api/" not in referer:
+        return "web"
+
+    user_agent = (request.headers.get("user-agent") or "").lower()
+    if "mozilla" in user_agent:
+        return "web"
+
+    return "api"
+
+
 def record_download_event(
     media_format: str,
     cache_hit: bool,
     transcription_stats: Optional[Dict[str, Any]] = None,
+    source: str = "api",
 ) -> None:
     event = {
         "timestamp": time.time(),
@@ -337,6 +359,8 @@ def record_download_event(
         "cache_hit": bool(cache_hit),
         "category": categorize_media_format(media_format),
     }
+    normalized_source = source if source in {"api", "web"} else "other"
+    event["source"] = normalized_source
     if transcription_stats:
         word_count = transcription_stats.get("word_count")
         token_count = transcription_stats.get("token_count")
@@ -367,6 +391,9 @@ def summarize_usage(days: int = 7) -> Dict[str, Any]:
         day = (now - timedelta(days=days - idx - 1)).date()
         aggregates[day.isoformat()] = {
             "downloads": 0,
+            "api_downloads": 0,
+            "web_downloads": 0,
+            "other_downloads": 0,
             "cache_hits": 0,
             "word_count": 0,
             "token_count": 0,
@@ -375,6 +402,9 @@ def summarize_usage(days: int = 7) -> Dict[str, Any]:
         }
 
     total_downloads = 0
+    total_api_downloads = 0
+    total_web_downloads = 0
+    total_other_downloads = 0
     total_cache_hits = 0
     total_word_count = 0
     total_token_count = 0
@@ -392,6 +422,16 @@ def summarize_usage(days: int = 7) -> Dict[str, Any]:
         if day_key not in aggregates:
             continue
         aggregates[day_key]["downloads"] += 1
+        source = event.get("source") or "api"
+        if source == "web":
+            aggregates[day_key]["web_downloads"] += 1
+            total_web_downloads += 1
+        elif source == "api":
+            aggregates[day_key]["api_downloads"] += 1
+            total_api_downloads += 1
+        else:
+            aggregates[day_key]["other_downloads"] += 1
+            total_other_downloads += 1
         if event.get("cache_hit"):
             aggregates[day_key]["cache_hits"] += 1
         total_downloads += 1
@@ -423,6 +463,9 @@ def summarize_usage(days: int = 7) -> Dict[str, Any]:
     return {
         "points": series,
         "total": total_downloads,
+        "api_downloads": total_api_downloads,
+        "web_downloads": total_web_downloads,
+        "other_downloads": total_other_downloads,
         "cache_hits": total_cache_hits,
         "total_words": total_word_count,
         "total_tokens": total_token_count,
@@ -1122,6 +1165,7 @@ async def download_endpoint(
         normalized_format,
         bool(metadata.get("_cache_hit")),
         metadata.get("transcription_stats"),
+        detect_request_source(request),
     )
     return response
 
@@ -1180,7 +1224,7 @@ async def cache_status() -> Dict:
 
 
 @app.get("/api/cache/{cache_key}/download")
-async def download_cached_entry(cache_key: str):
+async def download_cached_entry(request: Request, cache_key: str):
     purge_expired_entries()
     file_path, metadata = fetch_cached_file(cache_key)
     if not file_path or not metadata:
@@ -1200,6 +1244,7 @@ async def download_cached_entry(cache_key: str):
         media_format,
         True,
         metadata.get("transcription_stats") if metadata else None,
+        detect_request_source(request),
     )
     return response
 
@@ -1221,6 +1266,7 @@ async def usage_stats() -> Dict[str, Any]:
 
 @app.post("/api/ffmpeg/upload")
 async def ffmpeg_upload(
+    request: Request,
     background_tasks: BackgroundTasks,
     media_format: str = Form("ffmpeg_audio"),
     file: UploadFile = File(...),
@@ -1256,12 +1302,19 @@ async def ffmpeg_upload(
         filename=download_name,
         background=background_tasks,
     )
-    await run_in_threadpool(record_download_event, format_value, False, None)
+    await run_in_threadpool(
+        record_download_event,
+        format_value,
+        False,
+        None,
+        detect_request_source(request),
+    )
     return response
 
 
 @app.post("/api/transcribe/upload")
 async def transcribe_upload(
+    request: Request,
     media_format: str = Form("transcripcion_txt"),
     file: UploadFile = File(...),
 ):
@@ -1308,6 +1361,7 @@ async def transcribe_upload(
         format_value,
         False,
         transcription_stats,
+        detect_request_source(request),
     )
     return response
 
