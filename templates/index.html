@@ -591,7 +591,14 @@
           const method = (fetchOptions && fetchOptions.method) || 'GET';
           const message = method === 'GET' ? 'Conectando con el servidor…' : 'Enviando solicitud…';
           progress?.advance(message);
-          const response = await fetch(endpoint, fetchOptions);
+          const mergedOptions = {
+            ...fetchOptions,
+            headers: {
+              ...(fetchOptions?.headers || {}),
+              'X-VHS-Source': 'web',
+            },
+          };
+          const response = await fetch(endpoint, mergedOptions);
           if (!response.ok) {
             const errorPayload = await response.json().catch(() => ({}));
             throw new Error(errorPayload.detail || 'Error al preparar el archivo');
@@ -641,6 +648,7 @@
           tracker.start(steps);
           statusElement.textContent = steps[0] || 'Preparando solicitud…';
           const params = new URLSearchParams(formData);
+          params.set('source', 'web');
           try {
             await downloadFromEndpoint(`/api/download?${params.toString()}`, {
               statusTarget: statusElement,
@@ -825,6 +833,9 @@
             return date.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
           });
           const downloads = payload.points.map((point) => point.downloads);
+          const apiDownloads = payload.points.map((point) => point.api_downloads || 0);
+          const webDownloads = payload.points.map((point) => point.web_downloads || 0);
+          const otherDownloads = payload.points.map((point) => point.other_downloads || 0);
           const cacheHits = payload.points.map((point) => point.cache_hits);
           const wordCounts = payload.points.map((point) => point.word_count || 0);
           const recodings = payload.points.map((point) => point.recodings || 0);
@@ -839,6 +850,33 @@
               backgroundColor: 'rgba(249, 115, 22, 0.2)',
               tension: 0.3,
               fill: true,
+              yAxisID: 'y',
+            },
+            {
+              label: 'Descargas API',
+              data: apiDownloads,
+              borderColor: '#38bdf8',
+              backgroundColor: 'rgba(56, 189, 248, 0.25)',
+              tension: 0.3,
+              fill: false,
+              yAxisID: 'y',
+            },
+            {
+              label: 'Descargas web',
+              data: webDownloads,
+              borderColor: '#eab308',
+              backgroundColor: 'rgba(234, 179, 8, 0.25)',
+              tension: 0.3,
+              fill: false,
+              yAxisID: 'y',
+            },
+            {
+              label: 'Descargas otras',
+              data: otherDownloads,
+              borderColor: '#94a3b8',
+              backgroundColor: 'rgba(148, 163, 184, 0.25)',
+              tension: 0.3,
+              fill: false,
               yAxisID: 'y',
             },
             {
@@ -920,7 +958,14 @@
           }
           const totalWords = payload.total_words || 0;
           const totalTokens = payload.total_tokens || 0;
-          let summary = `Últimos ${payload.days} días: ${payload.total} descargas · ${payload.cache_hits} desde caché.`;
+          const apiTotal = payload.api_downloads || 0;
+          const webTotal = payload.web_downloads || 0;
+          const otherTotal = payload.other_downloads || 0;
+          let summary = `Últimos ${payload.days} días: ${payload.total} descargas (API: ${apiTotal} · Web: ${webTotal}`;
+          if (otherTotal) {
+            summary += ` · Otras: ${otherTotal}`;
+          }
+          summary += `) · ${payload.cache_hits} desde caché.`;
           if (totalWords) {
             summary += ` · ${totalWords.toLocaleString('es-ES')} palabras transcritas`;
           }
