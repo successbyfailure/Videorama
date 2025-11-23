@@ -1352,12 +1352,16 @@ async def probe_import(url: str) -> Dict[str, Any]:
     category_value = metadata_blob.get("category") or classify_entry(metadata_blob)
     library_value = str(metadata_blob.get("library") or ("music" if is_music else "video")).strip().lower()
 
-    entry_context = _compose_entry_context(cleaned_url, metadata_blob.get("title"), None, metadata_blob)
-    context = _build_prompt_context(entry_context, _extract_transcription(metadata_blob))
-    prompt_template = MUSIC_TAGS_PROMPT if library_value == "music" else TAGS_PROMPT
-    tag_prompt = _format_prompt(prompt_template, context)
-    tag_text = _llm_completion(tag_prompt, TAGS_MODEL, context)
-    suggested_tags = tags_from_string(tag_text)
+    auto_tags_payload = EnrichmentPayload(
+        url=cleaned_url,
+        title=metadata_blob.get("title"),
+        metadata=metadata_blob,
+        prefer_transcription=False,
+        library=library_value,  # type: ignore[arg-type]
+    )
+    auto_tags_response = await auto_tags(auto_tags_payload)
+    suggested_tags = auto_tags_response.get("tags") or []
+    metadata_blob = sanitize_metadata(auto_tags_response.get("metadata") or metadata_blob)
 
     entry = {
         "id": entry_id_for_url(cleaned_url),
