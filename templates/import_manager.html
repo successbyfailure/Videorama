@@ -547,22 +547,21 @@
         <section class="panel">
           <p class="steps-label">Paso 2 · editar y guardar</p>
           <h2>Confirmar registro</h2>
-          <form id="import-form">
-            <input type="hidden" id="url-input" name="url" />
-            <div>
-              <label for="title-input">Nombre</label>
-              <input id="title-input" name="title" type="text" placeholder="Usar título automático" />
-            </div>
-            <div class="library-toggle">
-              <label for="library-input">Biblioteca destino</label>
-              <div class="library-slider" id="library-slider">
-                <button type="button" class="active" data-library-choice="video">Videos</button>
-                <button type="button" data-library-choice="music">Música / Videoclip</button>
+            <form id="import-form">
+              <input type="hidden" id="url-input" name="url" />
+              <div>
+                <label for="title-input">Nombre</label>
+                <input id="title-input" name="title" type="text" placeholder="Usar título automático" />
               </div>
-              <input type="hidden" id="library-input" name="library" value="video" />
-              <small class="hint">Mueve el selector para activar los campos relevantes y el modo de guardado por defecto.</small>
-            </div>
-            <div class="library-fields" data-library-view="video">
+              <div class="library-toggle">
+                <label for="library-input">Biblioteca destino</label>
+                <div class="library-slider" id="library-slider">
+                  <button type="button" class="active" data-library-choice="video">Videos</button>
+                  <button type="button" data-library-choice="music">Música / Videoclip</button>
+                </div>
+                <input type="hidden" id="library-input" name="library" value="video" />
+                <small class="hint">Mueve el selector para activar los campos relevantes y el modo de guardado por defecto.</small>
+              </div>
               <div>
                 <label for="category-input">Categoría</label>
                 <input
@@ -573,9 +572,10 @@
                   placeholder="documentales, entrevistas…"
                   autocomplete="off"
                 />
-                <small class="hint">Usa la existente o déjala vacía para clasificar automáticamente.</small>
+                <small class="hint" id="category-hint">Usa la existente o déjala vacía para clasificar automáticamente.</small>
               </div>
-            </div>
+              <div class="library-fields" data-library-view="video">
+              </div>
             <div class="library-fields" data-library-view="music" hidden>
               <div style="display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))">
                 <div>
@@ -720,6 +720,7 @@
       const urlInput = document.getElementById('url-input');
       const titleInput = document.getElementById('title-input');
       const categoryInput = document.getElementById('category-input');
+      const categoryHint = document.getElementById('category-hint');
       const bandInput = document.getElementById('band-input');
       const albumInput = document.getElementById('album-input');
       const trackNumberInput = document.getElementById('track-number-input');
@@ -776,6 +777,7 @@
           if (storeVideoInput) storeVideoInput.checked = false;
         }
         refreshNotesCopy();
+        refreshCategoryCopy();
       }
 
       function refreshNotesCopy() {
@@ -794,6 +796,18 @@
         currentMetadata = { ...(currentMetadata || {}), library: isMusic ? 'music' : 'video' };
         renderTagSuggestions(currentMetadata.tags || popularTagSeeds, isMusic);
         refreshMusicOptions();
+      }
+
+      function refreshCategoryCopy() {
+        const isMusic = libraryInput && libraryInput.value === 'music';
+        if (categoryInput) {
+          categoryInput.placeholder = isMusic ? 'álbum, live, dj o custom' : 'documentales, entrevistas…';
+        }
+        if (categoryHint) {
+          categoryHint.textContent = isMusic
+            ? 'Marca el tipo de audio/videoclip: álbum, live, dj o custom.'
+            : 'Usa la existente o déjala vacía para clasificar automáticamente.';
+        }
       }
 
       function refreshMusicOptions() {
