@@ -139,6 +139,41 @@ def probe_url_metadata(url: str) -> Dict[str, Any]:
         return {}
 
 
+def derive_category_from_metadata(metadata: Dict[str, Any]) -> Optional[str]:
+    if not isinstance(metadata, dict):
+        return None
+    categories = metadata.get("categories") or []
+    if isinstance(categories, list) and categories:
+        return str(categories[0]).strip().lower() or None
+    tags = metadata.get("tags") or []
+    if isinstance(tags, list) and tags:
+        return str(tags[0]).strip().lower() or None
+    return None
+
+
+def derive_library_from_metadata(metadata: Dict[str, Any]) -> Optional[str]:
+    if not isinstance(metadata, dict):
+        return None
+    if metadata.get("artist") or metadata.get("album") or metadata.get("track_number"):
+        return "music"
+    vcodec = str(metadata.get("vcodec") or "").lower()
+    if (not vcodec or vcodec == "none") and metadata.get("acodec"):
+        return "music"
+    for raw_cat in metadata.get("categories") or []:
+        if str(raw_cat).strip().lower() in {"music", "musica", "audio"}:
+            return "music"
+    return None
+
+
+def normalize_category_choice(raw: Optional[str], library: str) -> Optional[str]:
+    if not raw:
+        return None
+    cleaned = str(raw).strip().lower()
+    if library == "music":
+        return cleaned if cleaned in {"album", "live", "dj", "custom"} else "custom"
+    return cleaned or None
+
+
 async def fetch_transcription_text(url: str) -> Optional[str]:
     def _request() -> Optional[str]:
         try:
@@ -497,12 +532,11 @@ async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_
     except ValueError:
         await query.message.reply_text("Acción desconocida.")
         return
-    pending = context.user_data.get("pending_uploads", {})
-    pending_urls = context.user_data.get("pending_urls", {})
-    file_info = pending.pop(file_key, None)
-    pending_url = pending_urls.pop(file_key, None)
-    if pending_url and action not in {"addurl", "cancelurl"}:
-        pending_urls[file_key] = pending_url
+    token = file_key.split(":", 1)[0]
+    pending = context.user_data.setdefault("pending_uploads", {})
+    pending_urls = context.user_data.setdefault("pending_urls", {})
+    file_info = pending.get(token)
+    pending_url = pending_urls.get(token)
     if not file_info and not pending_url:
         await query.message.reply_text(
             "El archivo o enlace ya no está disponible. Reenvíalo, por favor."
@@ -510,10 +544,28 @@ async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_
         return
 
     if action == "addurl":
-        await process_url_upload(query.message, pending_url)
+        if not pending_url:
+            await query.message.reply_text("No guardé la URL. Vuelve a enviarla, por favor.")
+            return
+        await prompt_url_save_options(query, pending_url, token)
         return
     if action == "cancelurl":
+        pending_urls.pop(token, None)
         await query.message.reply_text("Acción cancelada.")
+        return
+
+    if action == "saveurl":
+        if not pending_url:
+            await query.message.reply_text("No guardé la URL. Vuelve a enviarla, por favor.")
+            return
+        library_choice = None
+        category_choice = None
+        try:
+            _, _, library_choice, category_choice = query.data.split(":", 3)
+        except ValueError:
+            pass
+        pending_urls.pop(token, None)
+        await process_url_upload(query.message, pending_url, library_choice, category_choice)
         return
 
     if action in {"transcript", "summary", "video", "audio", "subs"}:
@@ -612,8 +664,10 @@ async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_
     try:
         if action == "add":
             await process_videorama_upload(query, file_info, temp_path)
+            pending.pop(token, None)
         elif action == "convert":
             await process_vhs_conversion(query, file_info, temp_path)
+            pending.pop(token, None)
         else:
             await query.message.reply_text("No entiendo la acción seleccionada.")
     finally:
@@ -638,10 +692,46 @@ async def process_videorama_upload(query, file_info: Dict[str, str], file_path: 
     )
 
 
-async def process_url_upload(message, url: str) -> None:
+async def process_url_upload(
+    message, url: str, library_choice: Optional[str] = None, category_choice: Optional[str] = None
+) -> None:
     await message.reply_text("Añadiendo el enlace a Videorama…", disable_web_page_preview=True)
 
-    payload = {"url": url, "auto_download": True}
+    metadata = await asyncio.to_thread(probe_url_metadata, url)
+    payload: Dict[str, Any] = {"url": url, "auto_download": True}
+
+    if isinstance(metadata, dict) and metadata:
+        payload["metadata"] = metadata
+        if metadata.get("title"):
+            payload["title"] = metadata.get("title")
+        band = metadata.get("artist") or metadata.get("uploader")
+        if band:
+            payload["band"] = band
+        album = metadata.get("album") or metadata.get("album_name")
+        if album:
+            payload["album"] = album
+        track_number = metadata.get("track_number") or metadata.get("track")
+        if track_number:
+            try:
+                payload["track_number"] = int(track_number)
+            except (TypeError, ValueError):
+                payload["track_number"] = track_number
+        raw_tags = metadata.get("tags") or metadata.get("categories")
+        if isinstance(raw_tags, list):
+            tags = [str(tag).strip() for tag in raw_tags if str(tag).strip()]
+            payload["tags"] = sorted(set(tags))[:12]
+
+    suggested_library = library_choice if library_choice in {"video", "music"} else None
+    if not suggested_library:
+        suggested_library = derive_library_from_metadata(metadata) or "video"
+    payload["library"] = suggested_library
+
+    chosen_category = normalize_category_choice(category_choice, suggested_library) if category_choice else None
+    if not chosen_category:
+        guessed = normalize_category_choice(derive_category_from_metadata(metadata), suggested_library)
+        chosen_category = guessed
+    if chosen_category:
+        payload["category"] = chosen_category
 
     def _request():
         return requests.post(
@@ -666,6 +756,44 @@ async def process_url_upload(message, url: str) -> None:
     entry_url = build_absolute_url(entry.get("url") or entry.get("original_url") or url)
     await message.reply_text(
         f"Añadido {entry.get('title') or url} a la biblioteca personal.\n{entry_url}",
+        disable_web_page_preview=True,
+    )
+
+
+async def prompt_url_save_options(query, url: str, token: str) -> None:
+    metadata = await asyncio.to_thread(probe_url_metadata, url)
+    suggested_category = normalize_category_choice(derive_category_from_metadata(metadata), "video") or "miscelánea"
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    f"Video · {suggested_category.title()}",
+                    callback_data=f"saveurl:{token}:video:{suggested_category}",
+                )
+            ],
+            [
+                InlineKeyboardButton("Música · Álbum", callback_data=f"saveurl:{token}:music:album"),
+                InlineKeyboardButton("Música · Live", callback_data=f"saveurl:{token}:music:live"),
+            ],
+            [
+                InlineKeyboardButton("Música · DJ", callback_data=f"saveurl:{token}:music:dj"),
+                InlineKeyboardButton("Música · Personalizada", callback_data=f"saveurl:{token}:music:custom"),
+            ],
+            [InlineKeyboardButton("Cancelar", callback_data=f"cancelurl:{token}")],
+        ]
+    )
+
+    summary_bits = []
+    if isinstance(metadata, dict) and metadata.get("title"):
+        summary_bits.append(metadata.get("title"))
+    if isinstance(metadata, dict) and metadata.get("uploader"):
+        summary_bits.append(metadata.get("uploader"))
+    preview = " · ".join(summary_bits) if summary_bits else url
+
+    await query.message.reply_text(
+        f"¿Dónde guardo el enlace?\n{preview}",
+        reply_markup=keyboard,
         disable_web_page_preview=True,
     )
 
