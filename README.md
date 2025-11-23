@@ -85,6 +85,7 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
    | `VIDEORAMA_API_URL` | URL que usará el bot para hablar con Videorama | Bot | `http://localhost:8600` |
    | `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram | Bot | _(vacío)_ |
    | `TELEGRAM_VHS_PRESET` | Perfil de `ffmpeg` para conversiones vía bot | Bot | `ffmpeg_720p` |
+   | `VIDEORAMA_UID` / `VIDEORAMA_GID` | Usuario y grupo con los que se ejecutan los contenedores | Todos | `1000` / `1000` |
 
 ## Puesta en marcha con Docker Compose
 

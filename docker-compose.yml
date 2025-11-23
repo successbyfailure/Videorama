@@ -4,6 +4,7 @@ services:
     image: $VIDEORAMA_IMAGE
     build: .
     command: python scripts/sync_env.py
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     volumes:
       - ./.env:/app/.env
       - ./example.env:/app/example.env:ro
@@ -16,6 +17,7 @@ services:
     image: $VIDEORAMA_IMAGE
     build: .
     command: uvicorn vhs.main:app --host 0.0.0.0 --port 8601
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     depends_on:
       env-sync:
         condition: service_completed_successfully
@@ -51,6 +53,7 @@ services:
     image: $VIDEORAMA_IMAGE
     build: .
     command: uvicorn videorama.main:app --host 0.0.0.0 --port 8600
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     depends_on:
       env-sync:
         condition: service_completed_successfully
@@ -88,6 +91,7 @@ services:
     image: $VIDEORAMA_IMAGE
     build: .
     command: python -m videorama.telegram_bot
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     depends_on:
       env-sync:
         condition: service_completed_successfully
@@ -128,6 +132,7 @@ services:
       --transport http
       --host 0.0.0.0
       --port 8765
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     depends_on:
       env-sync:
         condition: service_completed_successfully
