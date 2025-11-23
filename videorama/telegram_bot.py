@@ -234,14 +234,22 @@ async def download_to_tempfile(context: ContextTypes.DEFAULT_TYPE, file_id: str)
 
 
 async def upload_file_to_videorama(
-    file_path: Path, file_name: str, notes: Optional[str]
+    file_path: Path, file_name: str, notes: Optional[str], mime_type: Optional[str] = None
 ) -> Optional[Dict[str, str]]:
     title = (notes or "").strip() or file_name
+    is_audio = bool(mime_type and mime_type.startswith("audio/"))
 
     def _request() -> Optional[Dict[str, str]]:
         with file_path.open("rb") as payload:
             files = {"file": (file_name, payload)}
-            data = {"title": title, "notes": notes or "", "tags": "telegram"}
+            data = {
+                "title": title,
+                "notes": notes or "",
+                "tags": "telegram",
+                "library": "music" if is_audio else "video",
+                "save_audio": True,
+                "save_video": not is_audio,
+            }
             response = requests.post(
                 f"{VIDEORAMA_API_URL}/api/library/upload",
                 data=data,
@@ -462,6 +470,7 @@ async def handle_media_message(update: Update, context: ContextTypes.DEFAULT_TYP
         "file_id": file_obj.file_id,
         "file_name": file_name,
         "notes": update.message.caption or "",
+        "mime_type": mime_type,
     }
     keyboard = InlineKeyboardMarkup(
         [
@@ -616,7 +625,9 @@ async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_
 
 async def process_videorama_upload(query, file_info: Dict[str, str], file_path: Path) -> None:
     await query.message.reply_text("Subiendo a Videorama…")
-    entry = await upload_file_to_videorama(file_path, file_info["file_name"], file_info.get("notes"))
+    entry = await upload_file_to_videorama(
+        file_path, file_info["file_name"], file_info.get("notes"), file_info.get("mime_type")
+    )
     if not entry:
         await query.message.reply_text("No pude guardar el archivo en Videorama.")
         return

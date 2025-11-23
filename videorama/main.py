@@ -1001,7 +1001,7 @@ class AddLibraryEntry(BaseModel):
     library: Literal["video", "music"] = "video"
     metadata: Optional[Dict[str, Any]] = None
     store_audio: bool = True
-    store_video: bool = True
+    store_video: bool = False
 
     @validator("category")
     def strip_category(cls, value: Optional[str]) -> Optional[str]:
@@ -1413,8 +1413,11 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
         metadata_blob.update(sanitize_metadata(payload.metadata))
     metadata_blob = ensure_metadata_source(metadata_blob, payload.url)
     metadata_blob["library"] = payload.library
-    metadata_blob["store_audio"] = payload.store_audio
-    metadata_blob["store_video"] = payload.store_video
+    is_music = payload.library == "music"
+    store_audio = payload.store_audio if is_music else False
+    store_video = payload.store_video if is_music else True
+    metadata_blob["store_audio"] = store_audio
+    metadata_blob["store_video"] = store_video
     band_name = payload.band or metadata.get("artist") or metadata.get("uploader")
     album_name = payload.album or metadata.get("album") or metadata.get("album_name")
     track_number = payload.track_number or metadata.get("track_number")
@@ -1439,10 +1442,12 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
         lyrics = lyrics or notes
         notes = None
 
-    audio_url = metadata_blob.get("audio_url") if payload.library == "music" and payload.store_audio else None
-    video_url = metadata_blob.get("video_url") if payload.library == "music" and payload.store_video else None
-    if payload.library == "music" and payload.store_video and not video_url:
+    audio_url = metadata_blob.get("audio_url") if is_music and store_audio else None
+    video_url = metadata_blob.get("video_url") if is_music and store_video else metadata_blob.get("video_url")
+    if is_music and store_video and not video_url:
         video_url = payload.url
+    if not is_music:
+        video_url = video_url or payload.url
 
     user_tags = sorted(
         {
