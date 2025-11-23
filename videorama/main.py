@@ -268,12 +268,22 @@ def _looks_like_music(metadata: Dict[str, Any], url: str) -> bool:
     return False
 
 
+def _is_empty_metadata_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value == ""
+    if isinstance(value, (list, dict)):
+        return not value
+    return False
+
+
 def _merge_metadata(primary: Dict[str, Any], secondary: Dict[str, Any]) -> Dict[str, Any]:
     merged = dict(primary)
     for key, value in secondary.items():
-        if value in {None, "", [], {}}:
+        if _is_empty_metadata_value(value):
             continue
-        if key not in merged or merged[key] in {None, "", [], {}}:
+        if key not in merged or _is_empty_metadata_value(merged.get(key)):
             merged[key] = value
         elif isinstance(merged[key], list) and isinstance(value, list):
             merged[key] = normalize_tag_list(merged[key] + value)
