@@ -4,11 +4,11 @@ import asyncio
 import logging
 import os
 import re
-from functools import wraps
+import secrets
 import tempfile
+from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import secrets
 
 import requests
 from telegram import (
