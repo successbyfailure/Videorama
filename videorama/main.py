@@ -609,6 +609,10 @@ def sanitize_folder_name(name: str) -> str:
     return cleaned or "desconocido"
 
 
+def sanitize_category_name(name: Optional[str]) -> str:
+    return sanitize_folder_name(name or DEFAULT_CATEGORY)
+
+
 def _thumbnail_extension_from_type(content_type: Optional[str]) -> str:
     if not content_type:
         return ".jpg"
@@ -702,7 +706,7 @@ def _download_filename(entry: Dict[str, Any]) -> str:
     return safe_title
 
 
-def _resolve_local_media(entry: Dict[str, Any]) -> Optional[Path]:
+def _resolve_local_media(entry: Dict[str, Any], file_name_override: Optional[str] = None) -> Optional[Path]:
     url = str(entry.get("url") or "")
     if not url.startswith("/media/"):
         return None
@@ -710,11 +714,27 @@ def _resolve_local_media(entry: Dict[str, Any]) -> Optional[Path]:
     if not entry_id:
         return None
     metadata = entry.get("metadata") or {}
-    file_name = metadata.get("file_name") or Path(url).name
+    file_name = file_name_override or metadata.get("file_name") or Path(url).name
     safe_name = sanitize_filename(str(file_name))
-    for base_dir in (UPLOADS_DIR, MUSIC_AUDIO_DIR, MUSIC_VIDEO_DIR):
-        file_path = (base_dir / entry_id / safe_name).resolve()
-        if base_dir.resolve() not in file_path.parents:
+    category = sanitize_category_name(entry.get("category") or metadata.get("category"))
+    band = sanitize_folder_name(entry.get("band") or metadata.get("band") or "desconocido")
+    album = sanitize_folder_name(entry.get("album") or metadata.get("album") or "sin_album")
+
+    candidates: List[Path] = []
+    if entry.get("library") == "music":
+        candidates.append((MUSIC_AUDIO_DIR / category / band / album / entry_id).resolve())
+        candidates.append((MUSIC_VIDEO_DIR / category / band / album / entry_id).resolve())
+    else:
+        candidates.append((UPLOADS_DIR / category / entry_id).resolve())
+
+    # Compatibilidad con rutas antiguas
+    candidates.append((UPLOADS_DIR / entry_id).resolve())
+    candidates.append((MUSIC_AUDIO_DIR / entry_id).resolve())
+    candidates.append((MUSIC_VIDEO_DIR / entry_id).resolve())
+
+    for base_dir in candidates:
+        file_path = (base_dir / safe_name).resolve()
+        if base_dir.parent.resolve() not in file_path.parents and base_dir != file_path.parent:
             continue
         if file_path.exists():
             return file_path
@@ -866,13 +886,28 @@ def stream_entry_content(
 
 
 async def store_upload(
-    entry_id: str, upload: UploadFile, base_dir: Optional[Path] = None, folder_name: Optional[str] = None
+    entry_id: str,
+    upload: UploadFile,
+    base_dir: Optional[Path] = None,
+    folder_name: Optional[str] = None,
+    category: Optional[str] = None,
+    band: Optional[str] = None,
+    album: Optional[str] = None,
 ) -> Dict[str, Any]:
     safe_name = sanitize_filename(upload.filename or "upload.bin")
     safe_folder = sanitize_folder_name(folder_name) if folder_name else entry_id
-    target_dir = (base_dir or UPLOADS_DIR) / safe_folder
+    safe_category = sanitize_category_name(category)
+    safe_band = sanitize_folder_name(band or "desconocido") if band is not None else None
+    safe_album = sanitize_folder_name(album or "sin_album") if album is not None else None
+
+    target_dir = (base_dir or UPLOADS_DIR) / safe_category / safe_folder
+    if safe_band:
+        target_dir = (base_dir or UPLOADS_DIR) / safe_category / safe_band
+    if safe_album and safe_band:
+        target_dir = target_dir / safe_album
     if folder_name:
         target_dir = target_dir / entry_id
+
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / safe_name
     total_bytes = 0
@@ -1432,7 +1467,13 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     remove_entry_thumbnails(entry_id)
     raw_thumbnail = extract_thumbnail(metadata_blob)
     thumbnail = cache_thumbnail(entry_id, raw_thumbnail) or raw_thumbnail
-    category = (payload.category or "").strip() or classify_entry(metadata)
+    category_value = (payload.category or "").strip() or classify_entry(metadata)
+    if is_music:
+        normalized_music_category = (category_value or "album").strip().lower() or "album"
+        if normalized_music_category not in {"album", "live", "dj", "custom"}:
+            normalized_music_category = "custom"
+        category_value = normalized_music_category
+    category = category_value
 
     title = payload.title or metadata.get("title") or payload.url
 
@@ -1741,6 +1782,12 @@ async def upload_library_entry(
     entry_id = secrets.token_hex(16)
     normalized_library = (library or "video").strip().lower()
     is_music = normalized_library == "music"
+    category_value = (category or "").strip()
+    if is_music:
+        category_value = (category_value or "album").lower()
+        if category_value not in {"album", "live", "dj", "custom"}:
+            category_value = "custom"
+    safe_category = sanitize_category_name(category_value)
     is_video_upload = (file.content_type or "").startswith("video/") or str(file.filename or "").lower().endswith(
         (".mp4", ".mkv", ".webm", ".mov")
     )
@@ -1748,7 +1795,15 @@ async def upload_library_entry(
     upload_base = UPLOADS_DIR
     if is_music:
         upload_base = MUSIC_VIDEO_DIR if (is_video_upload and save_video) else MUSIC_AUDIO_DIR
-    file_meta = await store_upload(entry_id, file, base_dir=upload_base, folder_name=safe_band)
+    file_meta = await store_upload(
+        entry_id,
+        file,
+        base_dir=upload_base,
+        folder_name=safe_band,
+        category=safe_category,
+        band=band or "desconocido",
+        album=album or "sin_album",
+    )
     media_url = f"/media/{entry_id}/{file_meta['file_name']}"
     absolute_media_url = f"{str(request.base_url).rstrip('/')}{media_url}"
 
@@ -1782,7 +1837,7 @@ async def upload_library_entry(
             if save_video:
                 video_url = media_url
             if save_audio:
-                audio_dir = MUSIC_AUDIO_DIR / (safe_band or sanitize_folder_name("desconocido")) / entry_id
+                audio_dir = (MUSIC_AUDIO_DIR / safe_category / (safe_band or sanitize_folder_name("desconocido")) / sanitize_folder_name(album or "sin_album") / entry_id)
                 audio_dir.mkdir(parents=True, exist_ok=True)
                 audio_target = audio_dir / file_meta["file_name"]
                 if not audio_target.exists():
@@ -1826,7 +1881,7 @@ async def upload_library_entry(
         "title": title.strip() or metadata_blob.get("title") or file_meta["file_name"],
         "duration": metadata_blob.get("duration"),
         "uploader": metadata_blob.get("uploader") or "telegram_upload",
-        "category": category.strip() or classify_entry(metadata_blob),
+        "category": category_value or classify_entry(metadata_blob),
         "tags": merged_tags,
         "notes": summary_notes,
         "lyrics": lyrics_value,
@@ -1850,11 +1905,11 @@ async def upload_library_entry(
 @app.get("/media/{entry_id}/{file_name}")
 async def serve_uploaded_media(entry_id: str, file_name: str):
     safe_name = sanitize_filename(file_name)
-    uploads_root = UPLOADS_DIR.resolve()
-    file_path = (UPLOADS_DIR / entry_id / safe_name).resolve()
-    if uploads_root not in file_path.parents:
+    entry = store.get_entry(entry_id)
+    if not entry:
         raise HTTPException(status_code=404, detail="Archivo no disponible")
-    if not file_path.exists():
+    file_path = _resolve_local_media(entry, file_name_override=safe_name)
+    if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="Archivo no disponible")
     return FileResponse(file_path, filename=safe_name)
 @app.get("/api/playlists")
