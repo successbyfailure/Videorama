@@ -1585,50 +1585,77 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     entry_id = entry_id_for_url(payload.url)
     now = time.time()
     metadata_blob = sanitize_metadata(metadata)
+
+    is_music_library = payload.library == "music"
+    should_fetch_music = is_music_library or _looks_like_music(metadata_blob, payload.url)
+    music_metadata: Dict[str, Any] = {}
+    if should_fetch_music:
+        try:
+            music_metadata = fetch_music_metadata(
+                metadata_blob.get("title") or payload.url,
+                metadata_blob.get("band")
+                or metadata_blob.get("artist")
+                or metadata_blob.get("uploader"),
+            )
+        except HTTPException as exc:
+            logger.warning("Metadatos musicales no disponibles: %s", exc)
+    if music_metadata:
+        metadata_blob = _merge_metadata(metadata_blob, sanitize_metadata(music_metadata))
+
+    inferred_music_metadata: Dict[str, Any] = {}
+    if should_fetch_music:
+        try:
+            inferred_music_metadata = _infer_music_metadata_llm(metadata_blob, payload.url)
+        except HTTPException as exc:
+            logger.warning("No se pudo inferir metadatos con LLM: %s", exc)
+            inferred_music_metadata = {}
+    if inferred_music_metadata:
+        metadata_blob = _merge_metadata(metadata_blob, sanitize_metadata(inferred_music_metadata))
+
     if payload.metadata:
         metadata_blob.update(sanitize_metadata(payload.metadata))
+
     metadata_blob = ensure_metadata_source(metadata_blob, payload.url)
     metadata_blob["library"] = payload.library
-    is_music = payload.library == "music"
-    store_audio = payload.store_audio if is_music else False
-    store_video = payload.store_video if is_music else True
+    store_audio = payload.store_audio if is_music_library else False
+    store_video = payload.store_video if is_music_library else True
     metadata_blob["store_audio"] = store_audio
     metadata_blob["store_video"] = store_video
-    band_name = payload.band or metadata.get("artist") or metadata.get("uploader")
-    album_name = payload.album or metadata.get("album") or metadata.get("album_name")
-    track_number = payload.track_number or metadata.get("track_number")
+    band_name = payload.band or metadata_blob.get("band") or metadata_blob.get("artist") or metadata_blob.get("uploader")
+    album_name = payload.album or metadata_blob.get("album") or metadata_blob.get("album_name")
+    track_number = payload.track_number or metadata_blob.get("track_number")
     if track_number:
         try:
             track_number = int(track_number)
         except (TypeError, ValueError):
             track_number = None
+    title = payload.title or metadata_blob.get("title") or payload.url
+    metadata_blob["title"] = title
     metadata_blob["band"] = band_name or metadata_blob.get("band")
     metadata_blob["album"] = album_name or metadata_blob.get("album")
     metadata_blob["track_number"] = track_number or metadata_blob.get("track_number")
     remove_entry_thumbnails(entry_id)
     raw_thumbnail = extract_thumbnail(metadata_blob)
     thumbnail = cache_thumbnail(entry_id, raw_thumbnail) or raw_thumbnail
-    category_value = (payload.category or "").strip() or classify_entry(metadata)
-    if is_music:
+    category_value = (payload.category or "").strip() or classify_entry(metadata_blob)
+    if is_music_library:
         normalized_music_category = (category_value or "album").strip().lower() or "album"
         if normalized_music_category not in {"album", "live", "dj", "custom"}:
             normalized_music_category = "custom"
         category_value = normalized_music_category
     category = category_value
 
-    title = payload.title or metadata.get("title") or payload.url
-
     lyrics = payload.lyrics
     notes = payload.notes
-    if payload.library == "music":
+    if is_music_library:
         lyrics = lyrics or notes
         notes = None
 
-    audio_url = metadata_blob.get("audio_url") if is_music and store_audio else None
-    video_url = metadata_blob.get("video_url") if is_music and store_video else metadata_blob.get("video_url")
-    if is_music and store_video and not video_url:
+    audio_url = metadata_blob.get("audio_url") if is_music_library and store_audio else None
+    video_url = metadata_blob.get("video_url") if is_music_library and store_video else metadata_blob.get("video_url")
+    if is_music_library and store_video and not video_url:
         video_url = payload.url
-    if not is_music:
+    if not is_music_library:
         video_url = video_url or payload.url
 
     user_tags = sorted(
