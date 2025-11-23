@@ -32,6 +32,9 @@ class SQLiteStore:
                     url TEXT NOT NULL,
                     original_url TEXT NOT NULL,
                     library TEXT NOT NULL DEFAULT 'video',
+                    band TEXT,
+                    album TEXT,
+                    track_number INTEGER,
                     title TEXT NOT NULL,
                     duration INTEGER,
                     uploader TEXT,
@@ -94,6 +97,9 @@ class SQLiteStore:
             )
         self._ensure_entry_columns(
             "library",
+            "band",
+            "album",
+            "track_number",
             "lyrics",
             "audio_url",
             "video_url",
@@ -134,23 +140,29 @@ class SQLiteStore:
         payload.setdefault("lyrics", None)
         payload.setdefault("audio_url", None)
         payload.setdefault("video_url", None)
+        payload.setdefault("band", None)
+        payload.setdefault("album", None)
+        payload.setdefault("track_number", None)
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO entries (
                     id, url, original_url, library, title, duration, uploader, category,
                     tags, notes, lyrics, thumbnail, extractor, added_at, vhs_cache_key,
-                    preferred_format, metadata, audio_url, video_url
+                    preferred_format, metadata, audio_url, video_url, band, album, track_number
                 ) VALUES (
                     :id, :url, :original_url, :library, :title, :duration, :uploader,
                     :category, :tags, :notes, :lyrics, :thumbnail, :extractor,
                     :added_at, :vhs_cache_key, :preferred_format, :metadata,
-                    :audio_url, :video_url
+                    :audio_url, :video_url, :band, :album, :track_number
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     url = excluded.url,
                     original_url = excluded.original_url,
                     library = excluded.library,
+                    band = excluded.band,
+                    album = excluded.album,
+                    track_number = excluded.track_number,
                     title = excluded.title,
                     duration = excluded.duration,
                     uploader = excluded.uploader,
@@ -429,6 +441,12 @@ class SQLiteStore:
                     conn.execute("ALTER TABLE entries ADD COLUMN audio_url TEXT")
                 elif column == "video_url":
                     conn.execute("ALTER TABLE entries ADD COLUMN video_url TEXT")
+                elif column == "band":
+                    conn.execute("ALTER TABLE entries ADD COLUMN band TEXT")
+                elif column == "album":
+                    conn.execute("ALTER TABLE entries ADD COLUMN album TEXT")
+                elif column == "track_number":
+                    conn.execute("ALTER TABLE entries ADD COLUMN track_number INTEGER")
 
 
     def _row_to_entry(self, row: Optional[sqlite3.Row]) -> Dict[str, Any]:
@@ -439,6 +457,9 @@ class SQLiteStore:
             "url": row["url"],
             "original_url": row["original_url"],
             "library": row["library"] or "video",
+            "band": row["band"],
+            "album": row["album"],
+            "track_number": row["track_number"],
             "title": row["title"],
             "duration": row["duration"],
             "uploader": row["uploader"],

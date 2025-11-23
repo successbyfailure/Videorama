@@ -518,6 +518,38 @@
               </select>
               <small class="hint">Elige dónde guardar el registro y sus ficheros asociados.</small>
             </div>
+            <div style="display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))">
+              <div>
+                <label for="band-input">Banda / artista</label>
+                <input id="band-input" name="band" type="text" placeholder="Nombre de la banda" />
+              </div>
+              <div>
+                <label for="album-input">Álbum</label>
+                <input id="album-input" name="album" type="text" placeholder="Nombre del álbum" />
+              </div>
+              <div>
+                <label for="track-number-input">N.º de track</label>
+                <input id="track-number-input" name="track_number" type="number" min="1" max="999" placeholder="01" />
+              </div>
+            </div>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center">
+              <button type="button" id="music-meta-btn">Buscar datos musicales</button>
+              <span class="status-line" id="music-meta-status"></span>
+            </div>
+            <div id="music-storage" style="display: none">
+              <label>¿Qué guardar en la biblioteca de música?</label>
+              <div class="chip-group">
+                <label class="chip">
+                  <input type="checkbox" id="store-audio" checked />
+                  Solo audio
+                </label>
+                <label class="chip">
+                  <input type="checkbox" id="store-video" checked />
+                  También videoclip
+                </label>
+              </div>
+              <small class="hint">Puedes elegir solo el audio, solo el videoclip o ambos al importar.</small>
+            </div>
             <div>
               <label for="tags-input">Etiquetas (separadas por comas)</label>
               <input id="tags-input" name="tags" type="text" placeholder="retro, demo, vhs" />
@@ -628,10 +660,18 @@
       const urlInput = document.getElementById('url-input');
       const titleInput = document.getElementById('title-input');
       const categoryInput = document.getElementById('category-input');
+      const bandInput = document.getElementById('band-input');
+      const albumInput = document.getElementById('album-input');
+      const trackNumberInput = document.getElementById('track-number-input');
       const libraryInput = document.getElementById('library-input');
       const tagInput = document.getElementById('tags-input');
       const notesInput = document.getElementById('notes-input');
       const notesLabel = document.getElementById('notes-label');
+      const musicMetaButton = document.getElementById('music-meta-btn');
+      const musicMetaStatus = document.getElementById('music-meta-status');
+      const musicStorageSection = document.getElementById('music-storage');
+      const storeAudioInput = document.getElementById('store-audio');
+      const storeVideoInput = document.getElementById('store-video');
       const formatInput = document.getElementById('format-input');
       const autoDownloadInput = document.getElementById('auto-download');
       const submitButton = document.getElementById('submit-button');
@@ -671,6 +711,19 @@
         }
         currentMetadata = { ...(currentMetadata || {}), library: isMusic ? 'music' : 'video' };
         renderTagSuggestions(currentMetadata.tags || popularTagSeeds, isMusic);
+        refreshMusicOptions();
+      }
+
+      function refreshMusicOptions() {
+        const isMusic = libraryInput && libraryInput.value === 'music';
+        if (musicStorageSection) {
+          musicStorageSection.style.display = isMusic ? 'block' : 'none';
+        }
+        if (!isMusic) {
+          if (bandInput) bandInput.value = '';
+          if (albumInput) albumInput.value = '';
+          if (trackNumberInput) trackNumberInput.value = '';
+        }
       }
 
       async function refreshVhsHealth() {
@@ -728,6 +781,15 @@
         urlInput.value = '';
         titleInput.value = '';
         categoryInput.value = '';
+        if (bandInput) {
+          bandInput.value = '';
+        }
+        if (albumInput) {
+          albumInput.value = '';
+        }
+        if (trackNumberInput) {
+          trackNumberInput.value = '';
+        }
         if (libraryInput) {
           libraryInput.value = 'video';
         }
@@ -735,6 +797,12 @@
         notesInput.value = '';
         formatInput.value = defaultFormat;
         autoDownloadInput.checked = true;
+        if (storeAudioInput) {
+          storeAudioInput.checked = true;
+        }
+        if (storeVideoInput) {
+          storeVideoInput.checked = true;
+        }
         metadataPreview.classList.add('hidden');
         previewTitle.textContent = 'Título del video';
         previewDetails.textContent = '';
@@ -744,6 +812,9 @@
         renderTagSuggestions(popularTagSeeds);
         if (llmStatusLine) {
           llmStatusLine.textContent = '';
+        }
+        if (musicMetaStatus) {
+          musicMetaStatus.textContent = '';
         }
         refreshNotesCopy();
       }
@@ -898,8 +969,25 @@
         if (entry.category) {
           categoryInput.value = entry.category;
         }
+        const bandValue = entry.band || entry.metadata?.band || entry.uploader;
+        if (bandInput) {
+          bandInput.value = bandValue || '';
+        }
+        if (albumInput) {
+          albumInput.value = entry.album || entry.metadata?.album || '';
+        }
+        if (trackNumberInput) {
+          trackNumberInput.value = entry.track_number || entry.metadata?.track_number || '';
+        }
         const isMusic = (entry.library || entry.metadata?.library) === 'music';
         renderTagSuggestions(entry.metadata?.tags || entry.tags || [], isMusic);
+        if (storeAudioInput) {
+          storeAudioInput.checked = isMusic ? Boolean(entry.metadata?.store_audio ?? true) : true;
+        }
+        if (storeVideoInput) {
+          storeVideoInput.checked = isMusic ? Boolean(entry.metadata?.store_video ?? true) : true;
+        }
+        refreshMusicOptions();
         previewTitle.textContent = entry.title || entry.url;
         const details = [entry.uploader, entry.extractor].filter(Boolean).join(' · ');
         previewDetails.textContent = details;
@@ -964,6 +1052,9 @@
         const payload = {
           url: urlInput.value,
           title: titleInput.value.trim() || undefined,
+          band: bandInput.value.trim() || undefined,
+          album: albumInput.value.trim() || undefined,
+          track_number: trackNumberInput.value ? Number(trackNumberInput.value) : undefined,
           tags: tagInput.value
             .split(',')
             .map((tag) => tag.trim())
@@ -974,7 +1065,16 @@
           category: categoryInput.value.trim() || undefined,
           format: formatInput.value || defaultFormat,
           auto_download: autoDownloadInput.checked,
-          metadata: currentMetadata,
+          metadata: {
+            ...currentMetadata,
+            band: bandInput.value.trim() || currentMetadata.band,
+            album: albumInput.value.trim() || currentMetadata.album,
+            track_number: trackNumberInput.value ? Number(trackNumberInput.value) : currentMetadata.track_number,
+            store_audio: storeAudioInput?.checked,
+            store_video: storeVideoInput?.checked,
+          },
+          store_audio: storeAudioInput?.checked ?? true,
+          store_video: storeVideoInput?.checked ?? true,
         };
         statusLine.textContent = 'Guardando…';
         try {
@@ -1001,6 +1101,45 @@
           statusLine.textContent = `⚠️ ${error.message}`;
         }
       });
+
+      function applyMusicMetadata(metadata) {
+        if (!metadata) return;
+        if (bandInput && metadata.band) {
+          bandInput.value = metadata.band;
+        }
+        if (albumInput && metadata.album) {
+          albumInput.value = metadata.album;
+        }
+        if (trackNumberInput && metadata.track_number) {
+          trackNumberInput.value = metadata.track_number;
+        }
+        mergeMetadata(metadata);
+      }
+
+      if (musicMetaButton) {
+        musicMetaButton.addEventListener('click', async () => {
+          const title = titleInput.value.trim() || currentEntry?.title;
+          const band = bandInput.value.trim();
+          if (!title) {
+            musicMetaStatus.textContent = 'Añade un título o analiza la URL primero.';
+            return;
+          }
+          musicMetaStatus.textContent = 'Buscando…';
+          try {
+            const response = await fetch(
+              `/api/import/music-metadata?${new URLSearchParams({ title, band })}`
+            );
+            const payload = await response.json();
+            if (!response.ok) {
+              throw new Error(payload.detail || 'No se encontró información musical');
+            }
+            applyMusicMetadata(payload.metadata || payload);
+            musicMetaStatus.textContent = 'Datos musicales actualizados ✅';
+          } catch (error) {
+            musicMetaStatus.textContent = `⚠️ ${error.message}`;
+          }
+        });
+      }
 
       async function requestLLMAssist(endpoint, onSuccess) {
         if (!llmStatusLine) {

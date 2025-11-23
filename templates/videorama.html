@@ -1507,8 +1507,14 @@
         if (entry.video_url) {
           availability.push('Videoclip');
         }
+        const band = entry.band || entry.metadata?.band || entry.uploader;
+        const album = entry.album || entry.metadata?.album;
+        const track = entry.track_number || entry.metadata?.track_number;
         const facts = [
           { label: 'Biblioteca', value: entry.library === 'music' ? 'Música' : 'Videos' },
+          { label: 'Banda', value: band || '—' },
+          { label: 'Álbum', value: album || '—' },
+          { label: 'Track', value: track ? `#${track}` : '—' },
           { label: 'Disponibilidad', value: availability.length ? availability.join(' · ') : '—' },
           { label: 'Categoría', value: toTitle(entry.category || 'miscelánea') },
           { label: 'Autor', value: entry.uploader || 'Desconocido' },

@@ -133,6 +133,9 @@ def _build_prompt_context(entry: Dict[str, Any], transcription: Optional[str]) -
         f"URL: {entry.get('url')}",
         f"Duración (s): {normalized.get('duration') or entry.get('duration')}",
         f"Canal / autor: {normalized.get('uploader') or entry.get('uploader')}",
+        f"Banda: {normalized.get('band') or entry.get('band')}",
+        f"Álbum: {normalized.get('album') or entry.get('album')}",
+        f"Pista #: {normalized.get('track_number') or entry.get('track_number')}",
         f"Categoría: {normalized.get('category') or entry.get('category')}",
         f"Etiquetas existentes: {', '.join(normalized.get('tags') or entry.get('tags') or [])}",
         f"Resumen: {(entry.get('notes') or '').strip()}",
@@ -161,6 +164,9 @@ def _compose_entry_context(url: str, title: Optional[str], notes: Optional[str],
         "notes": notes,
         "duration": metadata.get("duration"),
         "uploader": metadata.get("uploader"),
+        "band": metadata.get("band"),
+        "album": metadata.get("album"),
+        "track_number": metadata.get("track_number"),
         "category": metadata.get("category"),
         "tags": metadata.get("tags"),
         "library": metadata.get("library"),
@@ -428,6 +434,29 @@ def normalize_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     else:
         notes = None
 
+    band = entry.get("band")
+    if isinstance(band, str):
+        band = band.strip() or None
+    else:
+        band = None
+
+    album = entry.get("album")
+    if isinstance(album, str):
+        album = album.strip() or None
+    else:
+        album = None
+
+    track_number = entry.get("track_number")
+    if isinstance(track_number, str):
+        try:
+            track_number = int(track_number)
+        except ValueError:
+            track_number = None
+    if isinstance(track_number, (int, float)):
+        track_number = max(1, int(track_number))
+    else:
+        track_number = None
+
     lyrics = entry.get("lyrics")
     if isinstance(lyrics, str):
         lyrics = lyrics.strip() or None
@@ -503,6 +532,9 @@ def normalize_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "tags": cleaned_tags,
         "notes": notes,
         "lyrics": lyrics,
+        "band": band,
+        "album": album,
+        "track_number": track_number,
         "thumbnail": thumbnail,
         "extractor": extractor,
         "added_at": added_at,
@@ -569,6 +601,12 @@ def sanitize_filename(name: str) -> str:
     ).strip()
     cleaned = cleaned.replace(" ", "_")
     return cleaned or "videorama.bin"
+
+
+def sanitize_folder_name(name: str) -> str:
+    cleaned = "".join(char for char in (name or "") if char.isalnum() or char in {"-", "_", " ", "."}).strip()
+    cleaned = cleaned.replace(" ", "_")
+    return cleaned or "desconocido"
 
 
 def _thumbnail_extension_from_type(content_type: Optional[str]) -> str:
@@ -827,9 +865,14 @@ def stream_entry_content(
     return _proxy_vhs_stream(entry, media_format, as_attachment, request)
 
 
-async def store_upload(entry_id: str, upload: UploadFile, base_dir: Optional[Path] = None) -> Dict[str, Any]:
+async def store_upload(
+    entry_id: str, upload: UploadFile, base_dir: Optional[Path] = None, folder_name: Optional[str] = None
+) -> Dict[str, Any]:
     safe_name = sanitize_filename(upload.filename or "upload.bin")
-    target_dir = (base_dir or UPLOADS_DIR) / entry_id
+    safe_folder = sanitize_folder_name(folder_name) if folder_name else entry_id
+    target_dir = (base_dir or UPLOADS_DIR) / safe_folder
+    if folder_name:
+        target_dir = target_dir / entry_id
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / safe_name
     total_bytes = 0
@@ -896,6 +939,35 @@ def fetch_vhs_metadata(url: str) -> Dict[str, Any]:
     return response.json()
 
 
+def fetch_music_metadata(title: str, band: Optional[str] = None) -> Dict[str, Any]:
+    query = " ".join(part for part in [band, title] if part).strip() or title
+    try:
+        response = requests.get(
+            "https://itunes.apple.com/search",
+            params={"term": query, "media": "music", "limit": 1},
+            timeout=15,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"No se pudo consultar iTunes: {exc}") from exc
+
+    payload = response.json() if response.content else {}
+    results = payload.get("results") if isinstance(payload, dict) else None
+    if not results:
+        raise HTTPException(status_code=404, detail="Sin resultados para la canción")
+
+    top = results[0]
+    album = top.get("collectionName")
+    artist = top.get("artistName")
+    track_number = top.get("trackNumber")
+    return {
+        "band": artist or band,
+        "album": album,
+        "track_number": track_number,
+        "source": "itunes",
+    }
+
+
 def trigger_vhs_download(url: str, media_format: str) -> None:
     endpoint = f"{VHS_BASE_URL}/api/download"
     try:
@@ -917,6 +989,9 @@ def derive_cache_key(url: str, media_format: str) -> str:
 class AddLibraryEntry(BaseModel):
     url: str = Field(..., min_length=3, max_length=500)
     title: Optional[str] = Field(default=None, max_length=300)
+    band: Optional[str] = Field(default=None, max_length=200)
+    album: Optional[str] = Field(default=None, max_length=200)
+    track_number: Optional[int] = Field(default=None, ge=1, le=999)
     tags: List[str] = Field(default_factory=list)
     notes: Optional[str] = Field(default=None, max_length=2000)
     lyrics: Optional[str] = Field(default=None, max_length=5000)
@@ -925,9 +1000,25 @@ class AddLibraryEntry(BaseModel):
     auto_download: bool = True
     library: Literal["video", "music"] = "video"
     metadata: Optional[Dict[str, Any]] = None
+    store_audio: bool = True
+    store_video: bool = True
 
     @validator("category")
     def strip_category(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @validator("band")
+    def strip_band(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @validator("album")
+    def strip_album(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
         cleaned = value.strip()
@@ -940,9 +1031,26 @@ class AddLibraryEntry(BaseModel):
         cleaned = value.strip()
         return cleaned or None
 
+    @validator("band")
+    def strip_band(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @validator("album")
+    def strip_album(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
 
 class UpdateLibraryEntry(BaseModel):
     title: Optional[str] = Field(default=None, max_length=300)
+    band: Optional[str] = Field(default=None, max_length=200)
+    album: Optional[str] = Field(default=None, max_length=200)
+    track_number: Optional[int] = Field(default=None, ge=1, le=999)
     tags: Optional[List[str]] = None
     notes: Optional[str] = Field(default=None, max_length=2000)
     lyrics: Optional[str] = Field(default=None, max_length=5000)
@@ -1140,6 +1248,15 @@ async def search_sources(query: str, limit: int = 8) -> Dict[str, Any]:
     return {"query": cleaned_query, "items": items, "services": payload.get("services")}
 
 
+@app.get("/api/import/music-metadata")
+async def search_music_metadata(title: str, band: Optional[str] = None) -> Dict[str, Any]:
+    cleaned_title = (title or "").strip()
+    if len(cleaned_title) < 2:
+        raise HTTPException(status_code=400, detail="El título es obligatorio")
+    metadata = fetch_music_metadata(cleaned_title, band)
+    return {"metadata": metadata}
+
+
 @app.post("/api/import/auto-summary")
 async def auto_summary(payload: EnrichmentPayload) -> Dict[str, Any]:
     metadata = sanitize_metadata(payload.metadata)
@@ -1296,6 +1413,19 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
         metadata_blob.update(sanitize_metadata(payload.metadata))
     metadata_blob = ensure_metadata_source(metadata_blob, payload.url)
     metadata_blob["library"] = payload.library
+    metadata_blob["store_audio"] = payload.store_audio
+    metadata_blob["store_video"] = payload.store_video
+    band_name = payload.band or metadata.get("artist") or metadata.get("uploader")
+    album_name = payload.album or metadata.get("album") or metadata.get("album_name")
+    track_number = payload.track_number or metadata.get("track_number")
+    if track_number:
+        try:
+            track_number = int(track_number)
+        except (TypeError, ValueError):
+            track_number = None
+    metadata_blob["band"] = band_name or metadata_blob.get("band")
+    metadata_blob["album"] = album_name or metadata_blob.get("album")
+    metadata_blob["track_number"] = track_number or metadata_blob.get("track_number")
     remove_entry_thumbnails(entry_id)
     raw_thumbnail = extract_thumbnail(metadata_blob)
     thumbnail = cache_thumbnail(entry_id, raw_thumbnail) or raw_thumbnail
@@ -1309,9 +1439,9 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
         lyrics = lyrics or notes
         notes = None
 
-    audio_url = metadata_blob.get("audio_url") if payload.library == "music" else None
-    video_url = metadata_blob.get("video_url") if payload.library == "music" else None
-    if payload.library == "music" and not video_url:
+    audio_url = metadata_blob.get("audio_url") if payload.library == "music" and payload.store_audio else None
+    video_url = metadata_blob.get("video_url") if payload.library == "music" and payload.store_video else None
+    if payload.library == "music" and payload.store_video and not video_url:
         video_url = payload.url
 
     user_tags = sorted(
@@ -1327,6 +1457,9 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
         "url": payload.url,
         "original_url": payload.url,
         "library": payload.library,
+        "band": band_name,
+        "album": album_name,
+        "track_number": track_number,
         "title": title,
         "duration": metadata.get("duration"),
         "uploader": metadata.get("uploader"),
@@ -1374,6 +1507,12 @@ async def update_entry(entry_id: str, payload: UpdateLibraryEntry) -> Dict[str, 
         updated["preferred_format"] = update_data.get("preferred_format") or DEFAULT_VHS_FORMAT
     if "library" in update_data:
         updated["library"] = update_data.get("library") or "video"
+    if "band" in update_data:
+        updated["band"] = update_data.get("band")
+    if "album" in update_data:
+        updated["album"] = update_data.get("album")
+    if "track_number" in update_data:
+        updated["track_number"] = update_data.get("track_number")
     if "audio_url" in update_data:
         updated["audio_url"] = update_data.get("audio_url")
     if "video_url" in update_data:
@@ -1588,6 +1727,9 @@ async def upload_library_entry(
     tags: str = Form(""),
     notes: str = Form(""),
     library: str = Form("video"),
+    band: str = Form(""),
+    album: str = Form(""),
+    track_number: Optional[int] = Form(None),
     save_video: bool = Form(True),
     save_audio: bool = Form(True),
 ) -> Dict[str, Any]:
@@ -1597,10 +1739,11 @@ async def upload_library_entry(
     is_video_upload = (file.content_type or "").startswith("video/") or str(file.filename or "").lower().endswith(
         (".mp4", ".mkv", ".webm", ".mov")
     )
+    safe_band = sanitize_folder_name(band or "desconocido") if is_music else None
     upload_base = UPLOADS_DIR
     if is_music:
         upload_base = MUSIC_VIDEO_DIR if (is_video_upload and save_video) else MUSIC_AUDIO_DIR
-    file_meta = await store_upload(entry_id, file, base_dir=upload_base)
+    file_meta = await store_upload(entry_id, file, base_dir=upload_base, folder_name=safe_band)
     media_url = f"/media/{entry_id}/{file_meta['file_name']}"
     absolute_media_url = f"{str(request.base_url).rstrip('/')}{media_url}"
 
@@ -1622,6 +1765,11 @@ async def upload_library_entry(
     metadata_blob.update(vhs_metadata)
     metadata_blob = ensure_metadata_source(metadata_blob, absolute_media_url, label="upload")
     metadata_blob["library"] = normalized_library
+    metadata_blob["band"] = band.strip() or None
+    metadata_blob["album"] = album.strip() or None
+    metadata_blob["track_number"] = track_number
+    metadata_blob["store_audio"] = bool(save_audio)
+    metadata_blob["store_video"] = bool(save_video)
     audio_url = None
     video_url = None
     if is_music:
@@ -1629,7 +1777,7 @@ async def upload_library_entry(
             if save_video:
                 video_url = media_url
             if save_audio:
-                audio_dir = MUSIC_AUDIO_DIR / entry_id
+                audio_dir = MUSIC_AUDIO_DIR / (safe_band or sanitize_folder_name("desconocido")) / entry_id
                 audio_dir.mkdir(parents=True, exist_ok=True)
                 audio_target = audio_dir / file_meta["file_name"]
                 if not audio_target.exists():
@@ -1667,6 +1815,9 @@ async def upload_library_entry(
         "url": audio_url or video_url or media_url,
         "original_url": media_url,
         "library": normalized_library,
+        "band": band.strip() or None,
+        "album": album.strip() or None,
+        "track_number": track_number,
         "title": title.strip() or metadata_blob.get("title") or file_meta["file_name"],
         "duration": metadata_blob.get("duration"),
         "uploader": metadata_blob.get("uploader") or "telegram_upload",
