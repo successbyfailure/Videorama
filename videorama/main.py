@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 import os
 import secrets
@@ -238,6 +239,109 @@ def sanitize_metadata(metadata: Any) -> Dict[str, Any]:
         else:
             sanitized[key] = str(value)
     return sanitized
+
+
+def _looks_like_music(metadata: Dict[str, Any], url: str) -> bool:
+    library = str(metadata.get("library") or "").strip().lower()
+    if library == "music":
+        return True
+
+    extractor = str(metadata.get("extractor_key") or metadata.get("extractor") or "").lower()
+    if any(keyword in extractor for keyword in {"music", "bandcamp", "soundcloud", "spotify", "audius"}):
+        return True
+
+    host = urlparse(url or "").netloc.lower()
+    if any(domain in host for domain in {"music.youtube", "bandcamp", "soundcloud", "spotify", "audius"}):
+        return True
+
+    categories = [str(item).lower() for item in metadata.get("categories") or [] if isinstance(item, str)]
+    tags = [str(item).lower() for item in metadata.get("tags") or [] if isinstance(item, str)]
+    if any(term in categories for term in {"music", "musica", "cancion", "song"}):
+        return True
+    if any(term in tags for term in {"music", "musica", "cancion", "song"}):
+        return True
+
+    duration = metadata.get("duration")
+    if duration and 60 <= duration <= 600 and extractor:
+        return True
+
+    return False
+
+
+def _merge_metadata(primary: Dict[str, Any], secondary: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(primary)
+    for key, value in secondary.items():
+        if value in {None, "", [], {}}:
+            continue
+        if key not in merged or merged[key] in {None, "", [], {}}:
+            merged[key] = value
+        elif isinstance(merged[key], list) and isinstance(value, list):
+            merged[key] = normalize_tag_list(merged[key] + value)
+    return merged
+
+
+def _infer_music_metadata_llm(metadata: Dict[str, Any], url: str) -> Dict[str, Any]:
+    current_title = metadata.get("title") or metadata.get("name")
+    current_band = metadata.get("band") or metadata.get("artist") or metadata.get("uploader")
+    current_album = metadata.get("album")
+    current_track = metadata.get("track_number") or metadata.get("track")
+
+    missing_fields = [
+        field
+        for field, value in {
+            "title": current_title,
+            "band": current_band,
+            "album": current_album,
+            "track_number": current_track,
+        }.items()
+        if value in {None, "", []}
+    ]
+    if not missing_fields:
+        return {}
+
+    entry_context = _compose_entry_context(url, metadata.get("title"), metadata.get("notes"), metadata)
+    context = _build_prompt_context(entry_context, _extract_transcription(metadata))
+    prompt = (
+        "Eres un catalogador musical. Usa el contexto para rellenar los campos faltantes: "
+        "title, band (o artista), album y track_number. Si no puedes inferir alguno, deja el valor vacío. "
+        "Responde únicamente con un objeto JSON con esas claves."
+    )
+    try:
+        client = _llm_client()
+        response = client.chat.completions.create(
+            model=SUMMARY_MODEL,
+            messages=[{"role": "system", "content": prompt}, {"role": "user", "content": context}],
+            response_format={"type": "json_object"},
+            max_tokens=300,
+            temperature=0.2,
+        )
+        if not response.choices:
+            return {}
+        content = response.choices[0].message.content or "{}"
+        parsed = json.loads(content)
+    except Exception as exc:  # pragma: no cover - fallback path
+        logger.warning("No se pudo inferir metadatos con LLM: %s", exc)
+        return {}
+
+    inferred: Dict[str, Any] = {}
+    title_value = parsed.get("title")
+    band_value = parsed.get("band") or parsed.get("artist")
+    album_value = parsed.get("album")
+    track_value = parsed.get("track_number") or parsed.get("track")
+
+    if title_value and not current_title:
+        inferred["title"] = str(title_value).strip()
+    if band_value and not current_band:
+        inferred["band"] = str(band_value).strip()
+    if album_value and not current_album:
+        inferred["album"] = str(album_value).strip()
+    if track_value and not current_track:
+        try:
+            inferred["track_number"] = int(track_value)
+        except (TypeError, ValueError):
+            inferred["track_number"] = str(track_value).strip()
+
+    return inferred
 
 
 def ensure_metadata_source(metadata: Dict[str, Any], source_url: str, label: Optional[str] = None) -> Dict[str, Any]:
@@ -1219,26 +1323,63 @@ async def probe_import(url: str) -> Dict[str, Any]:
     cleaned_url = (url or "").strip()
     if len(cleaned_url) < 3:
         raise HTTPException(status_code=400, detail="La URL es obligatoria")
-    metadata = fetch_vhs_metadata(cleaned_url)
-    metadata_blob = sanitize_metadata(metadata)
-    metadata_blob = ensure_metadata_source(metadata_blob, cleaned_url)
+    vhs_metadata = fetch_vhs_metadata(cleaned_url)
+    metadata_blob = ensure_metadata_source(sanitize_metadata(vhs_metadata), cleaned_url)
+
+    music_metadata: Dict[str, Any] = {}
+    is_music = _looks_like_music(metadata_blob, cleaned_url)
+    if is_music:
+        try:
+            music_metadata = fetch_music_metadata(
+                metadata_blob.get("title") or cleaned_url,
+                metadata_blob.get("band")
+                or metadata_blob.get("artist")
+                or metadata_blob.get("uploader"),
+            )
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+
+    metadata_blob = _merge_metadata(metadata_blob, sanitize_metadata(music_metadata))
+    if is_music and not metadata_blob.get("library"):
+        metadata_blob["library"] = "music"
+    if _looks_like_music(metadata_blob, cleaned_url):
+        inferred = _infer_music_metadata_llm(metadata_blob, cleaned_url)
+        if inferred:
+            metadata_blob = _merge_metadata(metadata_blob, sanitize_metadata(inferred))
+
     thumbnail = extract_thumbnail(metadata_blob)
+    category_value = metadata_blob.get("category") or classify_entry(metadata_blob)
+    library_value = str(metadata_blob.get("library") or ("music" if is_music else "video")).strip().lower()
+
+    entry_context = _compose_entry_context(cleaned_url, metadata_blob.get("title"), None, metadata_blob)
+    context = _build_prompt_context(entry_context, _extract_transcription(metadata_blob))
+    prompt_template = MUSIC_TAGS_PROMPT if library_value == "music" else TAGS_PROMPT
+    tag_prompt = _format_prompt(prompt_template, context)
+    tag_text = _llm_completion(tag_prompt, TAGS_MODEL, context)
+    suggested_tags = tags_from_string(tag_text)
+
     entry = {
         "id": entry_id_for_url(cleaned_url),
         "url": cleaned_url,
         "original_url": cleaned_url,
-        "title": metadata.get("title") or cleaned_url,
-        "duration": metadata.get("duration"),
-        "uploader": metadata.get("uploader"),
-        "category": classify_entry(metadata),
-        "tags": [],
+        "title": metadata_blob.get("title") or cleaned_url,
+        "duration": metadata_blob.get("duration"),
+        "uploader": metadata_blob.get("uploader") or metadata_blob.get("band") or metadata_blob.get("artist"),
+        "category": category_value,
+        "tags": suggested_tags,
         "notes": None,
         "thumbnail": thumbnail,
-        "extractor": metadata.get("extractor_key") or metadata.get("extractor"),
+        "extractor": metadata_blob.get("extractor_key") or metadata_blob.get("extractor"),
         "preferred_format": DEFAULT_VHS_FORMAT,
         "metadata": metadata_blob,
     }
-    return {"entry": entry}
+    return {
+        "entry": entry,
+        "metadata": metadata_blob,
+        "category": category_value,
+        "suggested_tags": suggested_tags,
+    }
 
 
 @app.get("/api/import/search")
