@@ -801,6 +801,45 @@
         align-items: flex-start;
         margin-left: auto;
       }
+      .player-mode {
+        margin-top: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        padding: 0.9rem;
+        border-radius: 14px;
+      }
+      .player-mode .chip {
+        background: rgba(148, 163, 184, 0.15);
+      }
+      .player-mode .chip.active {
+        background: linear-gradient(120deg, #6366f1, #ec4899);
+        color: #0f172a;
+      }
+      .player-mode label {
+        color: #cbd5f5;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .player-mode-flags {
+        display: grid;
+        gap: 0.35rem;
+      }
+      .next-picker-row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .next-picker select {
+        flex: 1 1 220px;
+      }
+      #play-next-now {
+        padding: 0.65rem 1.1rem;
+      }
       .library-switch .switch-group {
         display: inline-flex;
         gap: 0.35rem;
@@ -901,6 +940,29 @@
                 <button type="button" class="library-pill" data-library-target="music">Música</button>
               </div>
               <p class="library-subtitle" id="library-subtitle">Explorando la biblioteca de video.</p>
+            </div>
+            <div class="player-mode" id="player-mode-controls">
+              <div class="chip-group" id="music-mode-group" hidden>
+                <button type="button" class="chip active" data-music-mode="audio">Solo audio</button>
+                <button type="button" class="chip" data-music-mode="auto">Auto (videoclip si hay)</button>
+              </div>
+              <div class="player-mode-flags">
+                <label>
+                  <input type="checkbox" id="auto-next-toggle" checked />
+                  Seleccionar la siguiente pieza al terminar
+                </label>
+                <label>
+                  <input type="checkbox" id="auto-pick-toggle" checked />
+                  Elegir automáticamente si no hay elección manual
+                </label>
+              </div>
+              <div class="next-picker" id="next-picker" hidden>
+                <label for="next-entry-select">Siguiente sugerido</label>
+                <div class="next-picker-row">
+                  <select id="next-entry-select"></select>
+                  <button type="button" id="play-next-now">Reproducir</button>
+                </div>
+              </div>
             </div>
           </div>
           <div class="hero-grid">
@@ -1132,12 +1194,20 @@
         activeLibrary: 'video',
         totals: { all: 0, video: 0, music: 0 },
       };
-      const playerState = { currentEntry: null };
+      const playbackPreferences = { musicMode: 'audio', autoNext: true, autoPick: true };
+      const playerState = { currentEntry: null, nextEntryId: null };
       const playerElements = {};
       const librarySubtitle = document.getElementById('library-subtitle');
       const libraryCountLabel = document.getElementById('library-count-label');
       const libraryCountValue = document.getElementById('library-count-value');
       const libraryToggleButtons = document.querySelectorAll('[data-library-target]');
+      const musicModeButtons = document.querySelectorAll('[data-music-mode]');
+      const musicModeGroup = document.getElementById('music-mode-group');
+      const autoNextToggle = document.getElementById('auto-next-toggle');
+      const autoPickToggle = document.getElementById('auto-pick-toggle');
+      const nextPicker = document.getElementById('next-picker');
+      const nextEntrySelect = document.getElementById('next-entry-select');
+      const playNextButton = document.getElementById('play-next-now');
 
       const STATIC_PLAYLISTS = [
         {
@@ -1184,6 +1254,7 @@
         restoreFavorites();
         attachSearch();
         attachLibrarySwitch();
+        attachPlaybackControls();
         attachMenuButtons();
         setupPlayerUI();
         setupManagerForms();
@@ -1252,6 +1323,39 @@
         });
       }
 
+      function attachPlaybackControls() {
+        if (autoNextToggle) {
+          autoNextToggle.addEventListener('change', () => {
+            playbackPreferences.autoNext = autoNextToggle.checked;
+            updatePlaybackControls();
+          });
+        }
+        if (autoPickToggle) {
+          autoPickToggle.addEventListener('change', () => {
+            playbackPreferences.autoPick = autoPickToggle.checked;
+            updatePlaybackControls();
+          });
+        }
+        musicModeButtons.forEach((button) => {
+          button.addEventListener('click', () => {
+            playbackPreferences.musicMode = button.dataset.musicMode || 'audio';
+            updatePlaybackControls();
+            if (playerState.currentEntry && playerState.currentEntry.library === 'music') {
+              openPlayer(playerState.currentEntry);
+            }
+          });
+        });
+        if (nextEntrySelect) {
+          nextEntrySelect.addEventListener('change', () => {
+            playerState.nextEntryId = nextEntrySelect.value || null;
+          });
+        }
+        if (playNextButton) {
+          playNextButton.addEventListener('click', () => playNextEntry(true));
+        }
+        updatePlaybackControls();
+      }
+
       function setActiveLibraryButton() {
         libraryToggleButtons.forEach((button) => {
           const isActive = button.dataset.libraryTarget === libraryState.activeLibrary;
@@ -1259,6 +1363,7 @@
           button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
         });
         updateLibraryHeader();
+        updatePlaybackControls();
       }
 
       async function switchLibrary(target) {
@@ -1278,6 +1383,24 @@
         } catch (error) {
           showLibraryError(error.message);
         }
+      }
+
+      function updatePlaybackControls() {
+        const isMusicLibrary = libraryState.activeLibrary === 'music';
+        if (musicModeGroup) {
+          musicModeGroup.hidden = !isMusicLibrary;
+        }
+        musicModeButtons.forEach((button) => {
+          const active = button.dataset.musicMode === playbackPreferences.musicMode;
+          button.classList.toggle('active', active);
+        });
+        if (autoNextToggle) {
+          autoNextToggle.checked = playbackPreferences.autoNext;
+        }
+        if (autoPickToggle) {
+          autoPickToggle.checked = playbackPreferences.autoPick;
+        }
+        renderNextOptions();
       }
 
       function updateLibraryHeader() {
@@ -1417,6 +1540,7 @@
           return;
         }
         playerState.currentEntry = entry;
+        playerState.nextEntryId = null;
         if (playerElements.title) {
           playerElements.title.textContent = entry.title || 'Sin título';
         }
@@ -1454,12 +1578,28 @@
           playerElements.deleteButton.disabled = false;
           playerElements.deleteButton.textContent = 'Eliminar video';
         }
-        const streamUrl = buildStreamUrl(entry, entry.preferred_format || DEFAULT_FORMAT);
         if (playerElements.video) {
+          const playbackFormat =
+            isMusic && playbackPreferences.musicMode === 'audio'
+              ? 'audio'
+              : entry.preferred_format || DEFAULT_FORMAT;
+          const streamUrl = buildStreamUrl(entry, playbackFormat);
           const poster = entry.thumbnail || 'https://placehold.co/640x360?text=Videorama';
           playerElements.video.src = streamUrl;
           playerElements.video.poster = poster;
           playerElements.video.load();
+          playerElements.video.onended = () => {
+            if (playbackPreferences.autoNext) {
+              playNextEntry(true);
+            }
+          };
+          playerElements.video.ontimeupdate = () => {
+            const remaining = (playerElements.video.duration || 0) - (playerElements.video.currentTime || 0);
+            if (remaining <= 10 && playbackPreferences.autoNext && !playerState.nextEntryId) {
+              playerState.nextEntryId = nextEntrySelect?.value || pickNextCandidateId();
+              renderNextOptions();
+            }
+          };
         }
         if (playerElements.thumbnailImage) {
           playerElements.thumbnailImage.src = entry.thumbnail || 'https://placehold.co/640x360?text=Videorama';
@@ -1472,6 +1612,7 @@
         }
         renderAutoTagResults([]);
         updatePlayerDownloadLink();
+        renderNextOptions();
         openModal('player-modal');
       }
 
@@ -1701,6 +1842,39 @@
           button.addEventListener('click', () => addSuggestedTag(tag));
           playerElements.tagSuggestions.appendChild(button);
         });
+      }
+
+      function pickNextCandidateId() {
+        if (!libraryState.filtered.length) {
+          return null;
+        }
+        const currentId = playerState.currentEntry?.id;
+        if (!currentId) {
+          return libraryState.filtered[0]?.id || null;
+        }
+        const currentIndex = libraryState.filtered.findIndex((item) => item.id === currentId);
+        if (currentIndex >= 0 && currentIndex < libraryState.filtered.length - 1) {
+          return libraryState.filtered[currentIndex + 1].id;
+        }
+        return libraryState.filtered[0]?.id || null;
+      }
+
+      function playNextEntry(forceAuto = false) {
+        if (!libraryState.filtered.length) {
+          return;
+        }
+        let nextId = nextEntrySelect?.value || playerState.nextEntryId;
+        if (!nextId && (forceAuto || playbackPreferences.autoPick)) {
+          nextId = pickNextCandidateId();
+        }
+        if (!nextId) {
+          return;
+        }
+        const nextEntry = libraryState.filtered.find((item) => item.id === nextId);
+        if (nextEntry) {
+          playerState.nextEntryId = null;
+          openPlayer(nextEntry);
+        }
       }
 
       function setEditStatus(message) {
@@ -2164,6 +2338,7 @@
         libraryState.filtered = items;
         renderLibrary(items);
         updateCounters();
+        renderNextOptions();
       }
 
       function renderLibrary(items) {
@@ -2180,6 +2355,32 @@
           fragment.appendChild(createVideoCard(entry));
         });
         grid.appendChild(fragment);
+      }
+
+      function renderNextOptions() {
+        if (!nextEntrySelect) {
+          return;
+        }
+        const candidates = libraryState.filtered.filter(
+          (entry) => !playerState.currentEntry || entry.id !== playerState.currentEntry.id,
+        );
+        nextEntrySelect.innerHTML = '';
+        candidates.slice(0, 20).forEach((entry) => {
+          const option = document.createElement('option');
+          option.value = entry.id;
+          option.textContent = entry.title || entry.url;
+          nextEntrySelect.appendChild(option);
+        });
+        if (!playerState.nextEntryId && candidates.length) {
+          playerState.nextEntryId = candidates[0].id;
+          nextEntrySelect.value = playerState.nextEntryId;
+        } else if (playerState.nextEntryId) {
+          nextEntrySelect.value = playerState.nextEntryId;
+        }
+        const shouldShow = playbackPreferences.autoNext && candidates.length > 0;
+        if (nextPicker) {
+          nextPicker.hidden = !shouldShow;
+        }
       }
 
       function createVideoCard(entry) {

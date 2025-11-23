@@ -121,6 +121,54 @@
         flex-direction: column;
         gap: 1rem;
       }
+      .library-toggle {
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        background: rgba(99, 102, 241, 0.08);
+        border-radius: 16px;
+        padding: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .library-toggle label {
+        color: #cbd5f5;
+      }
+      .library-slider {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        border-radius: 12px;
+        overflow: hidden;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+      }
+      .library-slider button {
+        position: relative;
+        border: none;
+        padding: 0.85rem 1rem;
+        background: transparent;
+        color: inherit;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+        transition: color 0.2s ease;
+      }
+      .library-slider button.active {
+        color: #0f172a;
+      }
+      .library-slider button::after {
+        content: '';
+        position: absolute;
+        inset: 4px;
+        border-radius: 10px;
+        background: linear-gradient(120deg, #6366f1, #ec4899);
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        z-index: -1;
+      }
+      .library-slider button.active::after {
+        opacity: 1;
+      }
       .tab-switcher {
         display: inline-flex;
         background: rgba(148, 163, 184, 0.12);
@@ -185,6 +233,13 @@
       textarea {
         min-height: 120px;
         resize: vertical;
+      }
+      .library-fields {
+        display: grid;
+        gap: 0.75rem;
+      }
+      .library-fields[hidden] {
+        display: none;
       }
       button {
         border: none;
@@ -495,60 +550,65 @@
           <form id="import-form">
             <input type="hidden" id="url-input" name="url" />
             <div>
-              <label for="title-input">Título</label>
+              <label for="title-input">Nombre</label>
               <input id="title-input" name="title" type="text" placeholder="Usar título automático" />
             </div>
-            <div>
-              <label for="category-input">Categoría</label>
-              <input
-                id="category-input"
-                name="category"
-                type="text"
-                list="category-options"
-                placeholder="documentales, entrevistas…"
-                autocomplete="off"
-              />
-              <small class="hint">Usa la existente o déjala vacía para clasificar automáticamente.</small>
-            </div>
-            <div>
+            <div class="library-toggle">
               <label for="library-input">Biblioteca destino</label>
-              <select id="library-input" name="library">
-                <option value="video">Videos</option>
-                <option value="music">Música</option>
-              </select>
-              <small class="hint">Elige dónde guardar el registro y sus ficheros asociados.</small>
+              <div class="library-slider" id="library-slider">
+                <button type="button" class="active" data-library-choice="video">Videos</button>
+                <button type="button" data-library-choice="music">Música / Videoclip</button>
+              </div>
+              <input type="hidden" id="library-input" name="library" value="video" />
+              <small class="hint">Mueve el selector para activar los campos relevantes y el modo de guardado por defecto.</small>
             </div>
-            <div style="display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))">
+            <div class="library-fields" data-library-view="video">
               <div>
-                <label for="band-input">Banda / artista</label>
-                <input id="band-input" name="band" type="text" placeholder="Nombre de la banda" />
-              </div>
-              <div>
-                <label for="album-input">Álbum</label>
-                <input id="album-input" name="album" type="text" placeholder="Nombre del álbum" />
-              </div>
-              <div>
-                <label for="track-number-input">N.º de track</label>
-                <input id="track-number-input" name="track_number" type="number" min="1" max="999" placeholder="01" />
+                <label for="category-input">Categoría</label>
+                <input
+                  id="category-input"
+                  name="category"
+                  type="text"
+                  list="category-options"
+                  placeholder="documentales, entrevistas…"
+                  autocomplete="off"
+                />
+                <small class="hint">Usa la existente o déjala vacía para clasificar automáticamente.</small>
               </div>
             </div>
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center">
-              <button type="button" id="music-meta-btn">Buscar datos musicales</button>
-              <span class="status-line" id="music-meta-status"></span>
-            </div>
-            <div id="music-storage" style="display: none">
-              <label>¿Qué guardar en la biblioteca de música?</label>
-              <div class="chip-group">
-                <label class="chip">
-                  <input type="checkbox" id="store-audio" checked />
-                  Solo audio
-                </label>
-                <label class="chip">
-                  <input type="checkbox" id="store-video" checked />
-                  También videoclip
-                </label>
+            <div class="library-fields" data-library-view="music" hidden>
+              <div style="display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))">
+                <div>
+                  <label for="band-input">Artista</label>
+                  <input id="band-input" name="band" type="text" placeholder="Nombre del artista" />
+                </div>
+                <div>
+                  <label for="album-input">Álbum</label>
+                  <input id="album-input" name="album" type="text" placeholder="Nombre del álbum" />
+                </div>
+                <div>
+                  <label for="track-number-input">N.º de track</label>
+                  <input id="track-number-input" name="track_number" type="number" min="1" max="999" placeholder="01" />
+                </div>
               </div>
-              <small class="hint">Puedes elegir solo el audio, solo el videoclip o ambos al importar.</small>
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center">
+                <button type="button" id="music-meta-btn">Buscar datos musicales</button>
+                <span class="status-line" id="music-meta-status"></span>
+              </div>
+              <div id="music-storage">
+                <label>¿Qué guardar en la biblioteca de música?</label>
+                <div class="chip-group">
+                  <label class="chip">
+                    <input type="checkbox" id="store-audio" checked />
+                    Solo audio
+                  </label>
+                  <label class="chip">
+                    <input type="checkbox" id="store-video" />
+                    También videoclip
+                  </label>
+                </div>
+                <small class="hint">Por defecto se guarda el audio extraído con buena calidad. Activa el videoclip si lo necesitas.</small>
+              </div>
             </div>
             <div>
               <label for="tags-input">Etiquetas (separadas por comas)</label>
@@ -664,6 +724,8 @@
       const albumInput = document.getElementById('album-input');
       const trackNumberInput = document.getElementById('track-number-input');
       const libraryInput = document.getElementById('library-input');
+      const libraryToggleButtons = Array.from(document.querySelectorAll('[data-library-choice]'));
+      const libraryFieldGroups = Array.from(document.querySelectorAll('[data-library-view]'));
       const tagInput = document.getElementById('tags-input');
       const notesInput = document.getElementById('notes-input');
       const notesLabel = document.getElementById('notes-label');
@@ -695,6 +757,26 @@
       let searchItems = [];
       let searchPage = 1;
       let lastSearchServices = [];
+
+      function applyLibraryLayout(target) {
+        const normalized = (target || 'video').toLowerCase();
+        if (libraryInput) {
+          libraryInput.value = normalized;
+        }
+        libraryToggleButtons.forEach((button) => {
+          const isActive = button.dataset.libraryChoice === normalized;
+          button.classList.toggle('active', isActive);
+        });
+        libraryFieldGroups.forEach((group) => {
+          const matches = group.dataset.libraryView === normalized;
+          group.hidden = !matches;
+        });
+        if (normalized === 'music') {
+          if (storeAudioInput) storeAudioInput.checked = true;
+          if (storeVideoInput) storeVideoInput.checked = false;
+        }
+        refreshNotesCopy();
+      }
 
       function refreshNotesCopy() {
         const isMusic = libraryInput && libraryInput.value === 'music';
@@ -795,13 +877,14 @@
         }
         tagInput.value = '';
         notesInput.value = '';
+        applyLibraryLayout('video');
         formatInput.value = defaultFormat;
         autoDownloadInput.checked = true;
         if (storeAudioInput) {
           storeAudioInput.checked = true;
         }
         if (storeVideoInput) {
-          storeVideoInput.checked = true;
+          storeVideoInput.checked = false;
         }
         metadataPreview.classList.add('hidden');
         previewTitle.textContent = 'Título del video';
@@ -963,9 +1046,7 @@
         currentMetadata = entry.metadata || {};
         urlInput.value = entry.url || '';
         titleInput.value = entry.title || '';
-        if (libraryInput && entry.library) {
-          libraryInput.value = entry.library;
-        }
+        applyLibraryLayout(entry.library || 'video');
         if (entry.category) {
           categoryInput.value = entry.category;
         }
@@ -985,7 +1066,7 @@
           storeAudioInput.checked = isMusic ? Boolean(entry.metadata?.store_audio ?? true) : true;
         }
         if (storeVideoInput) {
-          storeVideoInput.checked = isMusic ? Boolean(entry.metadata?.store_video ?? true) : true;
+          storeVideoInput.checked = isMusic ? Boolean(entry.metadata?.store_video ?? false) : true;
         }
         refreshMusicOptions();
         previewTitle.textContent = entry.title || entry.url;
@@ -1074,7 +1155,7 @@
             store_video: storeVideoInput?.checked,
           },
           store_audio: storeAudioInput?.checked ?? true,
-          store_video: storeVideoInput?.checked ?? true,
+          store_video: storeVideoInput?.checked ?? false,
         };
         statusLine.textContent = 'Guardando…';
         try {
@@ -1220,9 +1301,10 @@
         );
       }
 
-      if (libraryInput) {
-        libraryInput.addEventListener('change', refreshNotesCopy);
-      }
+      applyLibraryLayout(libraryInput?.value || 'video');
+      libraryToggleButtons.forEach((button) => {
+        button.addEventListener('click', () => applyLibraryLayout(button.dataset.libraryChoice || 'video'));
+      });
 
       function renderTagSuggestions(extraTags, useMusicPresets = false) {
         if (!tagSuggestionContainer) {
