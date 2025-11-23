@@ -7,7 +7,7 @@ import time
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal, Optional
+from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple
 from urllib.parse import urlparse
 
 import requests
@@ -47,6 +47,14 @@ LLM_BASE_URL = (
 LLM_API_KEY = os.getenv("VIDEORAMA_LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
 SUMMARY_MODEL = os.getenv("VIDEORAMA_SUMMARY_MODEL", "gpt-4o-mini")
 TAGS_MODEL = os.getenv("VIDEORAMA_TAGS_MODEL") or SUMMARY_MODEL
+MUSIC_TAGS_PROMPT = os.getenv(
+    "VIDEORAMA_MUSIC_TAGS_PROMPT",
+    (
+        "Propon etiquetas o géneros musicales en español para catalogar esta canción. "
+        "Prioriza estilos e influencias (rock, synthwave, cumbia, lofi, etc.) "
+        "en formato de lista separada por comas y sin signos especiales ni duplicados."
+    ),
+)
 SUMMARY_PROMPT = os.getenv(
     "VIDEORAMA_SUMMARY_PROMPT",
     (
@@ -61,6 +69,14 @@ TAGS_PROMPT = os.getenv(
         "con palabras cortas y sin duplicados ni signos de número."
     ),
 )
+LYRICS_PROMPT = os.getenv(
+    "VIDEORAMA_LYRICS_PROMPT",
+    (
+        "Eres un letrista asistente. Imagina la canción con el siguiente contexto y escribe 2-4 versos breves. "
+        "Termina con una línea que empiece por 'Etiquetas:' seguida de géneros o estilos en español separados por comas."
+    ),
+)
+LYRICS_MODEL = os.getenv("VIDEORAMA_LYRICS_MODEL") or SUMMARY_MODEL
 
 VIDEORAMA_VERSION = (os.getenv("VIDEORAMA_VERSION") or "").strip()
 
@@ -211,9 +227,15 @@ def _build_prompt_context(entry: Dict[str, Any], transcription: Optional[str]) -
         f"Etiquetas existentes: {', '.join(normalized.get('tags') or entry.get('tags') or [])}",
         f"Resumen: {(entry.get('notes') or '').strip()}",
     ]
+    library = normalized.get("library") or entry.get("library")
+    if library:
+        parts.append(f"Biblioteca: {library}")
     description = normalized.get("description") or normalized.get("description_short")
     if description:
         parts.append(f"Descripción: {description}")
+    lyrics = normalized.get("lyrics") or entry.get("lyrics")
+    if lyrics:
+        parts.append(f"Letras: {lyrics}")
     if transcription:
         trimmed = transcription.strip()
         if len(trimmed) > 6000:
@@ -231,6 +253,8 @@ def _compose_entry_context(url: str, title: Optional[str], notes: Optional[str],
         "uploader": metadata.get("uploader"),
         "category": metadata.get("category"),
         "tags": metadata.get("tags"),
+        "library": metadata.get("library"),
+        "lyrics": metadata.get("lyrics"),
         "metadata": metadata,
     }
 
@@ -933,6 +957,20 @@ def normalize_tag_list(values: Optional[List[str]]) -> List[str]:
     )
 
 
+def extract_lyrics_and_tags(raw: str) -> Tuple[Optional[str], List[str]]:
+    if not raw:
+        return None, []
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    tag_lines = [line for line in lines if line.lower().startswith("etiquetas:")]
+    tags: List[str] = []
+    if tag_lines:
+        tag_text = tag_lines[-1].split(":", 1)[-1]
+        tags = tags_from_string(tag_text)
+    lyrics_lines = [line for line in lines if line not in tag_lines]
+    lyrics = "\n".join(lyrics_lines).strip() if lyrics_lines else None
+    return lyrics or None, tags
+
+
 def fetch_vhs_metadata(url: str) -> Dict[str, Any]:
     endpoint = f"{VHS_BASE_URL}/api/probe"
     try:
@@ -1039,6 +1077,7 @@ class EnrichmentPayload(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=2000)
     metadata: Optional[Dict[str, Any]] = None
     prefer_transcription: bool = True
+    library: Optional[Literal["video", "music"]] = None
 
     @validator("title")
     def normalize_title(cls, value: Optional[str]) -> Optional[str]:
@@ -1053,6 +1092,13 @@ class EnrichmentPayload(BaseModel):
             return None
         cleaned = value.strip()
         return cleaned or None
+
+    @validator("library")
+    def normalize_library(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip().lower()
+        return cleaned if cleaned in {"video", "music"} else None
 
 
 class PlaylistRules(BaseModel):
@@ -1187,6 +1233,8 @@ async def search_sources(query: str, limit: int = 8) -> Dict[str, Any]:
 @app.post("/api/import/auto-summary")
 async def auto_summary(payload: EnrichmentPayload) -> Dict[str, Any]:
     metadata = sanitize_metadata(payload.metadata)
+    if payload.library:
+        metadata["library"] = payload.library
     transcription = _extract_transcription(metadata)
     if payload.prefer_transcription and not transcription:
         transcription = _fetch_transcription_text(payload.url)
@@ -1202,6 +1250,8 @@ async def auto_summary(payload: EnrichmentPayload) -> Dict[str, Any]:
 @app.post("/api/import/auto-tags")
 async def auto_tags(payload: EnrichmentPayload) -> Dict[str, Any]:
     metadata = sanitize_metadata(payload.metadata)
+    if payload.library:
+        metadata["library"] = payload.library
     transcription = _extract_transcription(metadata)
     if payload.prefer_transcription and not transcription:
         transcription = _fetch_transcription_text(payload.url)
@@ -1209,10 +1259,36 @@ async def auto_tags(payload: EnrichmentPayload) -> Dict[str, Any]:
             metadata["transcription_text"] = transcription
     entry_context = _compose_entry_context(payload.url, payload.title, payload.notes, metadata)
     context = _build_prompt_context(entry_context, transcription)
-    prompt = _format_prompt(TAGS_PROMPT, context)
+    library = payload.library or str(metadata.get("library") or "video").lower()
+    prompt_template = MUSIC_TAGS_PROMPT if library == "music" else TAGS_PROMPT
+    prompt = _format_prompt(prompt_template, context)
     tag_text = _llm_completion(prompt, TAGS_MODEL, context)
     suggested_tags = tags_from_string(tag_text)
     return {"tags": suggested_tags, "metadata": metadata}
+
+
+@app.post("/api/import/auto-lyrics")
+async def auto_lyrics(payload: EnrichmentPayload) -> Dict[str, Any]:
+    metadata = sanitize_metadata(payload.metadata)
+    if payload.library:
+        metadata["library"] = payload.library
+    transcription = _extract_transcription(metadata)
+    if payload.prefer_transcription and not transcription:
+        transcription = _fetch_transcription_text(payload.url)
+        if transcription:
+            metadata["transcription_text"] = transcription
+    entry_context = _compose_entry_context(payload.url, payload.title, payload.notes, metadata)
+    context = _build_prompt_context(entry_context, transcription)
+    prompt = _format_prompt(LYRICS_PROMPT, context)
+    lyrics_text = _llm_completion(prompt, LYRICS_MODEL, context)
+    lyrics, suggested_tags = extract_lyrics_and_tags(lyrics_text)
+    response: Dict[str, Any] = {"metadata": metadata, "raw_lyrics": lyrics_text}
+    if lyrics:
+        response["lyrics"] = lyrics
+        metadata["lyrics"] = lyrics
+    if suggested_tags:
+        response["tags"] = suggested_tags
+    return response
 
 
 def _fetch_vhs_health(timeout: int = 8) -> Dict[str, Any]:
@@ -1243,9 +1319,18 @@ async def vhs_health() -> Dict[str, Any]:
 
 
 @app.get("/api/library")
-async def list_library() -> Dict[str, Any]:
+async def list_library(library: Optional[str] = None) -> Dict[str, Any]:
     entries = load_library()
-    return {"items": entries, "count": len(entries)}
+    normalized_library = (library or "").strip().lower()
+    totals = {
+        "video": len([entry for entry in entries if entry.get("library") == "video"]),
+        "music": len([entry for entry in entries if entry.get("library") == "music"]),
+    }
+    totals["all"] = len(entries)
+
+    if normalized_library in {"video", "music"}:
+        entries = [entry for entry in entries if entry.get("library") == normalized_library]
+    return {"items": entries, "count": len(entries), "totals": totals}
 
 
 @app.get("/api/library/{entry_id}")

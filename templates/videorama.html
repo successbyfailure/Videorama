@@ -794,6 +794,42 @@
         font-size: 0.85rem;
         border: 1px solid rgba(99, 102, 241, 0.35);
       }
+      .library-switch {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        align-items: flex-start;
+        margin-left: auto;
+      }
+      .library-switch .switch-group {
+        display: inline-flex;
+        gap: 0.35rem;
+        background: rgba(148, 163, 184, 0.08);
+        padding: 0.25rem;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.15);
+      }
+      .library-pill {
+        border: none;
+        padding: 0.45rem 0.9rem;
+        border-radius: 999px;
+        background: transparent;
+        color: inherit;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+      .library-pill.active {
+        background: linear-gradient(120deg, #22d3ee, #6366f1);
+        color: #0b1221;
+        box-shadow: 0 5px 18px rgba(99, 102, 241, 0.25);
+      }
+      .library-subtitle {
+        margin: 0;
+        font-size: 0.9rem;
+        color: #cbd5f5;
+      }
       @media (max-width: 1024px) {
         .player-layout {
           grid-template-columns: 1fr;
@@ -856,15 +892,22 @@
                 {% endif %}
               </h1>
               <p>
-                Biblioteca retro con {{ library_count }} elementos ya clasificados.
+                Biblioteca retro con <span id="library-count-label">{{ library_count }}</span> elementos ya clasificados.
                 {% if preview_categories %}Destacan: {{ ', '.join(preview_categories) }}.{% endif %}
               </p>
+            </div>
+            <div class="library-switch" aria-label="Selector de biblioteca">
+              <div class="switch-group">
+                <button type="button" class="library-pill active" data-library-target="video">Videos</button>
+                <button type="button" class="library-pill" data-library-target="music">Música</button>
+              </div>
+              <p class="library-subtitle" id="library-subtitle">Explorando la biblioteca de video.</p>
             </div>
           </div>
           <div class="hero-grid">
             <article class="stat-card">
               <label>Elementos</label>
-              <strong>{{ '{:,}'.format(library_count).replace(',', '.') }}</strong>
+              <strong id="library-count-value">{{ '{:,}'.format(library_count).replace(',', '.') }}</strong>
               <small>Videos y audios listos para descargar.</small>
             </article>
             <article class="stat-card">
@@ -1087,9 +1130,15 @@
         playlists: [],
         customPlaylists: [],
         search: '',
+        activeLibrary: 'video',
+        totals: { all: 0, video: 0, music: 0 },
       };
       const playerState = { currentEntry: null };
       const playerElements = {};
+      const librarySubtitle = document.getElementById('library-subtitle');
+      const libraryCountLabel = document.getElementById('library-count-label');
+      const libraryCountValue = document.getElementById('library-count-value');
+      const libraryToggleButtons = document.querySelectorAll('[data-library-target]');
 
       const STATIC_PLAYLISTS = [
         {
@@ -1135,6 +1184,7 @@
       async function init() {
         restoreFavorites();
         attachSearch();
+        attachLibrarySwitch();
         attachMenuButtons();
         setupPlayerUI();
         setupManagerForms();
@@ -1151,7 +1201,12 @@
       }
 
       function fetchLibrary() {
-        return fetch('/api/library')
+        const params = new URLSearchParams();
+        if (libraryState.activeLibrary) {
+          params.set('library', libraryState.activeLibrary);
+        }
+        const url = params.toString() ? `/api/library?${params}` : '/api/library';
+        return fetch(url)
           .then((response) => {
             if (!response.ok) {
               throw new Error('No se pudo cargar la biblioteca.');
@@ -1160,6 +1215,8 @@
           })
           .then((payload) => {
             libraryState.entries = Array.isArray(payload.items) ? payload.items : [];
+            libraryState.totals = payload.totals || libraryState.totals;
+            updateLibraryHeader();
           });
       }
 
@@ -1187,6 +1244,55 @@
           .then((payload) => {
             libraryState.categorySettings = Array.isArray(payload.settings) ? payload.settings : [];
           });
+      }
+
+      function attachLibrarySwitch() {
+        setActiveLibraryButton();
+        libraryToggleButtons.forEach((button) => {
+          button.addEventListener('click', () => switchLibrary(button.dataset.libraryTarget));
+        });
+      }
+
+      function setActiveLibraryButton() {
+        libraryToggleButtons.forEach((button) => {
+          const isActive = button.dataset.libraryTarget === libraryState.activeLibrary;
+          button.classList.toggle('active', isActive);
+          button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+        updateLibraryHeader();
+      }
+
+      async function switchLibrary(target) {
+        const normalized = (target || '').toLowerCase();
+        if (!normalized || normalized === libraryState.activeLibrary) {
+          return;
+        }
+        libraryState.activeLibrary = normalized;
+        libraryState.activeCategory = 'all';
+        libraryState.activePlaylistId = null;
+        setActiveLibraryButton();
+        try {
+          await fetchLibrary();
+          buildCategories();
+          buildPlaylists();
+          applyFilters();
+        } catch (error) {
+          showLibraryError(error.message);
+        }
+      }
+
+      function updateLibraryHeader() {
+        const pretty = libraryState.activeLibrary === 'music' ? 'música' : 'video';
+        const total = libraryState.totals[libraryState.activeLibrary] ?? libraryState.entries.length;
+        if (librarySubtitle) {
+          librarySubtitle.textContent = `Explorando la biblioteca de ${pretty}.`;
+        }
+        if (libraryCountLabel) {
+          libraryCountLabel.textContent = total;
+        }
+        if (libraryCountValue) {
+          libraryCountValue.textContent = new Intl.NumberFormat('es-ES').format(total);
+        }
       }
 
       function showLibraryError(message) {
@@ -2449,7 +2555,8 @@
         } else if (libraryState.activeCategory === 'favorites') {
           active.textContent = 'Mostrando tus favoritos locales.';
         } else if (libraryState.activeCategory === 'all') {
-          active.textContent = 'Mostrando toda la biblioteca.';
+          const libraryLabel = libraryState.activeLibrary === 'music' ? 'música' : 'video';
+          active.textContent = `Mostrando la biblioteca de ${libraryLabel}.`;
         } else {
           active.textContent = `Categoría: ${toTitle(libraryState.activeCategory)}`;
         }

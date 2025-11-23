@@ -91,6 +91,8 @@ services:
       - .env
     environment:
       - VIDEORAMA_BOT_VERSION=0.1.0
+    volumes:
+      - ./data:/app/data
     restart: unless-stopped
     labels:
       - com.centurylinklabs.watchtower.enable=true

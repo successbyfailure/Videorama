@@ -645,6 +645,7 @@
 
       const tagSuggestionContainer = document.getElementById('tag-suggestions');
       const popularTagSeeds = {{ popular_tags|tojson }};
+      const musicStyleSuggestions = ['rock', 'pop', 'electrónica', 'ambient', 'trap', 'cumbia', 'indie', 'lofi', 'metal', 'jazz'];
 
       const SEARCH_PAGE_SIZE = 8;
       const SEARCH_FETCH_LIMIT = 24;
@@ -665,6 +666,11 @@
             ? 'Añade la letra o notas musicales'
             : 'Idea principal, capítulo destacado, etc.';
         }
+        if (autoSummaryButton) {
+          autoSummaryButton.textContent = isMusic ? 'LLM lyrics' : 'Auto resumen';
+        }
+        currentMetadata = { ...(currentMetadata || {}), library: isMusic ? 'music' : 'video' };
+        renderTagSuggestions(currentMetadata.tags || popularTagSeeds, isMusic);
       }
 
       async function refreshVhsHealth() {
@@ -886,10 +892,14 @@
         currentMetadata = entry.metadata || {};
         urlInput.value = entry.url || '';
         titleInput.value = entry.title || '';
+        if (libraryInput && entry.library) {
+          libraryInput.value = entry.library;
+        }
         if (entry.category) {
           categoryInput.value = entry.category;
         }
-        renderTagSuggestions(entry.metadata?.tags || entry.tags || []);
+        const isMusic = (entry.library || entry.metadata?.library) === 'music';
+        renderTagSuggestions(entry.metadata?.tags || entry.tags || [], isMusic);
         previewTitle.textContent = entry.title || entry.url;
         const details = [entry.uploader, entry.extractor].filter(Boolean).join(' · ');
         previewDetails.textContent = details;
@@ -904,11 +914,12 @@
         if (entry.thumbnail) {
           previewThumb.src = entry.thumbnail;
         } else {
-          previewThumb.src = '/assets/LogoVHS.png';
+        previewThumb.src = '/assets/LogoVHS.png';
         }
         metadataPreview.classList.remove('hidden');
         submitButton.disabled = false;
         titleInput.focus();
+        refreshNotesCopy();
       }
 
       probeForm.addEventListener('submit', async (event) => {
@@ -1004,6 +1015,7 @@
           title: titleInput.value.trim() || currentEntry.title,
           notes: notesInput.value.trim() || undefined,
           metadata: currentMetadata,
+          library: libraryInput?.value || 'video',
         };
         llmStatusLine.textContent = 'Consultando IA…';
         try {
@@ -1024,30 +1036,47 @@
         }
       }
 
+      function mergeSuggestedTags(suggestedTags, useMusicPresets = false) {
+        if (!Array.isArray(suggestedTags) || !tagInput) {
+          return;
+        }
+        const clean = suggestedTags.map((tag) => `${tag}`.trim()).filter(Boolean);
+        const current = tagInput.value
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean);
+        const tags = [...new Set([...current, ...clean])];
+        tagInput.value = tags.join(', ');
+        renderTagSuggestions(tags, useMusicPresets);
+        mergeMetadata({ tags });
+      }
+
       if (autoSummaryButton) {
-        autoSummaryButton.addEventListener('click', () =>
-          requestLLMAssist('/api/import/auto-summary', (data) => {
-            if (data.summary) {
+        autoSummaryButton.addEventListener('click', () => {
+          const isMusic = libraryInput && libraryInput.value === 'music';
+          const endpoint = isMusic ? '/api/import/auto-lyrics' : '/api/import/auto-summary';
+          requestLLMAssist(endpoint, (data) => {
+            if (isMusic) {
+              const lyrics = data.lyrics || data.raw_lyrics;
+              if (lyrics) {
+                notesInput.value = lyrics;
+                mergeMetadata({ lyrics });
+              }
+              if (Array.isArray(data.tags)) {
+                mergeSuggestedTags(data.tags, true);
+              }
+            } else if (data.summary) {
               notesInput.value = data.summary;
               mergeMetadata({ llm_summary: data.summary });
             }
-          }),
-        );
+          });
+        });
       }
 
       if (autoTagsButton) {
         autoTagsButton.addEventListener('click', () =>
           requestLLMAssist('/api/import/auto-tags', (data) => {
-            if (Array.isArray(data.tags)) {
-              const suggestedTags = data.tags.map((tag) => `${tag}`.trim()).filter(Boolean);
-              const current = tagInput.value
-                .split(',')
-                .map((tag) => tag.trim())
-                .filter(Boolean);
-              const tags = [...new Set([...current, ...suggestedTags])];
-              tagInput.value = tags.join(', ');
-              mergeMetadata({ tags });
-            }
+            mergeSuggestedTags(data.tags, libraryInput && libraryInput.value === 'music');
           }),
         );
       }
@@ -1056,12 +1085,17 @@
         libraryInput.addEventListener('change', refreshNotesCopy);
       }
 
-      function renderTagSuggestions(extraTags) {
+      function renderTagSuggestions(extraTags, useMusicPresets = false) {
         if (!tagSuggestionContainer) {
           return;
         }
+        const seeds = [...(popularTagSeeds || [])];
+        const shouldAddMusic = useMusicPresets || (libraryInput && libraryInput.value === 'music');
+        if (shouldAddMusic) {
+          seeds.push(...musicStyleSuggestions);
+        }
         const tags = new Set(
-          [...(popularTagSeeds || []), ...(Array.isArray(extraTags) ? extraTags : [])]
+          [...seeds, ...(Array.isArray(extraTags) ? extraTags : [])]
             .map((item) => `${item}`.trim())
             .filter(Boolean),
         );
