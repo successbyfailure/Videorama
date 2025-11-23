@@ -8,10 +8,12 @@ import anyio
 import requests
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+from versioning import get_version
 
 DEFAULT_API_URL = os.getenv("VIDEORAMA_API_URL", "http://localhost:8600").rstrip("/")
 DEFAULT_TIMEOUT = int(os.getenv("VIDEORAMA_API_TIMEOUT", "30"))
 DEFAULT_TRANSPORT = os.getenv("VIDEORAMA_MCP_TRANSPORT", "http").lower()
+MCP_VERSION = get_version("mcp")
 
 load_dotenv()
 
@@ -71,7 +73,7 @@ def _entry_text(entry: Dict[str, Any]) -> str:
 
 def build_server(client: VideoramaClient, host: str, port: int) -> FastMCP:
     server = FastMCP(
-        name="Videorama MCP",
+        name=f"Videorama MCP{f' v{MCP_VERSION}' if MCP_VERSION else ''}",
         instructions=(
             "Herramientas MCP para inspeccionar y poblar la biblioteca de Videorama. "
             "Recuerda que los cambios se aplican en la API que responde en VIDEORAMA_API_URL."
@@ -126,10 +128,18 @@ async def _tool_health(client: VideoramaClient) -> Dict[str, Any]:
     data = await client.request("GET", "/api/health")
     status = data.get("status", "desconocido")
     items = data.get("items", "?")
+    videorama_version = data.get("version")
+    suffix = f" v{videorama_version}" if videorama_version else ""
+    mcp_suffix = f" · MCP v{MCP_VERSION}" if MCP_VERSION else ""
     return {
-        "message": f"Videorama responde: {status} (elementos en biblioteca: {items}).",
+        "message": (
+            f"Videorama responde: {status}{suffix} (elementos en biblioteca: {items})."
+            f"{mcp_suffix}"
+        ),
         "status": status,
         "items": items,
+        "videorama_version": videorama_version,
+        "mcp_version": MCP_VERSION,
     }
 
 

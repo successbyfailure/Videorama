@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, validator
 from openai import OpenAI
 
 from .storage import SQLiteStore
+from versioning import get_version
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ LYRICS_PROMPT = os.getenv(
 )
 LYRICS_MODEL = os.getenv("VIDEORAMA_LYRICS_MODEL") or SUMMARY_MODEL
 
-VIDEORAMA_VERSION = (os.getenv("VIDEORAMA_VERSION") or "").strip()
+VIDEORAMA_VERSION = get_version("videorama")
 
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")

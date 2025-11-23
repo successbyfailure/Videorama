@@ -30,6 +30,7 @@ from telegram.ext import (
 )
 
 from .storage import SQLiteStore
+from versioning import get_version
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ TELEGRAM_DOWNLOAD_LIMIT_BYTES = int(
     os.getenv("TELEGRAM_DOWNLOAD_LIMIT_BYTES", 20 * 1024 * 1024)
 )
 VIDEORAMA_DB_PATH = Path(os.getenv("VIDEORAMA_DB_PATH", "data/videorama/library.db"))
+BOT_VERSION = get_version("bot")
 settings_store = SQLiteStore(VIDEORAMA_DB_PATH)
 
 MEDIA_FILTER = filters.Document.ALL | filters.VIDEO | filters.AUDIO
@@ -378,9 +380,12 @@ def build_entry_line(entry: dict) -> str:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
+    intro = "Hola, soy VideoramaBot"
+    if BOT_VERSION:
+        intro = f"{intro} v{BOT_VERSION}"
+    intro = f"{intro}. Puedo añadir enlaces, guardar archivos locales y"
     await update.message.reply_text(
-        "Hola, soy VideoramaBot. Puedo añadir enlaces, guardar archivos locales y"
-        " pedirle a VHS que los convierta.",
+        f"{intro} pedirle a VHS que los convierta.",
         reply_markup=MAIN_MENU,
     )
     await update.message.reply_text(
@@ -398,6 +403,8 @@ async def show_versions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     vhs_health = fetch_service_health(VHS_BASE_URL)
 
     lines = []
+    if BOT_VERSION:
+        lines.append(f"VideoramaBot: v{BOT_VERSION}")
     if videorama_health.get("status"):
         videorama_version = videorama_health.get("version")
         suffix = f" v{videorama_version}" if videorama_version else ""

@@ -43,8 +43,10 @@ load_dotenv()
 import requests
 import yt_dlp
 from openai import OpenAI
+from versioning import get_version
 
 APP_TITLE = "VHS · Video Harvester Service"
+VHS_VERSION = get_version("vhs")
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "data/cache"))
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 META_DIR = CACHE_DIR / "_meta"
@@ -78,7 +80,6 @@ TRANSCRIPTION_MODEL = os.getenv("TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")
 WHISPER_ASR_URL = os.getenv("WHISPER_ASR_URL")
 WHISPER_ASR_TIMEOUT = int(os.getenv("WHISPER_ASR_TIMEOUT", "600"))
 FFMPEG_BINARY = os.getenv("FFMPEG_BINARY", "ffmpeg")
-VHS_VERSION = (os.getenv("VHS_VERSION") or "").strip()
 
 AUDIO_FORMAT_PROFILES = {
     "audio": {"codec": "mp3", "preferred_quality": "192"},

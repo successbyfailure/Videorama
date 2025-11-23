@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{ app_name }} · Biblioteca retro</title>
+    <title>
+      {{ app_name }}{% if videorama_version %} v{{ videorama_version }}{% endif %} · Biblioteca retro
+    </title>
     <link
       rel="icon"
       type="image/svg+xml"
@@ -840,29 +842,47 @@
       #play-next-now {
         padding: 0.65rem 1.1rem;
       }
+      .hero-switch {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 1.25rem;
+      }
+      .hero-switch .library-subtitle {
+        font-size: 0.95rem;
+      }
+      .library-switch {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
       .library-switch .switch-group {
         display: inline-flex;
-        gap: 0.35rem;
+        gap: 0.5rem;
         background: rgba(148, 163, 184, 0.08);
-        padding: 0.25rem;
+        padding: 0.4rem 0.5rem;
         border-radius: 999px;
         border: 1px solid rgba(148, 163, 184, 0.15);
       }
       .library-pill {
         border: none;
-        padding: 0.45rem 0.9rem;
+        padding: 0.65rem 1.15rem;
         border-radius: 999px;
         background: transparent;
         color: inherit;
-        font-weight: 600;
-        letter-spacing: 0.04em;
+        font-weight: 700;
+        letter-spacing: 0.05em;
         cursor: pointer;
-        transition: background 0.2s ease, color 0.2s ease;
+        transition: background 0.2s ease, color 0.2s ease, transform 0.1s ease;
+        font-size: 1rem;
       }
       .library-pill.active {
         background: linear-gradient(120deg, #22d3ee, #6366f1);
         color: #0b1221;
         box-shadow: 0 5px 18px rgba(99, 102, 241, 0.25);
+        transform: translateY(-1px);
       }
       .library-subtitle {
         margin: 0;
@@ -918,6 +938,18 @@
       </aside>
       <main>
         <header class="hero">
+          <div class="hero-switch">
+            <div>
+              <p class="library-subtitle">Selecciona qué biblioteca quieres explorar.</p>
+              <p class="library-subtitle" id="library-subtitle">Explorando la biblioteca de video.</p>
+            </div>
+            <div class="library-switch" aria-label="Selector de biblioteca">
+              <div class="switch-group">
+                <button type="button" class="library-pill active" data-library-target="video">Videos</button>
+                <button type="button" class="library-pill" data-library-target="music">Música</button>
+              </div>
+            </div>
+          </div>
           <div class="hero-brand">
             <div class="brand-mark">
               <img src="/assets/LogoVideorama.png" alt="Logotipo de Videorama" loading="lazy" />
@@ -933,13 +965,6 @@
                 Biblioteca retro con <span id="library-count-label">{{ library_count }}</span> elementos ya clasificados.
                 {% if preview_categories %}Destacan: {{ ', '.join(preview_categories) }}.{% endif %}
               </p>
-            </div>
-            <div class="library-switch" aria-label="Selector de biblioteca">
-              <div class="switch-group">
-                <button type="button" class="library-pill active" data-library-target="video">Videos</button>
-                <button type="button" class="library-pill" data-library-target="music">Música</button>
-              </div>
-              <p class="library-subtitle" id="library-subtitle">Explorando la biblioteca de video.</p>
             </div>
             <div class="player-mode" id="player-mode-controls">
               <div class="chip-group" id="music-mode-group" hidden>
