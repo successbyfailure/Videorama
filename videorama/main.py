@@ -23,13 +23,13 @@ from .storage import SQLiteStore
 logger = logging.getLogger(__name__)
 
 APP_TITLE = "Videorama Library"
-UPLOADS_DIR = Path(os.getenv("VIDEORAMA_UPLOADS_DIR", "data/videorama/uploads"))
+UPLOADS_DIR = Path(os.getenv("VIDEORAMA_UPLOADS_DIR", "storage/videos"))
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 THUMBNAILS_DIR = Path(os.getenv("VIDEORAMA_THUMBNAILS_DIR", "data/videorama/thumbnails"))
 THUMBNAILS_DIR.mkdir(parents=True, exist_ok=True)
-MUSIC_AUDIO_DIR = Path(os.getenv("VIDEORAMA_MUSIC_AUDIO_DIR", "data/videorama/music/audio"))
+MUSIC_AUDIO_DIR = Path(os.getenv("VIDEORAMA_MUSIC_AUDIO_DIR", "storage/musica"))
 MUSIC_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-MUSIC_VIDEO_DIR = Path(os.getenv("VIDEORAMA_MUSIC_VIDEO_DIR", "data/videorama/music/video"))
+MUSIC_VIDEO_DIR = Path(os.getenv("VIDEORAMA_MUSIC_VIDEO_DIR", "storage/videoclips"))
 MUSIC_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 THUMBNAILS_URL_PREFIX = "/thumbnails"
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")

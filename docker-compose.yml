@@ -27,6 +27,9 @@ services:
       - VHS_VERSION=0.1.0
     volumes:
       - ./data:/app/data
+      - ./storage/videos:/app/storage/videos
+      - ./storage/videoclips:/app/storage/videoclips
+      - ./storage/musica:/app/storage/musica
     restart: unless-stopped
     labels:
       - com.centurylinklabs.watchtower.enable=true
@@ -61,6 +64,9 @@ services:
       - VIDEORAMA_VERSION=0.1.0
     volumes:
       - ./data:/app/data
+      - ./storage/videos:/app/storage/videos
+      - ./storage/videoclips:/app/storage/videoclips
+      - ./storage/musica:/app/storage/musica
     restart: unless-stopped
     labels:
       - com.centurylinklabs.watchtower.enable=true
@@ -93,6 +99,9 @@ services:
       - VIDEORAMA_BOT_VERSION=0.1.0
     volumes:
       - ./data:/app/data
+      - ./storage/videos:/app/storage/videos
+      - ./storage/videoclips:/app/storage/videoclips
+      - ./storage/musica:/app/storage/musica
     restart: unless-stopped
     labels:
       - com.centurylinklabs.watchtower.enable=true
