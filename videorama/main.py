@@ -63,12 +63,8 @@ def normalize_vhs_format(media_format: Optional[str]) -> str:
 DEFAULT_VHS_FORMAT = normalize_vhs_format(RAW_DEFAULT_VHS_FORMAT)
 LIBRARY_DB_PATH = Path(os.getenv("VIDEORAMA_DB_PATH", "data/videorama/library.db"))
 DEFAULT_CATEGORY = "miscelánea"
-LLM_BASE_URL = (
-    os.getenv("VIDEORAMA_LLM_BASE_URL")
-    or os.getenv("OPENAI_BASE_URL")
-    or "https://api.openai.com/v1"
-)
-LLM_API_KEY = os.getenv("VIDEORAMA_LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+LLM_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "https://api.openai.com/v1")
+LLM_API_KEY = os.getenv("OPENAI_COMPATIBLE_API_KEY", "")
 SUMMARY_MODEL = os.getenv("VIDEORAMA_SUMMARY_MODEL", "gpt-4o-mini")
 TAGS_MODEL = os.getenv("VIDEORAMA_TAGS_MODEL") or SUMMARY_MODEL
 MUSIC_TAGS_PROMPT = os.getenv(
@@ -140,7 +136,10 @@ def _template_context(request: Request, **kwargs: Any) -> Dict[str, Any]:
 
 def _llm_client() -> OpenAI:
     if not LLM_API_KEY:
-        raise HTTPException(status_code=503, detail="Configura VIDEORAMA_LLM_API_KEY u OPENAI_API_KEY")
+        raise HTTPException(
+            status_code=503,
+            detail="Configura OPENAI_COMPATIBLE_API_KEY",
+        )
     return OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
 
 
