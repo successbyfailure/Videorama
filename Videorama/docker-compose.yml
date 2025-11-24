@@ -1,8 +1,10 @@
 services:
   env-sync:
     container_name: env-sync
-    image: $VIDEORAMA_IMAGE
-    build: .
+    image: ${VIDEORAMA_IMAGE}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: python scripts/sync_env.py
     user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     volumes:
@@ -14,8 +16,10 @@ services:
 
   vhs:
     container_name: vhs
-    image: $VIDEORAMA_IMAGE
-    build: .
+    image: ${VHS_IMAGE}
+    build:
+      context: ../VHS
+      dockerfile: Dockerfile
     command: uvicorn vhs.main:app --host 0.0.0.0 --port 8601
     user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     depends_on:
@@ -48,8 +52,10 @@ services:
 
   videorama:
     container_name: videorama
-    image: $VIDEORAMA_IMAGE
-    build: .
+    image: ${VIDEORAMA_IMAGE}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: uvicorn videorama.main:app --host 0.0.0.0 --port 8600
     user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     depends_on:
@@ -84,8 +90,10 @@ services:
 
   videorama-bot:
     container_name: videorama-bot
-    image: $VIDEORAMA_IMAGE
-    build: .
+    image: ${VIDEORAMA_IMAGE}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: python -m videorama.telegram_bot
     user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     depends_on:
@@ -118,8 +126,10 @@ services:
 
   videorama-mcp:
     container_name: videorama-mcp
-    image: $VIDEORAMA_IMAGE
-    build: .
+    image: ${VIDEORAMA_IMAGE}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: >-
       python -m videorama.mcp_server
       --api-url http://videorama:8600
