@@ -10,6 +10,10 @@ services:
     volumes:
       - ./.env:/app/.env
       - ./example.env:/app/example.env:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
     restart: "no"
     labels:
       - com.centurylinklabs.watchtower.enable=false
@@ -34,6 +38,10 @@ services:
       - ./storage/videos:/app/storage/videos
       - ./storage/videoclips:/app/storage/videoclips
       - ./storage/musica:/app/storage/musica
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
     restart: unless-stopped
     labels:
       - com.centurylinklabs.watchtower.enable=true
@@ -72,6 +80,10 @@ services:
       - ./storage/videos:/app/storage/videos
       - ./storage/videoclips:/app/storage/videoclips
       - ./storage/musica:/app/storage/musica
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
     restart: unless-stopped
     labels:
       - com.centurylinklabs.watchtower.enable=true
@@ -108,6 +120,10 @@ services:
       - ./storage/videos:/app/storage/videos
       - ./storage/videoclips:/app/storage/videoclips
       - ./storage/musica:/app/storage/musica
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
     restart: unless-stopped
     labels:
       - com.centurylinklabs.watchtower.enable=true
@@ -146,6 +162,10 @@ services:
       - .env
     ports:
       - "8765:8765"
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
     restart: unless-stopped
     labels:
       - com.centurylinklabs.watchtower.enable=true
@@ -175,6 +195,10 @@ services:
     command: --interval 60 --label-enable --scope videorama --cleanup
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
     restart: unless-stopped
     labels:
       - com.centurylinklabs.watchtower.enable=false
