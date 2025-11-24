@@ -1,10 +1,10 @@
 # Videorama · VHS Suite
 
-**Versiones**: Videorama 0.1.4 · VHS 0.1.2 · Bot de Telegram 0.1.2 · Servidor MCP 0.1.2
+**Versiones**: Videorama 0.1.6 · Bot de Telegram 0.1.3 · Servidor MCP 0.1.3
 
 Las versiones se cargan desde `versions.json`, aparecen en el _footer_ de las páginas y pueden consultarse desde todos los canales (MCP, bot de Telegram y web).
 
-Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil: un **API de captura y transformación (VHS)**, una **biblioteca web retro** y un **bot opcional de Telegram**. La suite se ha dividido en dos carpetas hermanas listas para repos independientes: esta (`Videorama/`) contiene la biblioteca, el bot y el MCP, mientras que `../VHS` aloja el API de ingesta. El `docker compose` por defecto sigue levantando ambos servicios en conjunto, pero ahora cada uno genera su propia imagen y puede desplegarse en hosts distintos.
+Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil: un **API de captura y transformación (VHS)**, una **biblioteca web retro** y un **bot opcional de Telegram**. VHS vive ahora en un repositorio independiente y se despliega por separado; esta carpeta contiene únicamente Videorama, el bot y el MCP, que se conectan a la URL de VHS que definas en tu entorno.
 
 ## Tabla de contenido
 
@@ -52,7 +52,7 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
 - **Puertos**: VHS expone `:8601`, Videorama `:8600` y el servidor MCP HTTP `:8765/mcp`. El bot consume la API de Videorama.
 - **Datos**: todo lo que se descarga o sube vive bajo `data/` (montado como volumen en Docker). Las rutas clave se configuran con variables de entorno.
 - **Cacheo y precarga**: Videorama solicita a VHS que precargue contenido con el formato por defecto definido en `VIDEORAMA_DEFAULT_FORMAT`.
-- **Imágenes**: Videorama, el bot y el MCP usan `Dockerfile` en esta carpeta; VHS tiene su propia imagen en `../VHS/Dockerfile`. El `docker-compose.yml` de `Videorama/` construye ambas por defecto, pero puedes apuntar `VHS_BASE_URL` a una instancia de VHS en otro host si ya dispones de su contenedor.
+- **Imágenes**: Videorama, el bot y el MCP usan `Dockerfile` en esta carpeta. VHS tiene su propia imagen en su repositorio y debe desplegarse aparte; apunta `VHS_BASE_URL` a la instancia que quieras usar.
 
 ## Requisitos previos
 
@@ -87,25 +87,24 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
    | `TELEGRAM_VHS_PRESET` | Perfil de `ffmpeg` para conversiones vía bot | Bot | `ffmpeg_720p` |
    | `VIDEORAMA_UID` / `VIDEORAMA_GID` | Usuario y grupo con los que se ejecutan los contenedores | Todos | `1000` / `1000` |
    | `VIDEORAMA_IMAGE` | Nombre de la imagen usada por Videorama/Bot/MCP | Despliegue | `ghcr.io/successbyfailure/videorama:latest` |
-   | `VHS_IMAGE` | Nombre de la imagen usada para VHS (local o remoto) | Despliegue | `ghcr.io/successbyfailure/vhs:latest` |
 
 ## Puesta en marcha con Docker Compose
 
-1. Desde `Videorama/`, arranca los servicios (se construyen las imágenes de Videorama y VHS desde sus `Dockerfile` locales):
+1. Arranca o apunta a una instancia de VHS desplegada aparte (por ejemplo, desde su repositorio oficial o imagen publicada) y define `VHS_BASE_URL` en `.env` hacia esa URL.
+
+2. Desde `Videorama/`, levanta la biblioteca, el bot y el MCP (solo se construye la imagen de Videorama):
 
    ```bash
    docker compose up --build
    ```
 
-   Asegúrate de que la carpeta `../VHS` exista si quieres construir VHS desde el monorepo. Si ya tienes una imagen publicada en otro host, ajusta `VHS_BASE_URL` en `.env` y puedes omitir el servicio `vhs` del compose.
-
-2. Una vez arriba:
-   - VHS: <http://localhost:8601>
+3. Una vez arriba:
+   - VHS: la URL configurada en `VHS_BASE_URL`.
    - Videorama: <http://localhost:8600>
    - Servidor MCP (HTTP): <http://localhost:8765/mcp>
    - El bot se conectará automáticamente si `TELEGRAM_BOT_TOKEN` está definido.
 
-3. Los contextos de construcción excluyen `data/` y cualquier `*.env`, evitando subir datos o credenciales a las imágenes finales.
+4. Los contextos de construcción excluyen `data/` y cualquier `*.env`, evitando subir datos o credenciales a las imágenes finales.
 
 > Usa `docker compose logs -f <servicio>` para inspeccionar los procesos y `docker compose down` para detenerlos conservando los volúmenes.
 
@@ -115,11 +114,9 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-# Instala también las dependencias de VHS si lo levantarás en local
-pip install -r ../VHS/requirements.txt
-
-# Terminal 1: VHS (carpeta ../VHS)
-(cd ../VHS && uvicorn vhs.main:app --reload --host 0.0.0.0 --port 8601)
+# Terminal 1: VHS (repositorio independiente)
+# Sigue las instrucciones del proyecto de VHS y arráncalo en otro terminal
+# apuntando al puerto configurado (ej.: 8601).
 
 # Terminal 2: Videorama
 uvicorn videorama.main:app --reload --host 0.0.0.0 --port 8600
@@ -233,12 +230,11 @@ scripts/                Utilidades de mantenimiento (incluye auto_update.sh).
 storage/                Volúmenes locales para vídeos, música y clips.
 templates/              Plantillas HTML de la biblioteca retro.
 videorama/              Código del servicio Videorama y bot de Telegram.
-docker-compose.yml      Orquestación de Videorama/Bot/MCP y VHS como dependencia.
+docker-compose.yml      Orquestación de Videorama/Bot/MCP apuntando a un VHS externo.
 Dockerfile              Imagen de Videorama, el bot y el MCP.
 requirements.txt        Dependencias Python de Videorama/Bot/MCP.
 requirements-mcp.txt    Dependencias mínimas para el servidor MCP.
 versions.json           Versiones cargadas por la interfaz y los servicios.
-../VHS/                 Servicio VHS desacoplado (Dockerfile, requirements, assets y plantillas propias).
 ```
 
 ## Resolución de problemas
