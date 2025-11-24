@@ -1,6 +1,6 @@
 # Videorama · VHS Suite
 
-**Versiones**: Videorama 0.1.3 · VHS 0.1.2 · Bot de Telegram 0.1.2 · Servidor MCP 0.1.2
+**Versiones**: Videorama 0.1.4 · VHS 0.1.2 · Bot de Telegram 0.1.2 · Servidor MCP 0.1.2
 
 Las versiones se cargan desde `versions.json`, aparecen en el _footer_ de las páginas y pueden consultarse desde todos los canales (MCP, bot de Telegram y web).
 
