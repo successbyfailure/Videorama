@@ -39,6 +39,14 @@ VIDEORAMA_API_URL = os.getenv("VIDEORAMA_API_URL", "http://localhost:8600").rstr
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
 VHS_HTTP_TIMEOUT = int(os.getenv("VHS_HTTP_TIMEOUT", "60"))
 DEFAULT_VHS_PRESET = os.getenv("TELEGRAM_VHS_PRESET", "ffmpeg_720p")
+DEFAULT_VHS_FORMAT_FALLBACK = "video_high"
+LEGACY_VHS_FORMATS = {
+    "audio": "audio_high",
+    "transcripcion": "transcript_json",
+    "transcripcion_txt": "transcript_text",
+    "transcripcion_srt": "transcript_srt",
+    "ffmpeg_audio": "ffmpeg_mp3-192",
+}
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_DOWNLOAD_LIMIT_BYTES = int(
     os.getenv("TELEGRAM_DOWNLOAD_LIMIT_BYTES", 20 * 1024 * 1024)
@@ -69,6 +77,16 @@ HELP_TEXT = (
 
 class TelegramDownloadError(RuntimeError):
     """Señala que Telegram rechazó la descarga del archivo."""
+
+
+def normalize_vhs_format(media_format: Optional[str]) -> str:
+    if not media_format:
+        return DEFAULT_VHS_FORMAT_FALLBACK
+    cleaned = str(media_format).strip()
+    if not cleaned:
+        return DEFAULT_VHS_FORMAT_FALLBACK
+    lowered = cleaned.lower()
+    return LEGACY_VHS_FORMATS.get(lowered, lowered)
 
 
 def format_filesize(num_bytes: int) -> str:
@@ -181,7 +199,7 @@ async def fetch_transcription_text(url: str) -> Optional[str]:
         try:
             response = requests.get(
                 f"{VHS_BASE_URL}/api/download",
-                params={"url": url, "format": "transcripcion_txt"},
+                params={"url": url, "format": "transcript_text"},
                 timeout=300,
             )
         except requests.RequestException:
@@ -226,10 +244,11 @@ async def fetch_summary_text(url: str) -> Optional[str]:
 
 async def download_vhs_media(url: str, media_format: str, fallback_name: str) -> Tuple[Optional[Path], Optional[str]]:
     def _request() -> Tuple[Optional[Path], Optional[str]]:
+        normalized_format = normalize_vhs_format(media_format)
         try:
             with requests.get(
                 f"{VHS_BASE_URL}/api/download",
-                params={"url": url, "format": media_format},
+                params={"url": url, "format": normalized_format},
                 timeout=600,
                 stream=True,
             ) as response:
@@ -626,9 +645,9 @@ async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_
 
         format_map = {
             "video": ("video_high", "video.mp4", "Descargando vídeo desde VHS…"),
-            "audio": ("audio", "audio.mp3", "Descargando audio desde VHS…"),
+            "audio": ("audio_high", "audio.mp3", "Descargando audio desde VHS…"),
             "subs": (
-                "transcripcion_srt",
+                "transcript_srt",
                 "subtitulos.srt",
                 "Generando subtítulos en SRT…",
             ),

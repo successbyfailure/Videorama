@@ -636,13 +636,19 @@
               <label for="format-input">Formato preferido</label>
               <select id="format-input" name="format">
                 <option value="video_high" {% if default_format == 'video_high' %}selected{% endif %}>video_high</option>
+                <option value="video_med" {% if default_format == 'video_med' %}selected{% endif %}>video_med</option>
                 <option value="video_low" {% if default_format == 'video_low' %}selected{% endif %}>video_low</option>
-                <option value="audio" {% if default_format == 'audio' %}selected{% endif %}>audio</option>
-                <option value="transcripcion" {% if default_format == 'transcripcion' %}selected{% endif %}>transcripción</option>
+                <option value="audio_high" {% if default_format == 'audio_high' %}selected{% endif %}>audio_high</option>
+                <option value="audio_med" {% if default_format == 'audio_med' %}selected{% endif %}>audio_med</option>
+                <option value="audio_low" {% if default_format == 'audio_low' %}selected{% endif %}>audio_low</option>
+                <option value="transcript_json" {% if default_format == 'transcript_json' %}selected{% endif %}>transcript_json</option>
+                <option value="transcript_text" {% if default_format == 'transcript_text' %}selected{% endif %}>transcript_text</option>
+                <option value="transcript_srt" {% if default_format == 'transcript_srt' %}selected{% endif %}>transcript_srt</option>
                 <option value="ffmpeg_1080p" {% if default_format == 'ffmpeg_1080p' %}selected{% endif %}>ffmpeg_1080p</option>
                 <option value="ffmpeg_720p" {% if default_format == 'ffmpeg_720p' %}selected{% endif %}>ffmpeg_720p</option>
                 <option value="ffmpeg_480p" {% if default_format == 'ffmpeg_480p' %}selected{% endif %}>ffmpeg_480p</option>
-                <option value="ffmpeg_audio" {% if default_format == 'ffmpeg_audio' %}selected{% endif %}>ffmpeg_audio</option>
+                <option value="ffmpeg_wav" {% if default_format == 'ffmpeg_wav' %}selected{% endif %}>ffmpeg_wav</option>
+                <option value="ffmpeg_mp3-192" {% if default_format == 'ffmpeg_mp3-192' %}selected{% endif %}>ffmpeg_mp3-192</option>
               </select>
             </div>
             <div>

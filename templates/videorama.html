@@ -2880,12 +2880,19 @@
         const options = [
           { value: preferred, label: 'Formato original', selected: true },
           { value: 'video_high', label: 'Video alta calidad' },
+          { value: 'video_med', label: 'Video 720p' },
           { value: 'video_low', label: 'Video ligero' },
-          { value: 'audio', label: 'Audio MP3' },
-          { value: 'audio_low', label: 'Audio ligero' },
-          { value: 'transcripcion', label: 'Transcripción JSON' },
-          { value: 'transcripcion_txt', label: 'Transcripción TXT' },
-          { value: 'transcripcion_srt', label: 'Subtítulos SRT' },
+          { value: 'audio_high', label: 'Audio alta calidad' },
+          { value: 'audio_med', label: 'Audio 96 kbps' },
+          { value: 'audio_low', label: 'Audio 48 kbps' },
+          { value: 'transcript_json', label: 'Transcripción JSON' },
+          { value: 'transcript_text', label: 'Transcripción TXT' },
+          { value: 'transcript_srt', label: 'Subtítulos SRT' },
+          { value: 'ffmpeg_1080p', label: 'ffmpeg_1080p' },
+          { value: 'ffmpeg_720p', label: 'ffmpeg_720p' },
+          { value: 'ffmpeg_480p', label: 'ffmpeg_480p' },
+          { value: 'ffmpeg_mp3-192', label: 'ffmpeg_mp3-192' },
+          { value: 'ffmpeg_wav', label: 'ffmpeg_wav' },
         ];
         const seen = new Set();
         return options.filter((option) => {
