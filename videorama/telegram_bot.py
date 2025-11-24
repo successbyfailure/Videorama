@@ -575,6 +575,12 @@ async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_
             return
         await prompt_url_save_options(query, pending_url, token)
         return
+    if action == "musicmenu":
+        if not pending_url:
+            await query.message.reply_text("No guardé la URL. Vuelve a enviarla, por favor.")
+            return
+        await prompt_music_save_options(query, pending_url, token)
+        return
     if action == "cancelurl":
         pending_urls.pop(token, None)
         await query.message.reply_text("Acción cancelada.")
@@ -584,14 +590,32 @@ async def handle_action_selection(update: Update, context: ContextTypes.DEFAULT_
         if not pending_url:
             await query.message.reply_text("No guardé la URL. Vuelve a enviarla, por favor.")
             return
-        library_choice = None
-        category_choice = None
-        try:
-            _, _, library_choice, category_choice = query.data.split(":", 3)
-        except ValueError:
-            pass
+        parts = query.data.split(":")
+        library_choice = parts[2] if len(parts) >= 3 else None
+        category_choice = parts[3] if len(parts) >= 4 else None
+        store_audio_choice = None
+        store_video_choice = None
+
+        if library_choice == "music" and category_choice in {"audio", "video", "both"}:
+            mode = category_choice
+            category_choice = parts[4] if len(parts) >= 5 else None
+            store_audio_choice = mode in {"audio", "both"}
+            store_video_choice = mode in {"video", "both"}
+        elif len(parts) >= 5 and library_choice == "music":
+            try:
+                store_audio_choice = bool(int(parts[3]))
+                store_video_choice = bool(int(parts[4]))
+            except ValueError:
+                pass
         pending_urls.pop(token, None)
-        await process_url_upload(query.message, pending_url, library_choice, category_choice)
+        await process_url_upload(
+            query.message,
+            pending_url,
+            library_choice,
+            category_choice,
+            store_audio_choice,
+            store_video_choice,
+        )
         return
 
     if action in {"transcript", "summary", "video", "audio", "subs"}:
@@ -719,7 +743,12 @@ async def process_videorama_upload(query, file_info: Dict[str, str], file_path: 
 
 
 async def process_url_upload(
-    message, url: str, library_choice: Optional[str] = None, category_choice: Optional[str] = None
+    message,
+    url: str,
+    library_choice: Optional[str] = None,
+    category_choice: Optional[str] = None,
+    store_audio_choice: Optional[bool] = None,
+    store_video_choice: Optional[bool] = None,
 ) -> None:
     await message.reply_text("Añadiendo el enlace a Videorama…", disable_web_page_preview=True)
 
@@ -751,6 +780,11 @@ async def process_url_upload(
     if not suggested_library:
         suggested_library = derive_library_from_metadata(metadata) or "video"
     payload["library"] = suggested_library
+
+    if store_audio_choice is not None:
+        payload["store_audio"] = bool(store_audio_choice)
+    if store_video_choice is not None:
+        payload["store_video"] = bool(store_video_choice)
 
     chosen_category = normalize_category_choice(category_choice, suggested_library) if category_choice else None
     if not chosen_category:
@@ -788,23 +822,24 @@ async def process_url_upload(
 
 async def prompt_url_save_options(query, url: str, token: str) -> None:
     metadata = await asyncio.to_thread(probe_url_metadata, url)
-    suggested_category = normalize_category_choice(derive_category_from_metadata(metadata), "video") or "miscelánea"
+    suggested_category = (
+        normalize_category_choice(derive_category_from_metadata(metadata), "video")
+        or "miscelánea"
+    )
 
     keyboard = InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton(
-                    f"Video · {suggested_category.title()}",
+                    "Guardar en biblioteca de videos",
                     callback_data=f"saveurl:{token}:video:{suggested_category}",
                 )
             ],
             [
-                InlineKeyboardButton("Música · Álbum", callback_data=f"saveurl:{token}:music:album"),
-                InlineKeyboardButton("Música · Live", callback_data=f"saveurl:{token}:music:live"),
-            ],
-            [
-                InlineKeyboardButton("Música · DJ", callback_data=f"saveurl:{token}:music:dj"),
-                InlineKeyboardButton("Música · Personalizada", callback_data=f"saveurl:{token}:music:custom"),
+                InlineKeyboardButton(
+                    "Guardar en biblioteca de Música/VideoClips",
+                    callback_data=f"musicmenu:{token}",
+                )
             ],
             [InlineKeyboardButton("Cancelar", callback_data=f"cancelurl:{token}")],
         ]
@@ -819,6 +854,49 @@ async def prompt_url_save_options(query, url: str, token: str) -> None:
 
     await query.message.reply_text(
         f"¿Dónde guardo el enlace?\n{preview}",
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
+    )
+
+
+async def prompt_music_save_options(query, url: str, token: str) -> None:
+    metadata = await asyncio.to_thread(probe_url_metadata, url)
+    music_category = (
+        normalize_category_choice(derive_category_from_metadata(metadata), "music")
+        or "album"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "Guardar VideoClip",
+                    callback_data=f"saveurl:{token}:music:video:{music_category}",
+                ),
+                InlineKeyboardButton(
+                    "Guardar Audio",
+                    callback_data=f"saveurl:{token}:music:audio:{music_category}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "Guardar Ambos",
+                    callback_data=f"saveurl:{token}:music:both:{music_category}",
+                )
+            ],
+            [InlineKeyboardButton("Cancelar", callback_data=f"cancelurl:{token}")],
+        ]
+    )
+
+    summary_bits = []
+    if isinstance(metadata, dict) and metadata.get("title"):
+        summary_bits.append(metadata.get("title"))
+    if isinstance(metadata, dict) and metadata.get("uploader"):
+        summary_bits.append(metadata.get("uploader"))
+    preview = " · ".join(summary_bits) if summary_bits else url
+
+    await query.message.reply_text(
+        f"Biblioteca de Música/VideoClips\n{preview}",
         reply_markup=keyboard,
         disable_web_page_preview=True,
     )
