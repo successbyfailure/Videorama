@@ -18,46 +18,6 @@ services:
     labels:
       - com.centurylinklabs.watchtower.enable=false
 
-  vhs:
-    container_name: vhs
-    image: ${VHS_IMAGE}
-    build:
-      context: ../VHS
-      dockerfile: Dockerfile
-    command: uvicorn vhs.main:app --host 0.0.0.0 --port 8601
-    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
-    depends_on:
-      env-sync:
-        condition: service_completed_successfully
-    ports:
-      - "8601:8601"
-    env_file:
-      - .env
-    volumes:
-      - ./data:/app/data
-      - ./storage/videos:/app/storage/videos
-      - ./storage/videoclips:/app/storage/videoclips
-      - ./storage/musica:/app/storage/musica
-    logging:
-      driver: json-file
-      options:
-        max-size: "2m"
-    restart: unless-stopped
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
-      - com.centurylinklabs.watchtower.scope=videorama
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - |
-          curl -f http://localhost:8601/api/health || exit 1
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    networks:
-      - videorama-net
-
   videorama:
     container_name: videorama
     image: ${VIDEORAMA_IMAGE}
@@ -69,8 +29,6 @@ services:
     depends_on:
       env-sync:
         condition: service_completed_successfully
-      vhs:
-        condition: service_started
     ports:
       - "8600:8600"
     env_file:
