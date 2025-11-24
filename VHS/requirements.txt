@@ -1,9 +1,0 @@
-fastapi
-uvicorn[standard]
-yt-dlp
-jinja2
-python-multipart
-certifi
-openai
-python-dotenv
-requests
