@@ -37,7 +37,30 @@ THUMBNAILS_URL_PREFIX = "/thumbnails"
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
 VHS_HTTP_TIMEOUT = int(os.getenv("VHS_HTTP_TIMEOUT", "60"))
 THUMBNAIL_HTTP_TIMEOUT = int(os.getenv("VIDEORAMA_THUMBNAIL_TIMEOUT", "20"))
-DEFAULT_VHS_FORMAT = os.getenv("VIDEORAMA_DEFAULT_FORMAT", "video_high")
+DEFAULT_VHS_FORMAT_FALLBACK = "video_high"
+RAW_DEFAULT_VHS_FORMAT = os.getenv(
+    "VIDEORAMA_DEFAULT_FORMAT", DEFAULT_VHS_FORMAT_FALLBACK
+)
+LEGACY_VHS_FORMATS = {
+    "audio": "audio_high",
+    "transcripcion": "transcript_json",
+    "transcripcion_txt": "transcript_text",
+    "transcripcion_srt": "transcript_srt",
+    "ffmpeg_audio": "ffmpeg_mp3-192",
+}
+
+
+def normalize_vhs_format(media_format: Optional[str]) -> str:
+    if not media_format:
+        return DEFAULT_VHS_FORMAT_FALLBACK
+    cleaned = str(media_format).strip()
+    if not cleaned:
+        return DEFAULT_VHS_FORMAT_FALLBACK
+    lowered = cleaned.lower()
+    return LEGACY_VHS_FORMATS.get(lowered, lowered)
+
+
+DEFAULT_VHS_FORMAT = normalize_vhs_format(RAW_DEFAULT_VHS_FORMAT)
 LIBRARY_DB_PATH = Path(os.getenv("VIDEORAMA_DB_PATH", "data/videorama/library.db"))
 DEFAULT_CATEGORY = "miscelánea"
 LLM_BASE_URL = (
@@ -184,7 +207,7 @@ def _fetch_transcription_text(url: str) -> Optional[str]:
     try:
         response = requests.get(
             endpoint,
-            params={"url": url, "format": "transcripcion_txt"},
+            params={"url": url, "format": "transcript_text"},
             timeout=300,
         )
     except requests.RequestException:
@@ -601,8 +624,7 @@ def normalize_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not isinstance(added_at, (int, float)):
         added_at = time.time()
 
-    preferred_format = str(entry.get("preferred_format") or DEFAULT_VHS_FORMAT)
-    preferred_format = preferred_format.strip() or DEFAULT_VHS_FORMAT
+    preferred_format = normalize_vhs_format(entry.get("preferred_format") or DEFAULT_VHS_FORMAT)
 
     cache_key = entry.get("vhs_cache_key")
     if isinstance(cache_key, str):
@@ -1119,11 +1141,12 @@ def fetch_music_metadata(title: str, band: Optional[str] = None) -> Dict[str, An
 
 
 def trigger_vhs_download(url: str, media_format: str) -> None:
+    normalized_format = normalize_vhs_format(media_format)
     endpoint = f"{VHS_BASE_URL}/api/download"
     try:
         requests.get(
             endpoint,
-            params={"url": url, "format": media_format},
+            params={"url": url, "format": normalized_format},
             timeout=120,
         )
     except requests.RequestException:
@@ -1132,7 +1155,9 @@ def trigger_vhs_download(url: str, media_format: str) -> None:
 
 
 def derive_cache_key(url: str, media_format: str) -> str:
-    normalized = f"{url.strip()}::{media_format.strip().lower()}"
+    normalized_format = normalize_vhs_format(media_format)
+    normalized_url = str(url or "").strip()
+    normalized = f"{normalized_url}::{normalized_format}"
     return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
 
 
@@ -1152,6 +1177,10 @@ class AddLibraryEntry(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
     store_audio: bool = True
     store_video: bool = False
+
+    @validator("format")
+    def normalize_format(cls, value: str) -> str:
+        return normalize_vhs_format(value)
 
     @validator("category")
     def strip_category(cls, value: Optional[str]) -> Optional[str]:
@@ -1210,6 +1239,12 @@ class UpdateLibraryEntry(BaseModel):
     audio_url: Optional[str] = None
     video_url: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+
+    @validator("preferred_format")
+    def normalize_preferred_format(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        return normalize_vhs_format(value)
 
     @validator("title")
     def strip_title(cls, value: Optional[str]) -> Optional[str]:

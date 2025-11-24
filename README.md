@@ -1,6 +1,6 @@
 # Videorama · VHS Suite
 
-**Versiones**: Videorama 0.1.6 · Bot de Telegram 0.1.3 · Servidor MCP 0.1.3
+**Versiones**: Videorama 0.1.7 · Bot de Telegram 0.1.4 · Servidor MCP 0.1.3
 
 Las versiones se cargan desde `versions.json`, aparecen en el _footer_ de las páginas y pueden consultarse desde todos los canales (MCP, bot de Telegram y web).
 
@@ -173,7 +173,7 @@ un servicio opcional y separado del API principal.
 
 - `GET /api/health`: estado del servicio.
 - `GET /api/probe?url=...`: inspecciona metadatos sin descargar.
-- `GET /api/download?url=...&format=...`: descarga/convierte en formatos `video_*`, `audio_*` o `transcripcion_*`.
+- `GET /api/download?url=...&format=...`: descarga/convierte en formatos `video_*`, `audio_*`, `ffmpeg_*` o `transcript_*`.
 - `POST /api/transcribe/upload`: sube un fichero y devuelve subtítulos en JSON/TXT/SRT.
 - `POST /api/ffmpeg/upload`: aplica un perfil `ffmpeg_*` sobre un archivo subido y devuelve la conversión.
 - `GET /api/cache`: lista la caché (incluye endpoints para descargar o eliminar).
