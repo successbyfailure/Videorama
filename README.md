@@ -69,29 +69,57 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
    # Edita los valores según tus claves y rutas locales
    ```
 
-2. Variables destacadas:
+2. Variables destacadas por servicio:
 
-   | Variable | Descripción | Servicio | Valor por defecto |
-   | --- | --- | --- | --- |
-   | `CACHE_TTL_SECONDS` | Tiempo de vida de los ficheros en caché | VHS | `86400` |
-   | `CACHE_DIR` | Carpeta donde VHS guarda caché | VHS | `data/cache` |
-   | `USAGE_LOG_PATH` | Log JSONL para estadísticas | VHS | `data/usage_log.jsonl` |
-   | `FFMPEG_BINARY` | Binario usado para conversiones | VHS | `ffmpeg` |
-   | `TRANSCRIPTION_*` / `WHISPER_ASR_*` | Configuración del endpoint de transcripción | VHS | Ver `example.env` |
-   | `VHS_BASE_URL` | URL que Videorama y el bot usan para hablar con VHS | Videorama/Bot | `http://localhost:8601` |
-   | `VIDEORAMA_UPLOADS_DIR` | Carpeta para archivos subidos | Videorama | `data/videorama/uploads` |
-   | `VIDEORAMA_DB_PATH` | Ruta del fichero SQLite de la biblioteca | Videorama | `data/videorama/library.db` |
-   | `VIDEORAMA_DEFAULT_FORMAT` | Formato que Videorama pedirá a VHS al precachear | Videorama | `video_high` |
-   | `VIDEORAMA_API_URL` | URL que usará el bot para hablar con Videorama | Bot | `http://localhost:8600` |
-   | `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram | Bot | _(vacío)_ |
-   | `TELEGRAM_VHS_PRESET` | Perfil de `ffmpeg` para conversiones vía bot | Bot | `ffmpeg_720p` |
-| `VIDEORAMA_HOST_CONFIG_DIR` | Carpeta del host donde vive `.env` | Despliegue | `.` |
-   | `VIDEORAMA_HOST_DATA_DIR` | Ruta del host para montar `data/` en los contenedores | Despliegue | `./data` |
-   | `VIDEORAMA_HOST_VIDEOS_DIR` | Ruta del host para el volumen de `storage/videos` | Despliegue | `./storage/videos` |
-   | `VIDEORAMA_HOST_VIDEOCLIPS_DIR` | Ruta del host para el volumen de `storage/videoclips` | Despliegue | `./storage/videoclips` |
-   | `VIDEORAMA_HOST_MUSICA_DIR` | Ruta del host para el volumen de `storage/musica` | Despliegue | `./storage/musica` |
-   | `VIDEORAMA_UID` / `VIDEORAMA_GID` | Usuario y grupo con los que se ejecutan los contenedores | Todos | `1000` / `1000` |
-   | `VIDEORAMA_IMAGE` | Nombre de la imagen usada por Videorama/Bot/MCP | Despliegue | `ghcr.io/successbyfailure/videorama:latest` |
+   **VHS**
+
+   | Variable | Descripción | Valor por defecto |
+   | --- | --- | --- |
+   | `CACHE_TTL_SECONDS` | Tiempo de vida de los ficheros en caché | `86400` |
+   | `CACHE_DIR` | Carpeta donde VHS guarda caché | `data/cache` |
+   | `USAGE_LOG_PATH` | Log JSONL para estadísticas | `data/usage_log.jsonl` |
+   | `TRANSCRIPTION_*` / `WHISPER_ASR_*` | Configuración del endpoint de transcripción | Ver `example.env` |
+   | `FFMPEG_BINARY` | Binario usado para conversiones | `ffmpeg` |
+
+   **Videorama (API y modelos)**
+
+   | Variable | Descripción | Valor por defecto |
+   | --- | --- | --- |
+   | `VHS_BASE_URL` / `VHS_HTTP_TIMEOUT` | URL de VHS y timeout para las peticiones | `http://localhost:8601` / `60` |
+   | `VIDEORAMA_THUMBNAIL_TIMEOUT` | Timeout para obtener miniaturas desde VHS u orígenes remotos | `20` |
+   | `VIDEORAMA_DEFAULT_FORMAT` | Formato que Videorama pedirá a VHS al precachear | `video_high` |
+   | `VIDEORAMA_LLM_BASE_URL` / `OPENAI_BASE_URL` | Endpoint para los modelos (prioridad a `VIDEORAMA_LLM_BASE_URL`) | `https://api.openai.com/v1` / _(vacío)_ |
+   | `VIDEORAMA_LLM_API_KEY` / `OPENAI_API_KEY` | Claves para los modelos (acepta ambas variables) | _(vacío)_ |
+   | `VIDEORAMA_SUMMARY_MODEL` / `VIDEORAMA_TAGS_MODEL` / `VIDEORAMA_LYRICS_MODEL` | Modelos usados para resumen, etiquetas y letras | `gpt-4o-mini` |
+   | `VIDEORAMA_SUMMARY_PROMPT` / `VIDEORAMA_TAGS_PROMPT` / `VIDEORAMA_MUSIC_TAGS_PROMPT` / `VIDEORAMA_LYRICS_PROMPT` | Prompts personalizables para IA | Ver `example.env` |
+
+   **Bot de Telegram**
+
+   | Variable | Descripción | Valor por defecto |
+   | --- | --- | --- |
+   | `VIDEORAMA_API_URL` / `VIDEORAMA_API_TIMEOUT` | URL de la API de Videorama y timeout de peticiones | `http://localhost:8600` / `30` (en Docker suele usarse `http://videorama:8600`) |
+   | `TELEGRAM_BOT_TOKEN` / `VIDEORAMA_BOT_TOKEN` | Token principal o alternativo del bot | _(vacío)_ |
+   | `TELEGRAM_VHS_PRESET` | Perfil de `ffmpeg` para conversiones vía bot | `ffmpeg_720p` |
+   | `TELEGRAM_DOWNLOAD_LIMIT_BYTES` | Límite de tamaño para descargas directas desde Telegram | `20971520` |
+
+   **Servidor MCP**
+
+   | Variable | Descripción | Valor por defecto |
+   | --- | --- | --- |
+   | `VIDEORAMA_MCP_TRANSPORT` | Transporte para MCP (`http` por ahora) | `http` |
+   | `VIDEORAMA_MCP_HOST` / `VIDEORAMA_MCP_PORT` | Host y puerto para el servidor MCP | `0.0.0.0` / `8765` |
+
+   **Despliegue**
+
+   | Variable | Descripción | Valor por defecto |
+   | --- | --- | --- |
+   | `VIDEORAMA_HOST_CONFIG_DIR` | Carpeta del host donde vive `.env` | `.` |
+   | `VIDEORAMA_HOST_DATA_DIR` | Ruta del host para montar `data/` en los contenedores | `./data` |
+   | `VIDEORAMA_HOST_VIDEOS_DIR` | Ruta del host para el volumen de `storage/videos` | `./storage/videos` |
+   | `VIDEORAMA_HOST_VIDEOCLIPS_DIR` | Ruta del host para el volumen de `storage/videoclips` | `./storage/videoclips` |
+   | `VIDEORAMA_HOST_MUSICA_DIR` | Ruta del host para el volumen de `storage/musica` | `./storage/musica` |
+   | `VIDEORAMA_UID` / `VIDEORAMA_GID` | Usuario y grupo con los que se ejecutan los contenedores | `1000` / `1000` |
+   | `VIDEORAMA_IMAGE` | Nombre de la imagen usada por Videorama/Bot/MCP | `ghcr.io/successbyfailure/videorama:latest` |
 
 ## Puesta en marcha con Docker Compose
 
@@ -200,7 +228,7 @@ un servicio opcional y separado del API principal.
 ## Flujos de trabajo habituales
 
 1. **Agregar un vídeo remoto**: envía la URL a `/api/library` (o usa `/add` en el bot). Videorama consultará VHS, clasificará la entrada y puede lanzar la descarga.
-2. **Subir un archivo local**: usa `/api/library/upload` para alojarlo en `VIDEORAMA_UPLOADS_DIR` y obtener un enlace reproducible vía `/media/...`.
+2. **Subir un archivo local**: usa `/api/library/upload` para alojarlo en `storage/videos` (ruta interna de subidas) y obtener un enlace reproducible vía `/media/...`.
 3. **Convertir un archivo puntual**: manda el fichero a `/api/ffmpeg/upload` indicando el perfil `ffmpeg_*` deseado; útil para obtener audio/MP3 o copias comprimidas.
 4. **Gestionar la colección**: consulta `/api/playlists` y `/api/category-settings` para crear vistas dinámicas o categorizar por duración/proveedor.
 
