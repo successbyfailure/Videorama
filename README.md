@@ -87,8 +87,8 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
 
    | Variable | Descripción | Valor por defecto |
    | --- | --- | --- |
-   | `VIDEORAMA_API_URL` / `VIDEORAMA_API_TIMEOUT` | URL de la API de Videorama y timeout de peticiones | `http://localhost:8600` / `30` (en Docker suele usarse `http://videorama:8600`) |
-   | `TELEGRAM_BOT_TOKEN` / `VIDEORAMA_BOT_TOKEN` | Token principal o alternativo del bot | _(vacío)_ |
+  | `VIDEORAMA_API_URL` / `VIDEORAMA_API_TIMEOUT` | URL de la API de Videorama y timeout de peticiones | `http://localhost:8600` / `30` (en Docker suele usarse `http://videorama:8600`) |
+  | `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram | _(vacío)_ |
    | `TELEGRAM_VHS_PRESET` | Perfil de `ffmpeg` para conversiones vía bot | `ffmpeg_720p` |
    | `TELEGRAM_DOWNLOAD_LIMIT_BYTES` | Límite de tamaño para descargas directas desde Telegram | `20971520` |
 

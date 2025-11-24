@@ -881,11 +881,9 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def main() -> None:
-    token = BOT_TOKEN or os.getenv("VIDEORAMA_BOT_TOKEN")
+    token = BOT_TOKEN
     if not token:
-        raise RuntimeError(
-            "Debes definir TELEGRAM_BOT_TOKEN o VIDEORAMA_BOT_TOKEN en el entorno"
-        )
+        raise RuntimeError("Debes definir TELEGRAM_BOT_TOKEN en el entorno")
     application = ApplicationBuilder().token(token).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler(['versiones', 'version'], show_versions))
