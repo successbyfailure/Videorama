@@ -11,7 +11,10 @@ from typing import Dict
 
 logger = logging.getLogger(__name__)
 
-VERSION_FILE = Path(os.getenv("VIDEORAMA_VERSION_FILE", "versions.json"))
+VERSION_FILE = Path(
+    os.getenv("SERVICE_VERSION_FILE")
+    or os.getenv("VIDEORAMA_VERSION_FILE", "versions.json")
+)
 
 
 @lru_cache(maxsize=1)

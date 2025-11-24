@@ -1,9 +1,16 @@
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi.testclient import TestClient
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+os.chdir(ROOT_DIR)
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from videorama import main
 from videorama.storage import SQLiteStore
