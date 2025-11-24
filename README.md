@@ -78,8 +78,8 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
    | `VHS_BASE_URL` / `VHS_HTTP_TIMEOUT` | URL de VHS y timeout para las peticiones | `http://localhost:8601` / `60` |
    | `VIDEORAMA_THUMBNAIL_TIMEOUT` | Timeout para obtener miniaturas desde VHS u orígenes remotos | `20` |
    | `VIDEORAMA_DEFAULT_FORMAT` | Formato que Videorama pedirá a VHS al precachear | `video_high` |
-   | `VIDEORAMA_LLM_BASE_URL` / `OPENAI_BASE_URL` | Endpoint para los modelos (prioridad a `VIDEORAMA_LLM_BASE_URL`) | `https://api.openai.com/v1` / _(vacío)_ |
-   | `VIDEORAMA_LLM_API_KEY` / `OPENAI_API_KEY` | Claves para los modelos (acepta ambas variables) | _(vacío)_ |
+  | `OPENAI_COMPATIBLE_BASE_URL` | Endpoint para los modelos | `https://api.openai.com/v1` |
+  | `OPENAI_COMPATIBLE_API_KEY` | Claves para los modelos | _(vacío)_ |
    | `VIDEORAMA_SUMMARY_MODEL` / `VIDEORAMA_TAGS_MODEL` / `VIDEORAMA_LYRICS_MODEL` | Modelos usados para resumen, etiquetas y letras | `gpt-4o-mini` |
    | `VIDEORAMA_SUMMARY_PROMPT` / `VIDEORAMA_TAGS_PROMPT` / `VIDEORAMA_MUSIC_TAGS_PROMPT` / `VIDEORAMA_LYRICS_PROMPT` | Prompts personalizables para IA | Ver `example.env` |
 
