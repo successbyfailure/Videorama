@@ -22,17 +22,27 @@ from openai import OpenAI
 from .storage import SQLiteStore
 from versioning import get_version
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def resolve_path(env_var: str, default: str, *, expect_dir: bool = True) -> Path:
+    raw_value = os.getenv(env_var, default)
+    resolved = Path(raw_value)
+    if not resolved.is_absolute():
+        resolved = BASE_DIR / resolved
+    if expect_dir:
+        resolved.mkdir(parents=True, exist_ok=True)
+    else:
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+    return resolved
+
 logger = logging.getLogger(__name__)
 
 APP_TITLE = "Videorama Library"
-UPLOADS_DIR = Path(os.getenv("VIDEORAMA_UPLOADS_DIR", "storage/videos"))
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-THUMBNAILS_DIR = Path(os.getenv("VIDEORAMA_THUMBNAILS_DIR", "data/videorama/thumbnails"))
-THUMBNAILS_DIR.mkdir(parents=True, exist_ok=True)
-MUSIC_AUDIO_DIR = Path(os.getenv("VIDEORAMA_MUSIC_AUDIO_DIR", "storage/musica"))
-MUSIC_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-MUSIC_VIDEO_DIR = Path(os.getenv("VIDEORAMA_MUSIC_VIDEO_DIR", "storage/videoclips"))
-MUSIC_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+UPLOADS_DIR = resolve_path("VIDEORAMA_UPLOADS_DIR", "storage/videos")
+THUMBNAILS_DIR = resolve_path("VIDEORAMA_THUMBNAILS_DIR", "data/videorama/thumbnails")
+MUSIC_AUDIO_DIR = resolve_path("VIDEORAMA_MUSIC_AUDIO_DIR", "storage/musica")
+MUSIC_VIDEO_DIR = resolve_path("VIDEORAMA_MUSIC_VIDEO_DIR", "storage/videoclips")
 THUMBNAILS_URL_PREFIX = "/thumbnails"
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
 VHS_HTTP_TIMEOUT = int(os.getenv("VHS_HTTP_TIMEOUT", "60"))
@@ -61,7 +71,7 @@ def normalize_vhs_format(media_format: Optional[str]) -> str:
 
 
 DEFAULT_VHS_FORMAT = normalize_vhs_format(RAW_DEFAULT_VHS_FORMAT)
-LIBRARY_DB_PATH = Path(os.getenv("VIDEORAMA_DB_PATH", "data/videorama/library.db"))
+LIBRARY_DB_PATH = resolve_path("VIDEORAMA_DB_PATH", "data/videorama/library.db", expect_dir=False)
 DEFAULT_CATEGORY = "miscelánea"
 LLM_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "https://api.openai.com/v1")
 LLM_API_KEY = os.getenv("OPENAI_COMPATIBLE_API_KEY", "")
