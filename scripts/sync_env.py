@@ -22,6 +22,11 @@ def parse_env(file_path: Path) -> dict[str, str]:
     if not file_path.exists():
         return values
 
+    if file_path.is_dir():
+        raise IsADirectoryError(
+            f"{file_path} es un directorio. Asegúrate de montar o crear un archivo .env válido."
+        )
+
     for line in file_path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
 
@@ -45,6 +50,19 @@ def ensure_env_file() -> str:
     if not EXAMPLE_ENV.exists():
         raise FileNotFoundError(f"example.env no encontrado en {EXAMPLE_ENV}")
 
+    removed_empty_dir = False
+
+    if LOCAL_ENV.exists() and LOCAL_ENV.is_dir():
+        contents = list(LOCAL_ENV.iterdir())
+
+        if contents:
+            raise IsADirectoryError(
+                f"{LOCAL_ENV} es un directorio con contenido. Elimina o renombra la carpeta para crear un archivo .env."
+            )
+
+        LOCAL_ENV.rmdir()
+        removed_empty_dir = True
+
     example_values = parse_env(EXAMPLE_ENV)
     existing_values = parse_env(LOCAL_ENV)
 
@@ -54,6 +72,9 @@ def ensure_env_file() -> str:
     if not LOCAL_ENV.exists():
         LOCAL_ENV.write_text(EXAMPLE_ENV.read_text(encoding="utf-8"), encoding="utf-8")
         status = "creado desde example.env"
+
+        if removed_empty_dir:
+            status += " (reemplazó un directorio vacío)"
     elif missing:
         with LOCAL_ENV.open("a", encoding="utf-8") as env_file:
             env_file.write("\n# Variables añadidas automáticamente desde example.env\n")
