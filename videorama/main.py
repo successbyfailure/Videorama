@@ -45,6 +45,7 @@ MUSIC_AUDIO_DIR = resolve_path("VIDEORAMA_MUSIC_AUDIO_DIR", "storage/musica")
 MUSIC_VIDEO_DIR = resolve_path("VIDEORAMA_MUSIC_VIDEO_DIR", "storage/videoclips")
 THUMBNAILS_URL_PREFIX = "/thumbnails"
 VHS_BASE_URL = os.getenv("VHS_BASE_URL", "http://localhost:8601").rstrip("/")
+VIDEORAMA_PUBLIC_URL = os.getenv("VIDEORAMA_PUBLIC_URL", "").strip().rstrip("/")
 VHS_HTTP_TIMEOUT = int(os.getenv("VHS_HTTP_TIMEOUT", "60"))
 THUMBNAIL_HTTP_TIMEOUT = int(os.getenv("VIDEORAMA_THUMBNAIL_TIMEOUT", "20"))
 DEFAULT_VHS_FORMAT_FALLBACK = "video_high"
@@ -151,6 +152,26 @@ def _llm_client() -> OpenAI:
             detail="Configura OPENAI_COMPATIBLE_API_KEY",
         )
     return OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
+
+
+def build_public_base_url(request: Optional[Request] = None) -> Optional[str]:
+    if VIDEORAMA_PUBLIC_URL:
+        return VIDEORAMA_PUBLIC_URL
+    if request:
+        try:
+            return str(request.base_url).rstrip("/")
+        except Exception:  # pragma: no cover - defensive
+            return None
+    return None
+
+
+def build_entry_view_url(
+    entry_id: str, *, base_url: Optional[str] = None, request: Optional[Request] = None
+) -> Optional[str]:
+    base = base_url or build_public_base_url(request)
+    if not base:
+        return None
+    return f"{base}/?entry={entry_id}"
 
 
 def _format_prompt(template: str, context: str) -> str:
@@ -552,7 +573,7 @@ def summarize_library(entries: List[Dict[str, Any]], downloads: List[Dict[str, A
     }
 
 
-def normalize_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def normalize_entry(entry: Dict[str, Any], *, base_url: Optional[str] = None) -> Optional[Dict[str, Any]]:
     url = str(entry.get("url") or "").strip()
     entry_id = entry.get("id") or (entry_id_for_url(url) if url else None)
     if not entry_id or not url:
@@ -666,6 +687,11 @@ def normalize_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if cached_thumbnail:
         thumbnail = cached_thumbnail
 
+    resolved_local_path = _resolve_local_media(entry)
+    local_path = str(resolved_local_path) if resolved_local_path else None
+    base_url = base_url or build_public_base_url()
+    view_url = build_entry_view_url(entry_id, base_url=base_url)
+
     return {
         "id": entry_id,
         "url": primary_url,
@@ -689,14 +715,16 @@ def normalize_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "metadata": metadata_blob,
         "audio_url": audio_url,
         "video_url": video_url,
+        "local_path": local_path or metadata_blob.get("local_path"),
+        "view_url": view_url,
     }
 
 
-def normalize_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def normalize_entries(entries: List[Dict[str, Any]], base_url: Optional[str] = None) -> List[Dict[str, Any]]:
     normalized: List[Dict[str, Any]] = []
     seen_ids = set()
     for raw in entries:
-        normalized_entry = normalize_entry(raw)
+        normalized_entry = normalize_entry(raw, base_url=base_url)
         if not normalized_entry:
             continue
         entry_id = normalized_entry["id"]
@@ -708,9 +736,9 @@ def normalize_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return normalized
 
 
-def load_library() -> List[Dict[str, Any]]:
+def load_library(base_url: Optional[str] = None) -> List[Dict[str, Any]]:
     entries = store.list_entries()
-    normalized = normalize_entries(entries)
+    normalized = normalize_entries(entries, base_url=base_url)
     purge_cached_thumbnails([entry["id"] for entry in normalized])
     return normalized
 
@@ -1581,8 +1609,9 @@ async def vhs_health() -> Dict[str, Any]:
 
 
 @app.get("/api/library")
-async def list_library(library: Optional[str] = None) -> Dict[str, Any]:
-    entries = load_library()
+async def list_library(request: Request, library: Optional[str] = None) -> Dict[str, Any]:
+    base_url = build_public_base_url(request)
+    entries = load_library(base_url=base_url)
     normalized_library = (library or "").strip().lower()
     totals = {
         "video": len([entry for entry in entries if entry.get("library") == "video"]),
@@ -1596,10 +1625,12 @@ async def list_library(library: Optional[str] = None) -> Dict[str, Any]:
 
 
 @app.get("/api/library/{entry_id}")
-async def get_entry(entry_id: str) -> Dict[str, Any]:
+async def get_entry(request: Request, entry_id: str) -> Dict[str, Any]:
     stored_entry = store.get_entry(entry_id)
     if stored_entry:
-        return stored_entry
+        normalized = normalize_entry(stored_entry, base_url=build_public_base_url(request))
+        if normalized:
+            return normalized
     raise HTTPException(status_code=404, detail="Entrada no encontrada")
 
 
@@ -1639,7 +1670,7 @@ async def download_entry(request: Request, entry_id: str, format: Optional[str] 
 
 
 @app.post("/api/library", status_code=201)
-async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
+async def add_entry(request: Request, payload: AddLibraryEntry) -> Dict[str, Any]:
     metadata = fetch_vhs_metadata(payload.url)
     entry_id = entry_id_for_url(payload.url)
     now = time.time()
@@ -1755,12 +1786,12 @@ async def add_entry(payload: AddLibraryEntry) -> Dict[str, Any]:
     if payload.auto_download:
         trigger_vhs_download(payload.url, payload.format)
 
-    stored_entry = normalize_entry(entry)
+    stored_entry = normalize_entry(entry, base_url=build_public_base_url(request))
     return stored_entry or entry
 
 
 @app.put("/api/library/{entry_id}")
-async def update_entry(entry_id: str, payload: UpdateLibraryEntry) -> Dict[str, Any]:
+async def update_entry(request: Request, entry_id: str, payload: UpdateLibraryEntry) -> Dict[str, Any]:
     stored_entry = store.get_entry(entry_id)
     if not stored_entry:
         raise HTTPException(status_code=404, detail="Entrada no encontrada")
@@ -1796,14 +1827,14 @@ async def update_entry(entry_id: str, payload: UpdateLibraryEntry) -> Dict[str, 
         updated["metadata"] = sanitize_metadata(update_data.get("metadata"))
 
     store.upsert_entry(updated)
-    normalized = normalize_entry(updated)
+    normalized = normalize_entry(updated, base_url=build_public_base_url(request))
     if normalized:
         return normalized
     raise HTTPException(status_code=500, detail="No se pudo actualizar la entrada")
 
 
 @app.post("/api/library/{entry_id}/metadata")
-async def refresh_entry_metadata(entry_id: str) -> Dict[str, Any]:
+async def refresh_entry_metadata(request: Request, entry_id: str) -> Dict[str, Any]:
     stored_entry = store.get_entry(entry_id)
     if not stored_entry:
         raise HTTPException(status_code=404, detail="Entrada no encontrada")
@@ -1836,14 +1867,14 @@ async def refresh_entry_metadata(entry_id: str) -> Dict[str, Any]:
         updated["title"] = metadata_blob.get("title") or stored_entry.get("title")
 
     store.upsert_entry(updated)
-    normalized = normalize_entry(updated)
+    normalized = normalize_entry(updated, base_url=build_public_base_url(request))
     if normalized:
         return normalized
     raise HTTPException(status_code=500, detail="No se pudo actualizar la entrada")
 
 
 @app.post("/api/library/{entry_id}/thumbnail")
-async def refresh_entry_thumbnail(entry_id: str) -> Dict[str, Any]:
+async def refresh_entry_thumbnail(request: Request, entry_id: str) -> Dict[str, Any]:
     stored_entry = store.get_entry(entry_id)
     if not stored_entry:
         raise HTTPException(status_code=404, detail="Entrada no encontrada")
@@ -1873,7 +1904,7 @@ async def refresh_entry_thumbnail(entry_id: str) -> Dict[str, Any]:
     updated["metadata"] = metadata_blob or stored_entry.get("metadata")
 
     store.upsert_entry(updated)
-    normalized = normalize_entry(updated)
+    normalized = normalize_entry(updated, base_url=build_public_base_url(request))
     if normalized:
         return normalized
     raise HTTPException(status_code=500, detail="No se pudo actualizar la entrada")
@@ -2007,6 +2038,7 @@ async def upload_library_entry(
     save_audio: bool = Form(True),
 ) -> Dict[str, Any]:
     entry_id = secrets.token_hex(16)
+    base_url = build_public_base_url(request)
     normalized_library = (library or "video").strip().lower()
     is_music = normalized_library == "music"
     category_value = (category or "").strip()
@@ -2032,7 +2064,7 @@ async def upload_library_entry(
         album=album or "sin_album",
     )
     media_url = f"/media/{entry_id}/{file_meta['file_name']}"
-    absolute_media_url = f"{str(request.base_url).rstrip('/')}{media_url}"
+    absolute_media_url = f"{(base_url or str(request.base_url).rstrip('/'))}{media_url}"
 
     metadata_blob: Dict[str, Any] = {
         "source": "upload",
@@ -2123,7 +2155,7 @@ async def upload_library_entry(
     }
 
     store.upsert_entry(entry)
-    stored_entry = normalize_entry(entry)
+    stored_entry = normalize_entry(entry, base_url=base_url)
     if stored_entry:
         return stored_entry
     raise HTTPException(status_code=500, detail="No se pudo guardar la entrada")
