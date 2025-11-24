@@ -71,16 +71,6 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
 
 2. Variables destacadas por servicio:
 
-   **VHS**
-
-   | Variable | Descripción | Valor por defecto |
-   | --- | --- | --- |
-   | `CACHE_TTL_SECONDS` | Tiempo de vida de los ficheros en caché | `86400` |
-   | `CACHE_DIR` | Carpeta donde VHS guarda caché | `data/cache` |
-   | `USAGE_LOG_PATH` | Log JSONL para estadísticas | `data/usage_log.jsonl` |
-   | `TRANSCRIPTION_*` / `WHISPER_ASR_*` | Configuración del endpoint de transcripción | Ver `example.env` |
-   | `FFMPEG_BINARY` | Binario usado para conversiones | `ffmpeg` |
-
    **Videorama (API y modelos)**
 
    | Variable | Descripción | Valor por defecto |
@@ -273,9 +263,9 @@ versions.json           Versiones cargadas por la interfaz y los servicios.
 ## Resolución de problemas
 
 - **No se descargan vídeos**: revisa permisos de red y que `yt-dlp` soporte la URL; consulta `/api/probe` para ver si el proveedor es compatible.
-- **Errores de `ffmpeg`**: asegúrate de que `FFMPEG_BINARY` apunta a un ejecutable válido y que el preset solicitado existe en la configuración.
+- **Errores de `ffmpeg`**: asegúrate de que `ffmpeg` está instalado y accesible y que el preset solicitado existe en la configuración.
 - **El bot no responde**: verifica `TELEGRAM_BOT_TOKEN` y que `VIDEORAMA_API_URL` sea accesible desde la red de Telegram.
-- **Caché crece demasiado**: ajusta `CACHE_TTL_SECONDS` o limpia con los endpoints de `/api/cache`.
+- **Caché crece demasiado**: limpia con los endpoints de `/api/cache`.
 
 ## Licencia
 
