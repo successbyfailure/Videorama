@@ -55,7 +55,9 @@ VIDEORAMA_DB_PATH = Path(os.getenv("VIDEORAMA_DB_PATH", "data/videorama/library.
 BOT_VERSION = get_version("bot")
 settings_store = SQLiteStore(VIDEORAMA_DB_PATH)
 
-MEDIA_FILTER = filters.Document.ALL | filters.VIDEO | filters.AUDIO
+MEDIA_FILTER = (
+    filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.VIDEO_NOTE
+)
 
 MAIN_MENU = ReplyKeyboardMarkup(
     [[KeyboardButton("Instrucciones")]],
@@ -357,6 +359,10 @@ def pick_media_file(message) -> Optional[object]:
         return message.video
     if message.audio:
         return message.audio
+    if message.voice:
+        return message.voice
+    if message.video_note:
+        return message.video_note
     document = message.document
     if document and (
         not document.mime_type or document.mime_type.startswith("video/") or document.mime_type.startswith("audio/")
@@ -735,7 +741,8 @@ async def process_videorama_upload(query, file_info: Dict[str, str], file_path: 
     if not entry:
         await query.message.reply_text("No pude guardar el archivo en Videorama.")
         return
-    entry_url = build_absolute_url(entry.get("url") or entry.get("original_url") or "")
+    view_url = entry.get("view_url") or entry.get("url") or entry.get("original_url") or ""
+    entry_url = build_absolute_url(view_url)
     await query.message.reply_text(
         f"Listo, añadí {entry.get('title')} a la biblioteca.\n{entry_url}",
         disable_web_page_preview=True,
@@ -813,7 +820,8 @@ async def process_url_upload(
         return
 
     entry = response.json()
-    entry_url = build_absolute_url(entry.get("url") or entry.get("original_url") or url)
+    view_url = entry.get("view_url") or entry.get("url") or entry.get("original_url") or url
+    entry_url = build_absolute_url(view_url)
     await message.reply_text(
         f"Añadido {entry.get('title') or url} a la biblioteca personal.\n{entry_url}",
         disable_web_page_preview=True,

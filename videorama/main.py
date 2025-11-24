@@ -689,6 +689,8 @@ def normalize_entry(entry: Dict[str, Any], *, base_url: Optional[str] = None) ->
 
     resolved_local_path = _resolve_local_media(entry)
     local_path = str(resolved_local_path) if resolved_local_path else None
+    if local_path:
+        metadata_blob["local_path"] = local_path
     base_url = base_url or build_public_base_url()
     view_url = build_entry_view_url(entry_id, base_url=base_url)
 
