@@ -85,6 +85,11 @@ Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil:
    | `VIDEORAMA_API_URL` | URL que usará el bot para hablar con Videorama | Bot | `http://localhost:8600` |
    | `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram | Bot | _(vacío)_ |
    | `TELEGRAM_VHS_PRESET` | Perfil de `ffmpeg` para conversiones vía bot | Bot | `ffmpeg_720p` |
+| `VIDEORAMA_HOST_CONFIG_DIR` | Carpeta del host donde vive `.env` | Despliegue | `.` |
+   | `VIDEORAMA_HOST_DATA_DIR` | Ruta del host para montar `data/` en los contenedores | Despliegue | `./data` |
+   | `VIDEORAMA_HOST_VIDEOS_DIR` | Ruta del host para el volumen de `storage/videos` | Despliegue | `./storage/videos` |
+   | `VIDEORAMA_HOST_VIDEOCLIPS_DIR` | Ruta del host para el volumen de `storage/videoclips` | Despliegue | `./storage/videoclips` |
+   | `VIDEORAMA_HOST_MUSICA_DIR` | Ruta del host para el volumen de `storage/musica` | Despliegue | `./storage/musica` |
    | `VIDEORAMA_UID` / `VIDEORAMA_GID` | Usuario y grupo con los que se ejecutan los contenedores | Todos | `1000` / `1000` |
    | `VIDEORAMA_IMAGE` | Nombre de la imagen usada por Videorama/Bot/MCP | Despliegue | `ghcr.io/successbyfailure/videorama:latest` |
 
