@@ -327,7 +327,7 @@ def _infer_music_metadata_llm(metadata: Dict[str, Any], url: str) -> Dict[str, A
             "album": current_album,
             "track_number": current_track,
         }.items()
-        if value in {None, "", []}
+        if _is_empty_metadata_value(value)
     ]
     if not missing_fields:
         return {}
