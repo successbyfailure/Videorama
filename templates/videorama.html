@@ -1357,6 +1357,7 @@
           buildCategories();
           buildPlaylists();
           applyFilters();
+          await openEntryFromUrl();
           renderPlaylistManager();
           renderCategoryManager();
         } catch (error) {
@@ -1647,6 +1648,7 @@
         }
         playerState.currentEntry = entry;
         playerState.nextEntryId = null;
+        updateEntryQueryParam(entry.id);
         if (playerElements.title) {
           playerElements.title.textContent = entry.title || 'Sin título';
         }
@@ -1725,6 +1727,7 @@
       function resetPlayerView() {
         playerState.currentEntry = null;
         playerState.nextEntryId = null;
+        updateEntryQueryParam(null);
         if (playerElements.modal) {
           playerElements.modal.classList.add('is-empty');
         }
@@ -1815,12 +1818,14 @@
         const band = entry.band || entry.metadata?.band || entry.uploader;
         const album = entry.album || entry.metadata?.album;
         const track = entry.track_number || entry.metadata?.track_number;
+        const localPath = entry.local_path || entry.metadata?.local_path || '';
         const facts = [
           { label: 'Biblioteca', value: entry.library === 'music' ? 'Música' : 'Videos' },
           { label: 'Banda', value: band || '—' },
           { label: 'Álbum', value: album || '—' },
           { label: 'Track', value: track ? `#${track}` : '—' },
           { label: 'Disponibilidad', value: availability.length ? availability.join(' · ') : '—' },
+          { label: 'Ruta local', value: localPath || '—' },
           { label: 'Categoría', value: toTitle(entry.category || 'miscelánea') },
           { label: 'Autor', value: entry.uploader || 'Desconocido' },
           { label: 'Duración', value: formatDuration(entry.duration) },
@@ -1877,6 +1882,18 @@
           container.appendChild(dt);
           container.appendChild(dd);
         });
+      }
+
+      function updateEntryQueryParam(entryId) {
+        const params = new URLSearchParams(window.location.search);
+        if (entryId) {
+          params.set('entry', entryId);
+        } else {
+          params.delete('entry');
+        }
+        const query = params.toString();
+        const newUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
       }
 
       function metadataValueToString(value) {
@@ -2496,6 +2513,36 @@
         renderLibrary(items);
         updateCounters();
         renderNextOptions();
+      }
+
+      async function openEntryFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const entryId = params.get('entry');
+        if (!entryId) {
+          return;
+        }
+        const cached = libraryState.entries.find((item) => item.id === entryId);
+        if (cached) {
+          openPlayer(cached);
+          return;
+        }
+        try {
+          const response = await fetch(`/api/library/${entryId}`);
+          if (!response.ok) {
+            return;
+          }
+          const entry = await response.json();
+          if (!entry?.id) {
+            return;
+          }
+          libraryState.entries = [entry, ...libraryState.entries];
+          buildCategories();
+          buildPlaylists();
+          applyFilters();
+          openPlayer(entry);
+        } catch (error) {
+          console.warn('No se pudo cargar la entrada solicitada', error);
+        }
       }
 
       function renderLibrary(items) {
