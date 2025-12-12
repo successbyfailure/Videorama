@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Videorama Video Sender</title>
+  <style>
+    body {
+      width: 400px;
+      min-height: 200px;
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      font-size: 14px;
+    }
+    h2 {
+      margin: 0 0 16px 0;
+      font-size: 18px;
+      color: #333;
+    }
+    .url-container {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+      color: #555;
+      font-weight: 500;
+      font-size: 13px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #4CAF50;
+    }
+    .detected-url {
+      background-color: #f0f0f0;
+      color: #333;
+    }
+    .options-container {
+      margin-bottom: 16px;
+    }
+    .checkbox-group {
+      margin-bottom: 12px;
+    }
+    .checkbox-group label {
+      display: flex;
+      align-items: center;
+      font-weight: normal;
+      cursor: pointer;
+    }
+    .checkbox-group input[type="checkbox"] {
+      margin-right: 8px;
+      cursor: pointer;
+    }
+    .button-group {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    button {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background-color 0.2s;
+    }
+    #sendButton {
+      background-color: #4CAF50;
+      color: white;
+    }
+    #sendButton:hover:not(:disabled) {
+      background-color: #45a049;
+    }
+    #sendButton:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    #optionsButton {
+      background-color: #f0f0f0;
+      color: #333;
+    }
+    #optionsButton:hover {
+      background-color: #e0e0e0;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 13px;
+      display: none;
+      margin-top: 12px;
+    }
+    .status.success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status.error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .status.info {
+      background-color: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+    .warning {
+      background-color: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeaa7;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+    .loading {
+      display: none;
+      text-align: center;
+      padding: 20px;
+    }
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #4CAF50;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <h2>Enviar a Videorama</h2>
+
+  <div id="noConfig" class="warning" style="display: none;">
+    No has configurado la URL del servidor. Haz clic en "Opciones" para configurarlo.
+  </div>
+
+  <div id="mainContent">
+    <div class="url-container">
+      <label for="videoUrl">URL del video:</label>
+      <input type="text" id="videoUrl" placeholder="https://www.youtube.com/watch?v=...">
+    </div>
+
+    <div class="options-container">
+      <div class="checkbox-group">
+        <label>
+          <input type="checkbox" id="autoDownload" checked>
+          Descargar automáticamente
+        </label>
+      </div>
+      <div class="checkbox-group">
+        <label>
+          <input type="checkbox" id="musicLibrary">
+          Añadir a biblioteca de música
+        </label>
+      </div>
+    </div>
+
+    <div class="button-group">
+      <button id="sendButton">Enviar</button>
+      <button id="optionsButton">Opciones</button>
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>Enviando video...</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
