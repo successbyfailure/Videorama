@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="20" fill="#4CAF50"/>
+  <g fill="white">
+    <!-- Símbolo de video/cámara -->
+    <rect x="24" y="44" width="56" height="40" rx="4" fill="white"/>
+    <path d="M80 52 L104 40 L104 88 L80 76 Z" fill="white"/>
+
+    <!-- Flecha hacia arriba/enviar -->
+    <g transform="translate(85, 10)">
+      <path d="M 0 20 L 15 5 L 30 20" stroke="white" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="15" y1="8" x2="15" y2="35" stroke="white" stroke-width="5" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>
