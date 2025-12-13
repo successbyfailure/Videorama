@@ -1,173 +1,108 @@
+# Videorama v2.0.0 - Docker Compose Configuration
+
+version: '3.8'
+
 services:
-  env-sync:
-    container_name: env-sync
-    image: ${VIDEORAMA_IMAGE}
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: python scripts/sync_env.py
-    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: videorama-postgres
+    environment:
+      POSTGRES_USER: videorama
+      POSTGRES_PASSWORD: videorama
+      POSTGRES_DB: videorama
     volumes:
-      - ${VIDEORAMA_HOST_CONFIG_DIR:-.}/.env:/app/.env
-    logging:
-      driver: json-file
-      options:
-        max-size: "2m"
-    restart: "no"
-    labels:
-      - com.centurylinklabs.watchtower.enable=false
-
-  videorama:
-    container_name: videorama
-    image: ${VIDEORAMA_IMAGE}
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: uvicorn videorama.main:app --host 0.0.0.0 --port 8600
-    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
-    depends_on:
-      env-sync:
-        condition: service_completed_successfully
+      - postgres_data:/var/lib/postgresql/data
     ports:
-      - "8600:8600"
-    env_file:
-      - .env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - ${VIDEORAMA_HOST_DATA_DIR:-./data}:/app/data
-      - ${VIDEORAMA_HOST_VIDEOS_DIR:-./storage/videos}:/app/storage/videos
-      - ${VIDEORAMA_HOST_VIDEOCLIPS_DIR:-./storage/videoclips}:/app/storage/videoclips
-      - ${VIDEORAMA_HOST_MUSICA_DIR:-./storage/musica}:/app/storage/musica
-    logging:
-      driver: json-file
-      options:
-        max-size: "2m"
-    restart: unless-stopped
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
-      - com.centurylinklabs.watchtower.scope=videorama
+      - "5432:5432"
     healthcheck:
-      test:
-        - CMD-SHELL
-        - |
-          curl -f http://localhost:8600/api/health || exit 1
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    networks:
-      - videorama-net
+      test: ["CMD-SHELL", "pg_isready -U videorama"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  videorama-bot:
-    container_name: videorama-bot
-    image: ${VIDEORAMA_IMAGE}
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: python -m videorama.telegram_bot
-    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
-    depends_on:
-      env-sync:
-        condition: service_completed_successfully
-      videorama:
-        condition: service_started
-    env_file:
-      - .env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    profiles:
-      - telegram
-    volumes:
-      - ${VIDEORAMA_HOST_DATA_DIR:-./data}:/app/data
-      - ${VIDEORAMA_HOST_VIDEOS_DIR:-./storage/videos}:/app/storage/videos
-      - ${VIDEORAMA_HOST_VIDEOCLIPS_DIR:-./storage/videoclips}:/app/storage/videoclips
-      - ${VIDEORAMA_HOST_MUSICA_DIR:-./storage/musica}:/app/storage/musica
-    logging:
-      driver: json-file
-      options:
-        max-size: "2m"
-    restart: unless-stopped
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
-      - com.centurylinklabs.watchtower.scope=videorama
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - |
-          curl -f http://videorama:8600/api/health || exit 1
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-    networks:
-      - videorama-net
-
-  videorama-mcp:
-    container_name: videorama-mcp
-    image: ${VIDEORAMA_IMAGE}
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: >-
-      python -m videorama.mcp_server
-      --api-url http://videorama:8600
-      --transport http
-      --host 0.0.0.0
-      --port 8765
-    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
-    depends_on:
-      env-sync:
-        condition: service_completed_successfully
-      videorama:
-        condition: service_started
-    env_file:
-      - .env
+  # Redis (for Celery/background tasks)
+  redis:
+    image: redis:7-alpine
+    container_name: videorama-redis
     ports:
-      - "8765:8765"
-    logging:
-      driver: json-file
-      options:
-        max-size: "2m"
-    restart: unless-stopped
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
-      - com.centurylinklabs.watchtower.scope=videorama
+      - "6379:6379"
     healthcheck:
-      test:
-        - CMD-SHELL
-        - |
-          python - <<'PY'
-          import socket, sys
-          try:
-              with socket.create_connection(("localhost", 8765), timeout=5):
-                  sys.exit(0)
-          except Exception:
-              sys.exit(1)
-          PY
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-    networks:
-      - videorama-net
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  watchtower:
-    container_name: videorama-watchtower
-    image: containrrr/watchtower:1.7.1
-    command: --interval 60 --label-enable --scope videorama --cleanup
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: videorama-backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    logging:
-      driver: json-file
-      options:
-        max-size: "2m"
-    restart: unless-stopped
-    labels:
-      - com.centurylinklabs.watchtower.enable=false
-    networks:
-      - videorama-net
+      - ./backend:/app
+      - ./storage:/storage
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://videorama:videorama@postgres:5432/videorama
+      - STORAGE_BASE_PATH=/storage
+      - DEBUG=True
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
 
-networks:
-  videorama-net:
-    driver: bridge
+  # Celery Worker (background tasks)
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: videorama-celery
+    command: celery -A app.tasks worker --loglevel=info
+    volumes:
+      - ./backend:/app
+      - ./storage:/storage
+    environment:
+      - DATABASE_URL=postgresql://videorama:videorama@postgres:5432/videorama
+      - STORAGE_BASE_PATH=/storage
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    env_file:
+      - .env
+
+  # Frontend (React)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: videorama-frontend
+    command: npm run dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+
+  # VHS (optional - for video hosting service)
+  # vhs:
+  #   image: vhs:latest
+  #   container_name: videorama-vhs
+  #   ports:
+  #     - "8001:8000"
+  #   volumes:
+  #     - ./storage:/storage
+
+volumes:
+  postgres_data:
