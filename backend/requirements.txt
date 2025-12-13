@@ -26,7 +26,7 @@ python-magic==0.4.27
 pillow==10.2.0
 
 # Audio/Video processing
-yt-dlp==2024.1.7
+yt-dlp
 
 # JSON
 orjson==3.9.12

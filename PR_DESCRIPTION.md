@@ -190,6 +190,8 @@ This PR introduces Videorama v2.0.0, a complete ground-up rewrite with:
 10. `fix: Update GitHub Actions workflow to build backend and frontend separately`
 11. `docs: Add Pull Request description for v2.0.0`
 12. `fix: Convert repository name to lowercase in GitHub Actions`
+13. `docs: Update PR description with latest commit`
+14. `fix: Remove version pin from yt-dlp to use latest version`
 
 ## 🚀 Getting Started
 
