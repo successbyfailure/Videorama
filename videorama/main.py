@@ -1165,7 +1165,7 @@ def extract_lyrics_and_tags(raw: str) -> Tuple[Optional[str], List[str]]:
 def fetch_vhs_metadata(url: str) -> Dict[str, Any]:
     endpoint = f"{VHS_BASE_URL}/api/probe"
     try:
-        response = requests.get(endpoint, params={"url": url}, timeout=VHS_HTTP_TIMEOUT)
+        response = requests.post(endpoint, json={"url": url}, timeout=VHS_HTTP_TIMEOUT)
     except requests.RequestException as exc:  # pragma: no cover - network errors
         raise HTTPException(status_code=502, detail=f"VHS no respondió: {exc}") from exc
     if response.status_code >= 400:
@@ -1551,9 +1551,9 @@ async def search_sources(query: str, limit: int = 8) -> Dict[str, Any]:
     if len(cleaned_query) < 3:
         raise HTTPException(status_code=400, detail="Escribe al menos 3 caracteres para buscar")
     try:
-        response = requests.get(
+        response = requests.post(
             f"{VHS_BASE_URL}/api/search",
-            params={"query": cleaned_query, "limit": max(1, min(limit, 25))},
+            json={"query": cleaned_query, "limit": max(1, min(limit, 25))},
             timeout=VHS_HTTP_TIMEOUT,
         )
     except requests.RequestException as exc:

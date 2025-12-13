@@ -150,8 +150,8 @@ def _guarded(handler):
 
 def probe_url_metadata(url: str) -> Dict[str, Any]:
     try:
-        response = requests.get(
-            f"{VHS_BASE_URL}/api/probe", params={"url": url}, timeout=VHS_HTTP_TIMEOUT
+        response = requests.post(
+            f"{VHS_BASE_URL}/api/probe", json={"url": url}, timeout=VHS_HTTP_TIMEOUT
         )
         if response.status_code >= 400:
             return {}
