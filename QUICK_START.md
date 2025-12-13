@@ -90,10 +90,16 @@ docker-compose exec db psql -U videorama -d videorama -c "\dt"
 
 ### 5. Acceder a la Aplicación
 
+⚠️ **IMPORTANTE:** Debes acceder usando localhost, no la URL de Coder.
+
 Abrir en el navegador:
-- **Frontend:** http://localhost:5173
-- **Backend API:** http://localhost:8000
-- **API Docs:** http://localhost:8000/docs
+- **Frontend:** http://localhost:5173 ✅
+- **Backend API:** http://localhost:8000 ✅
+- **API Docs:** http://localhost:8000/docs ✅
+
+**NO usar URLs de Coder** (el backend requiere autenticación):
+- ❌ https://5173--main--javi-dev--... (frontend sin backend)
+- ❌ https://8000--main--javi-dev--... (requiere auth)
 
 ---
 
@@ -209,6 +215,41 @@ curl -X POST http://localhost:8000/api/v1/import/filesystem \
 ---
 
 ## 🐛 Troubleshooting
+
+### ⚠️ "Failed to load settings" o Library creation no funciona
+
+**Síntomas:**
+- Settings page muestra: "Failed to load settings. Please try again."
+- Crear library no hace nada
+- No aparecen toasts de error
+
+**Causa:** Frontend no puede conectar con backend (probablemente accediendo desde URL de Coder)
+
+**Solución:**
+1. **IMPORTANTE:** Acceder SOLO desde **http://localhost:5173**
+2. Verificar configuración:
+```bash
+# Frontend debe usar localhost:8000
+docker-compose exec frontend env | grep VITE_API_URL
+# Esperado: VITE_API_URL=http://localhost:8000
+
+# Backend debe aceptar localhost
+docker-compose exec backend python -c "from app.config import settings; print(settings.CORS_ORIGINS)"
+# Esperado: ['http://localhost:3000', 'http://localhost:5173']
+```
+
+3. Si la config es incorrecta:
+```bash
+# Verificar .env NO tenga VITE_API_URL con URLs de Coder
+# CORS_ORIGINS debe ser: http://localhost:3000,http://localhost:5173
+
+# Reiniciar servicios
+docker-compose down && docker-compose up -d
+```
+
+**Ver guía completa:** [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+
+---
 
 ### Backend no inicia
 ```bash
