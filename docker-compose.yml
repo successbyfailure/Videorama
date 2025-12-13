@@ -96,7 +96,7 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
       - VITE_ALLOWED_HOSTS=${VITE_ALLOWED_HOSTS:-localhost}
     depends_on:
       - backend
