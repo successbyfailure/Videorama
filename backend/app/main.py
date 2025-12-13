@@ -67,7 +67,7 @@ async def health_check():
 
 
 # API v1 routes
-from .api.v1 import libraries, entries, import_endpoints, inbox, jobs, playlists
+from .api.v1 import libraries, entries, import_endpoints, inbox, jobs, playlists, vhs
 
 app.include_router(libraries.router, prefix="/api/v1", tags=["libraries"])
 app.include_router(entries.router, prefix="/api/v1", tags=["entries"])
@@ -75,6 +75,7 @@ app.include_router(import_endpoints.router, prefix="/api/v1", tags=["import"])
 app.include_router(inbox.router, prefix="/api/v1", tags=["inbox"])
 app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
 app.include_router(playlists.router, prefix="/api/v1", tags=["playlists"])
+app.include_router(vhs.router, prefix="/api/v1", tags=["vhs"])
 
 
 @app.get("/")

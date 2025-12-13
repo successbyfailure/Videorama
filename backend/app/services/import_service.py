@@ -13,6 +13,7 @@ from ..models import Library, Entry, EntryFile, InboxItem, Tag
 from ..utils import calculate_file_hash, PathTemplateEngine, get_file_info
 from .job_service import JobService
 from .llm_service import LLMService
+from .vhs_service import VHSService
 from .external_apis import enrich_metadata
 
 
@@ -23,6 +24,7 @@ class ImportService:
         """Initialize import service"""
         self.db = db
         self.llm = LLMService()
+        self.vhs = VHSService()
         self.job_service = JobService()
 
     async def import_from_url(
@@ -142,13 +144,14 @@ class ImportService:
                     inbox_type="low_confidence",
                 )
 
-            # Step 6: Download file (integrate with VHS/yt-dlp here)
+            # Step 6: Download file using VHS
             self.job_service.update_job_status(
                 self.db, job.id, "running", 0.8, "Downloading file"
             )
 
-            # Simulated download - in real implementation, download file
-            downloaded_file = await self._download_file(url)
+            # Determine VHS format based on classified library type
+            media_format = self.vhs.get_format_for_media_type(target_library)
+            downloaded_file = await self._download_file(url, media_format)
 
             # Step 7: Calculate hash and check duplicates
             self.job_service.update_job_status(
@@ -216,18 +219,60 @@ class ImportService:
             )
 
     async def _fetch_url_metadata(self, url: str) -> Dict[str, Any]:
-        """Fetch metadata from URL (placeholder - integrate with VHS)"""
-        # TODO: Integrate with VHS /api/probe
-        return {
-            "filename": url.split("/")[-1],
-            "platform": "youtube",  # Detect from URL
-            "uploader": "Unknown",
-        }
+        """Fetch metadata from URL using VHS probe"""
+        try:
+            metadata = await self.vhs.probe(url, source="videorama")
+            return metadata
+        except Exception as e:
+            # Fallback to basic URL parsing
+            return {
+                "filename": url.split("/")[-1],
+                "url": url,
+                "error": str(e),
+            }
 
-    async def _download_file(self, url: str) -> str:
-        """Download file from URL (placeholder - integrate with VHS/yt-dlp)"""
-        # TODO: Integrate with VHS /api/download or yt-dlp
-        return f"/tmp/{uuid.uuid4()}.mp4"
+    async def _download_file(self, url: str, media_format: str = "video_max") -> str:
+        """
+        Download file from URL using VHS
+
+        Args:
+            url: Source URL
+            media_format: VHS format (video_max, audio_max, etc)
+
+        Returns:
+            Path to downloaded file
+        """
+        try:
+            # Download using VHS no-cache endpoint (default behavior)
+            content = await self.vhs.download_no_cache(
+                url=url,
+                media_format=media_format,
+                source="videorama"
+            )
+
+            # Determine file extension based on format
+            ext_map = {
+                "video_max": ".mp4",
+                "video_1080": ".mp4",
+                "video_med": ".mp4",
+                "video_low": ".mp4",
+                "audio_max": ".m4a",
+                "audio_med": ".m4a",
+                "audio_low": ".m4a",
+            }
+
+            ext = ext_map.get(media_format, ".mp4")
+
+            # Save to temporary file
+            temp_path = f"/tmp/{uuid.uuid4()}{ext}"
+
+            with open(temp_path, 'wb') as f:
+                f.write(content)
+
+            return temp_path
+
+        except Exception as e:
+            raise Exception(f"Failed to download file from VHS: {e}")
 
     async def _enrich_from_apis(self, title: str, metadata: Dict) -> Dict[str, Any]:
         """Enrich metadata from external APIs"""
