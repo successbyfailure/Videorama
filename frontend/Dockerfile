@@ -13,6 +13,10 @@ RUN npm install
 # Copy application code
 COPY . .
 
+# Create .vite directory and set permissions for non-root users
+RUN mkdir -p /app/node_modules/.vite && \
+    chmod -R 777 /app/node_modules/.vite
+
 # Expose port
 EXPOSE 5173
 

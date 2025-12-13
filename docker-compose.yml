@@ -1,7 +1,5 @@
 # Videorama v2.0.0 - Docker Compose Configuration
 
-version: '3.8'
-
 services:
   # PostgreSQL Database
   postgres:
@@ -36,11 +34,11 @@ services:
   # Backend API
   backend:
     # Option 1: Use pre-built image from GitHub Container Registry
-    image: ${BACKEND_IMAGE:-ghcr.io/successbyfailure/videorama/backend:latest}
+    # image: ${BACKEND_IMAGE:-ghcr.io/successbyfailure/videorama/backend:latest}
     # Option 2: Build locally (comment image above and uncomment build below)
-    # build:
-    #   context: ./backend
-    #   dockerfile: Dockerfile
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: videorama-backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
@@ -64,11 +62,11 @@ services:
   # Celery Worker (background tasks)
   celery-worker:
     # Option 1: Use pre-built image from GitHub Container Registry
-    image: ${BACKEND_IMAGE:-ghcr.io/successbyfailure/videorama/backend:latest}
+    # image: ${BACKEND_IMAGE:-ghcr.io/successbyfailure/videorama/backend:latest}
     # Option 2: Build locally (comment image above and uncomment build below)
-    # build:
-    #   context: ./backend
-    #   dockerfile: Dockerfile
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: videorama-celery
     command: celery -A app.tasks worker --loglevel=info
     user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
@@ -89,17 +87,12 @@ services:
   # Frontend (React)
   frontend:
     # Option 1: Use pre-built image from GitHub Container Registry
-    image: ${FRONTEND_IMAGE:-ghcr.io/successbyfailure/videorama/frontend:latest}
+    # image: ${FRONTEND_IMAGE:-ghcr.io/successbyfailure/videorama/frontend:latest}
     # Option 2: Build locally (comment image above and uncomment build below)
-    # build:
-    #   context: ./frontend
-    #   dockerfile: Dockerfile
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: videorama-frontend
-    command: npm run dev
-    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
     ports:
       - "5173:5173"
     environment:

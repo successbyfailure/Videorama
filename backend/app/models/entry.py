@@ -166,7 +166,7 @@ class EntryRelation(Base):
     relation_type = Column(
         String, nullable=False
     )  # 'audio_extracted_from', 'video_of', 'audio_shared', etc.
-    metadata = Column(Text)  # JSON with extra info if needed
+    relation_metadata = Column(Text)  # JSON with extra info if needed
     created_at = Column(Float)
 
     # Relationships
