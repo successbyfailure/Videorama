@@ -28,9 +28,6 @@ pillow==10.2.0
 # Audio/Video processing
 yt-dlp==2024.1.7
 
-# Hashing
-hashlib
-
 # JSON
 orjson==3.9.12
 

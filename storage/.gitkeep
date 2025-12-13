@@ -1,0 +1,11 @@
+# Videorama v2.0.0 - Storage Directory
+
+This directory contains all media files and temporary data.
+
+Structure:
+- libraries/ - Organized media files by library
+- temp/ - Temporary downloads and processing
+- thumbnails/ - Generated thumbnails and previews
+- backups/ - Database and configuration backups
+
+Do not commit content to git - this directory is gitignored.
