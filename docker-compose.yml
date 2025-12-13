@@ -45,8 +45,12 @@ services:
     volumes:
       - ./backend:/app
       - ./storage:/storage
-    ports:
-      - "8000:8000"
+    # Don't expose port directly when using nginx - accessed through nginx
+    expose:
+      - "8000"
+    # Uncomment ports below if you want direct access (development without nginx)
+    # ports:
+    #   - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://videorama:videorama@postgres:5432/videorama
       - STORAGE_BASE_PATH=/storage
@@ -93,13 +97,34 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: videorama-frontend
-    ports:
-      - "5173:5173"
+    # Don't expose port directly when using nginx - accessed through nginx
+    expose:
+      - "5173"
+    # Uncomment ports below if you want direct access (development without nginx)
+    # ports:
+    #   - "5173:5173"
     environment:
-      - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
+      # No VITE_API_URL - uses relative URLs through nginx proxy
       - VITE_ALLOWED_HOSTS=${VITE_ALLOWED_HOSTS:-localhost}
     depends_on:
       - backend
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: videorama-nginx
+    ports:
+      - "80:80"
+      # For HTTPS in production, uncomment and add SSL certificates:
+      # - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # For HTTPS, mount SSL certificates:
+      # - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
 
   # VHS (optional - for video hosting service)
   # vhs:
