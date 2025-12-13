@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }}{% if videorama_version %} v{{ videorama_version }}{% endif %} · Búsqueda</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #020617;
+        color: #e2e8f0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at top, #0f172a, #020617 60%);
+        padding: clamp(1rem, 2vw, 2.5rem);
+      }
+      a {
+        color: inherit;
+      }
+      nav.top-nav {
+        max-width: 1200px;
+        margin: 0 auto 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1.5rem;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+      }
+      .brand {
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+      }
+      .nav-links {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .nav-links a {
+        text-decoration: none;
+        border-radius: 999px;
+        padding: 0.4rem 0.9rem;
+        background: rgba(99, 102, 241, 0.15);
+        font-weight: 600;
+        transition: background 0.2s ease;
+      }
+      .nav-links a:hover {
+        background: rgba(99, 102, 241, 0.25);
+      }
+      .nav-links a.active {
+        background: rgba(236, 72, 153, 0.2);
+      }
+      .layout {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: grid;
+        gap: 1.5rem;
+      }
+      header {
+        background: rgba(15, 23, 42, 0.9);
+        border-radius: 22px;
+        padding: clamp(1.25rem, 3vw, 2.5rem);
+        border: 1px solid rgba(99, 102, 241, 0.35);
+        box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.6);
+      }
+      header h1 {
+        margin: 0;
+        font-size: clamp(2.5rem, 6vw, 3.75rem);
+      }
+      header p {
+        margin: 0.35rem 0 0;
+        color: #cbd5f5;
+      }
+      .eyebrow {
+        text-transform: uppercase;
+        letter-spacing: 0.2em;
+        font-size: 0.85rem;
+        color: #94a3b8;
+        margin: 0;
+      }
+      main {
+        background: rgba(15, 23, 42, 0.85);
+        border-radius: 20px;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        padding: 2rem;
+      }
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+      }
+      label {
+        font-weight: 600;
+        color: #cbd5f5;
+        margin-bottom: 0.35rem;
+        display: block;
+      }
+      input[type="search"] {
+        width: 100%;
+        padding: 0.9rem 1.2rem;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(15, 23, 42, 0.7);
+        color: inherit;
+        font-size: 1rem;
+      }
+      input[type="search"]:focus {
+        outline: none;
+        border-color: rgba(99, 102, 241, 0.6);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+      }
+      button {
+        padding: 0.9rem 1.5rem;
+        border-radius: 14px;
+        border: none;
+        background: linear-gradient(120deg, #6366f1, #ec4899);
+        color: #fff;
+        font-weight: 700;
+        cursor: pointer;
+        transition: opacity 0.2s ease;
+      }
+      button:hover:not(:disabled) {
+        opacity: 0.9;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .status-line {
+        padding: 0.75rem 1rem;
+        border-radius: 10px;
+        background: rgba(99, 102, 241, 0.15);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        min-height: 2.5rem;
+        display: flex;
+        align-items: center;
+      }
+      .hint {
+        color: #94a3b8;
+        font-size: 0.95rem;
+        margin: 0.5rem 0;
+      }
+      .search-results {
+        display: grid;
+        gap: 1rem;
+        margin-top: 1.5rem;
+      }
+      .search-card {
+        display: grid;
+        grid-template-columns: 160px 1fr auto;
+        gap: 1rem;
+        padding: 1rem;
+        border-radius: 14px;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        align-items: start;
+      }
+      .search-card img {
+        width: 100%;
+        height: 90px;
+        object-fit: cover;
+        border-radius: 10px;
+        background: rgba(15, 23, 42, 0.9);
+      }
+      .search-card h3 {
+        margin: 0 0 0.35rem;
+        font-size: 1.1rem;
+        color: #e2e8f0;
+      }
+      .search-card .meta {
+        color: #94a3b8;
+        font-size: 0.9rem;
+        margin: 0.25rem 0;
+      }
+      .search-card button {
+        padding: 0.6rem 1rem;
+        font-size: 0.9rem;
+        align-self: center;
+      }
+      .pagination {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        justify-content: center;
+        margin-top: 1.5rem;
+      }
+      .page-indicator {
+        color: #cbd5f5;
+        font-weight: 600;
+      }
+      @media (max-width: 640px) {
+        .search-card {
+          grid-template-columns: 1fr;
+        }
+        .search-card img {
+          height: 120px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="top-nav">
+      <div class="brand">{{ app_name }}</div>
+      <div class="nav-links">
+        <a href="/">Biblioteca</a>
+        <a href="/import">Importar</a>
+        <a href="/search" class="active">Buscar</a>
+      </div>
+    </nav>
+
+    <div class="layout">
+      <header>
+        <p class="eyebrow">Videorama</p>
+        <h1>Búsqueda</h1>
+        <p>Encuentra videos en plataformas soportadas y añádelos a tu biblioteca.</p>
+      </header>
+
+      <main>
+        <form id="search-form">
+          <div>
+            <label for="search-query">Buscar en plataformas soportadas</label>
+            <input
+              id="search-query"
+              type="search"
+              name="query"
+              placeholder="título, canal o palabra clave"
+              autocomplete="off"
+              required
+              autofocus
+            />
+          </div>
+          <button type="submit">Buscar</button>
+        </form>
+
+        <div class="status-line" id="search-status"></div>
+        <p class="hint" id="search-services"></p>
+        <div class="search-results" id="search-results"></div>
+        <div class="pagination" id="search-pagination" aria-live="polite"></div>
+      </main>
+    </div>
+
+    <script>
+      const SEARCH_FETCH_LIMIT = 25;
+      const SEARCH_PAGE_SIZE = 8;
+
+      const searchForm = document.getElementById('search-form');
+      const searchQueryInput = document.getElementById('search-query');
+      const searchStatus = document.getElementById('search-status');
+      const searchResults = document.getElementById('search-results');
+      const searchPagination = document.getElementById('search-pagination');
+      const searchServices = document.getElementById('search-services');
+
+      let searchItems = [];
+      let searchPage = 1;
+      let lastSearchServices = [];
+
+      function formatDuration(seconds) {
+        if (!seconds || Number.isNaN(Number(seconds))) {
+          return '—';
+        }
+        const minutes = Math.round(Number(seconds) / 60);
+        return `${minutes} min`;
+      }
+
+      function renderSupportedServices(services) {
+        lastSearchServices = Array.isArray(services) ? services : [];
+        if (!searchServices || !lastSearchServices.length) {
+          searchServices.textContent = '';
+          return;
+        }
+        const text = lastSearchServices.map((s) => s.name || s).join(', ');
+        searchServices.textContent = `Fuentes: ${text}`;
+      }
+
+      function renderSearchResults(items) {
+        searchItems = Array.isArray(items) ? items : [];
+        searchPage = 1;
+        renderSearchPage();
+      }
+
+      function renderSearchPage() {
+        if (!searchResults) {
+          return;
+        }
+        searchResults.innerHTML = '';
+        if (!searchItems.length) {
+          const empty = document.createElement('p');
+          empty.className = 'hint';
+          empty.textContent = 'Sin coincidencias. Intenta con otro término o amplía la búsqueda.';
+          searchResults.appendChild(empty);
+          renderSearchPagination();
+          return;
+        }
+
+        const start = (searchPage - 1) * SEARCH_PAGE_SIZE;
+        const currentPageItems = searchItems.slice(start, start + SEARCH_PAGE_SIZE);
+
+        const fragment = document.createDocumentFragment();
+        currentPageItems.forEach((item) => {
+          const card = document.createElement('article');
+          card.className = 'search-card';
+
+          const thumbnail = item.thumbnail || item.thumbnails?.[0]?.url || '/assets/LogoVHS.png';
+
+          card.innerHTML = `
+            <img src="${thumbnail}" alt="Miniatura" loading="lazy" onerror="this.src='/assets/LogoVHS.png'" />
+            <div>
+              <h3>${item.title || 'Resultado sin título'}</h3>
+              <div class="meta">${[item.uploader, item.extractor].filter(Boolean).join(' · ')}</div>
+              <div class="meta">${item.duration ? formatDuration(item.duration) : 'Duración desconocida'}</div>
+            </div>
+          `;
+
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = 'Importar';
+          button.addEventListener('click', () => {
+            window.location.href = `/import?url=${encodeURIComponent(item.url)}`;
+          });
+
+          card.appendChild(button);
+          fragment.appendChild(card);
+        });
+
+        searchResults.appendChild(fragment);
+        renderSearchPagination();
+      }
+
+      function renderSearchPagination() {
+        if (!searchPagination) {
+          return;
+        }
+        searchPagination.innerHTML = '';
+        if (!searchItems.length) {
+          return;
+        }
+        const totalPages = Math.ceil(searchItems.length / SEARCH_PAGE_SIZE);
+        if (totalPages <= 1) {
+          return;
+        }
+
+        const prevButton = document.createElement('button');
+        prevButton.type = 'button';
+        prevButton.textContent = 'Anterior';
+        prevButton.disabled = searchPage <= 1;
+        prevButton.addEventListener('click', () => {
+          searchPage = Math.max(1, searchPage - 1);
+          renderSearchPage();
+        });
+
+        const nextButton = document.createElement('button');
+        nextButton.type = 'button';
+        nextButton.textContent = 'Siguiente';
+        nextButton.disabled = searchPage >= totalPages;
+        nextButton.addEventListener('click', () => {
+          searchPage = Math.min(totalPages, searchPage + 1);
+          renderSearchPage();
+        });
+
+        const indicator = document.createElement('span');
+        indicator.className = 'page-indicator';
+        indicator.textContent = `Página ${searchPage} de ${totalPages}`;
+
+        searchPagination.appendChild(prevButton);
+        searchPagination.appendChild(indicator);
+        searchPagination.appendChild(nextButton);
+      }
+
+      searchForm?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const query = searchQueryInput.value.trim();
+        if (query.length < 3) {
+          searchStatus.textContent = 'Escribe al menos 3 caracteres.';
+          return;
+        }
+        searchStatus.textContent = 'Buscando…';
+        try {
+          const response = await fetch(`/api/import/search?${new URLSearchParams({ query, limit: SEARCH_FETCH_LIMIT })}`);
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.detail || 'No se pudo completar la búsqueda');
+          }
+          renderSupportedServices(payload.services || lastSearchServices);
+          renderSearchResults(payload.items || []);
+          searchStatus.textContent = `${payload.items?.length || 0} resultados para "${payload.query}".`;
+        } catch (error) {
+          searchStatus.textContent = `⚠️ ${error.message}`;
+        }
+      });
+    </script>
+  </body>
+</html>

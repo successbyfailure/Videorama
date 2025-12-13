@@ -147,12 +147,9 @@ def _template_context(request: Request, **kwargs: Any) -> Dict[str, Any]:
     return context
 
 
-def _llm_client() -> OpenAI:
+def _llm_client() -> Optional[OpenAI]:
     if not LLM_API_KEY:
-        raise HTTPException(
-            status_code=503,
-            detail="Configura OPENAI_COMPATIBLE_API_KEY",
-        )
+        return None
     return OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
 
 
@@ -263,6 +260,11 @@ def _extract_transcription(metadata: Dict[str, Any]) -> Optional[str]:
 
 def _llm_completion(prompt: str, model: str, context: str) -> str:
     client = _llm_client()
+    if not client:
+        raise HTTPException(
+            status_code=503,
+            detail="Configura OPENAI_COMPATIBLE_API_KEY para usar funciones de IA",
+        )
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "system", "content": prompt}, {"role": "user", "content": context}],
@@ -376,6 +378,9 @@ def _infer_music_metadata_llm(metadata: Dict[str, Any], url: str) -> Dict[str, A
     )
     try:
         client = _llm_client()
+        if not client:
+            logger.info("LLM no configurado, saltando inferencia de metadatos musicales")
+            return {}
         response = client.chat.completions.create(
             model=SUMMARY_MODEL,
             messages=[{"role": "system", "content": prompt}, {"role": "user", "content": context}],
@@ -2222,6 +2227,12 @@ async def import_manager(request: Request) -> HTMLResponse:
         prefill_url=prefill_url,
     )
     return templates.TemplateResponse("import_manager.html", context)
+
+
+@app.get("/search", response_class=HTMLResponse)
+async def search_page(request: Request) -> HTMLResponse:
+    context = _template_context(request)
+    return templates.TemplateResponse("search.html", context)
 
 
 @app.get("/external-player", response_class=HTMLResponse)
