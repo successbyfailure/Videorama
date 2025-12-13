@@ -115,6 +115,7 @@ VIDEORAMA_VERSION = get_version("videorama")
 
 app = FastAPI(title=APP_TITLE)
 templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 app.mount(THUMBNAILS_URL_PREFIX, StaticFiles(directory=THUMBNAILS_DIR), name="thumbnails")
 store = SQLiteStore(LIBRARY_DB_PATH)
