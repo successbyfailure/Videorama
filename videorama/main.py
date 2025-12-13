@@ -2163,6 +2163,13 @@ async def get_stats() -> Dict[str, Any]:
     return {"summary": summary, "generated_at": time.time()}
 
 
+@app.get("/jobs", response_class=HTMLResponse)
+async def jobs_page(request: Request) -> HTMLResponse:
+    """Página de monitoreo de tareas en curso."""
+    context = _template_context(request)
+    return templates.TemplateResponse("jobs.html", context)
+
+
 @app.get("/telegram", response_class=HTMLResponse)
 async def telegram_settings_page(request: Request) -> HTMLResponse:
     allowed = store.list_telegram_allowed()

@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }} · Tareas en curso</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #020617;
+        color: #e2e8f0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at top, #0f172a, #020617 60%);
+        padding: clamp(1rem, 2vw, 2.5rem);
+      }
+      nav.top-nav {
+        max-width: 1200px;
+        margin: 0 auto 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1.5rem;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+      }
+      .brand-logo {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+      }
+      .nav-links {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .nav-links a {
+        text-decoration: none;
+        border-radius: 999px;
+        padding: 0.4rem 0.9rem;
+        background: rgba(99, 102, 241, 0.15);
+        color: inherit;
+        font-weight: 600;
+        font-size: 0.9rem;
+      }
+      .nav-links a.active {
+        background: rgba(236, 72, 153, 0.25);
+      }
+      .layout {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: grid;
+        gap: 1.5rem;
+      }
+      header.hero {
+        background: rgba(15, 23, 42, 0.9);
+        border-radius: 22px;
+        padding: clamp(1.5rem, 3vw, 2.75rem);
+        border: 1px solid rgba(99, 102, 241, 0.35);
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+      }
+      .hero h1 {
+        margin: 0 0 0.5rem;
+        font-size: clamp(2rem, 5vw, 2.8rem);
+      }
+      .hero p {
+        color: #cbd5e1;
+        margin: 0.5rem 0 0;
+        font-size: 1.1rem;
+      }
+      .hero-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 1rem;
+      }
+      .hero-actions button {
+        background: rgba(99, 102, 241, 0.2);
+        color: #e2e8f0;
+        border: 1px solid rgba(99, 102, 241, 0.4);
+        padding: 0.6rem 1.2rem;
+        border-radius: 12px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .hero-actions button:hover {
+        background: rgba(99, 102, 241, 0.3);
+      }
+      .jobs-container {
+        display: grid;
+        gap: 1rem;
+      }
+      .job-card {
+        background: rgba(15, 23, 42, 0.9);
+        border-radius: 18px;
+        padding: 1.5rem;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      }
+      .job-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+      .job-info {
+        flex: 1;
+      }
+      .job-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 0 0 0.5rem;
+      }
+      .job-meta {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        font-size: 0.85rem;
+        color: #94a3b8;
+      }
+      .job-id {
+        font-family: 'Monaco', 'Courier New', monospace;
+        background: rgba(30, 41, 59, 0.7);
+        padding: 0.2rem 0.5rem;
+        border-radius: 6px;
+      }
+      .job-status {
+        padding: 0.3rem 0.8rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .job-status.pending {
+        background: rgba(59, 130, 246, 0.2);
+        color: #93c5fd;
+      }
+      .job-status.running {
+        background: rgba(251, 191, 36, 0.2);
+        color: #fcd34d;
+        animation: pulse 2s ease-in-out infinite;
+      }
+      .job-status.completed {
+        background: rgba(16, 185, 129, 0.2);
+        color: #6ee7b7;
+      }
+      .job-status.failed {
+        background: rgba(239, 68, 68, 0.2);
+        color: #fca5a5;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
+      }
+      .job-progress {
+        margin: 1rem 0;
+      }
+      .progress-label {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.5rem;
+        font-size: 0.9rem;
+        color: #cbd5e1;
+      }
+      .progress-bar-container {
+        width: 100%;
+        height: 10px;
+        background: rgba(30, 41, 59, 0.8);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #6366f1, #8b5cf6);
+        border-radius: 999px;
+        transition: width 0.5s ease;
+      }
+      .job-error {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        padding: 1rem;
+        border-radius: 12px;
+        color: #fca5a5;
+        margin-top: 1rem;
+      }
+      .job-result {
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        padding: 1rem;
+        border-radius: 12px;
+        margin-top: 1rem;
+      }
+      .job-result-title {
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        color: #6ee7b7;
+      }
+      .job-result-link {
+        color: #a5b4fc;
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+      .job-result-link:hover {
+        text-decoration: underline;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+        color: #64748b;
+      }
+      .empty-state svg {
+        width: 80px;
+        height: 80px;
+        margin-bottom: 1rem;
+        opacity: 0.5;
+      }
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+        margin-top: 1.5rem;
+      }
+      .stat-box {
+        background: rgba(30, 41, 59, 0.7);
+        border-radius: 14px;
+        padding: 1rem;
+        border: 1px solid rgba(99, 102, 241, 0.25);
+      }
+      .stat-box label {
+        display: block;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.75rem;
+        color: #94a3b8;
+        margin-bottom: 0.5rem;
+      }
+      .stat-box strong {
+        display: block;
+        font-size: 1.8rem;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="top-nav">
+      <span class="brand">
+        <img class="brand-logo" src="/assets/LogoVideorama.png" alt="Videorama" />
+        <span class="brand-name">{{ app_name }}</span>
+      </span>
+      <div class="nav-links">
+        <a href="/">Biblioteca</a>
+        <a href="/jobs" class="active">Tareas</a>
+        <a href="/import">Importador</a>
+        <a href="/stats">Estadísticas</a>
+        <a href="/telegram">Telegram</a>
+      </div>
+    </nav>
+
+    <div class="layout">
+      <header class="hero">
+        <h1>⚡ Tareas en curso</h1>
+        <p>Monitorea el progreso de las operaciones asíncronas en tiempo real</p>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <label>Total de tareas</label>
+            <strong id="total-jobs">0</strong>
+          </div>
+          <div class="stat-box">
+            <label>En progreso</label>
+            <strong id="running-jobs">0</strong>
+          </div>
+          <div class="stat-box">
+            <label>Completadas</label>
+            <strong id="completed-jobs">0</strong>
+          </div>
+          <div class="stat-box">
+            <label>Fallidas</label>
+            <strong id="failed-jobs">0</strong>
+          </div>
+        </div>
+
+        <div class="hero-actions">
+          <button type="button" id="refresh-button">🔄 Refrescar</button>
+          <button type="button" id="auto-refresh-toggle">⏸️ Pausar auto-refresh</button>
+        </div>
+      </header>
+
+      <div id="jobs-container" class="jobs-container">
+        <div class="empty-state">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          </svg>
+          <p>Cargando tareas...</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let autoRefreshEnabled = true;
+      let autoRefreshInterval = null;
+
+      const refreshButton = document.getElementById('refresh-button');
+      const autoRefreshToggle = document.getElementById('auto-refresh-toggle');
+      const jobsContainer = document.getElementById('jobs-container');
+
+      async function fetchJobs() {
+        try {
+          const response = await fetch('/api/jobs?limit=100');
+          if (!response.ok) throw new Error('Error al cargar tareas');
+          const data = await response.json();
+          renderJobs(data.jobs);
+          updateStats(data.jobs);
+        } catch (error) {
+          console.error('Error al cargar tareas:', error);
+          showError(error.message);
+        }
+      }
+
+      function updateStats(jobs) {
+        const stats = {
+          total: jobs.length,
+          running: jobs.filter(j => j.status === 'running').length,
+          completed: jobs.filter(j => j.status === 'completed').length,
+          failed: jobs.filter(j => j.status === 'failed').length,
+        };
+
+        document.getElementById('total-jobs').textContent = stats.total;
+        document.getElementById('running-jobs').textContent = stats.running;
+        document.getElementById('completed-jobs').textContent = stats.completed;
+        document.getElementById('failed-jobs').textContent = stats.failed;
+      }
+
+      function renderJobs(jobs) {
+        if (jobs.length === 0) {
+          jobsContainer.innerHTML = `
+            <div class="empty-state">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p>No hay tareas recientes</p>
+            </div>
+          `;
+          return;
+        }
+
+        jobsContainer.innerHTML = jobs.map(job => createJobCard(job)).join('');
+      }
+
+      function createJobCard(job) {
+        const elapsed = job.completed_at
+          ? formatDuration(job.completed_at - job.created_at)
+          : job.started_at
+          ? formatDuration(Date.now() / 1000 - job.started_at) + ' (en curso)'
+          : 'Esperando...';
+
+        const progressBar = job.status === 'running' || job.status === 'completed'
+          ? `
+            <div class="job-progress">
+              <div class="progress-label">
+                <span>${job.message || 'Procesando...'}</span>
+                <span>${job.progress}%</span>
+              </div>
+              <div class="progress-bar-container">
+                <div class="progress-bar" style="width: ${job.progress}%"></div>
+              </div>
+            </div>
+          `
+          : '';
+
+        const errorSection = job.status === 'failed' && job.error
+          ? `<div class="job-error"><strong>Error:</strong> ${escapeHtml(job.error)}</div>`
+          : '';
+
+        const resultSection = job.status === 'completed' && job.result
+          ? `
+            <div class="job-result">
+              <div class="job-result-title">✓ Completado exitosamente</div>
+              ${job.result.id ? `<a href="/?entry=${job.result.id}" class="job-result-link">Ver en biblioteca →</a>` : ''}
+            </div>
+          `
+          : '';
+
+        const jobTypeName = {
+          add_entry: 'Añadir entrada',
+          enrich_entry: 'Enriquecer metadatos',
+          download: 'Descarga',
+        }[job.job_type] || job.job_type;
+
+        return `
+          <div class="job-card">
+            <div class="job-header">
+              <div class="job-info">
+                <h3 class="job-title">${jobTypeName}</h3>
+                <div class="job-meta">
+                  <span class="job-id">${job.job_id}</span>
+                  <span>${elapsed}</span>
+                  ${job.metadata?.url ? `<span title="${escapeHtml(job.metadata.url)}">🔗 ${truncate(job.metadata.url, 40)}</span>` : ''}
+                </div>
+              </div>
+              <span class="job-status ${job.status}">${getStatusText(job.status)}</span>
+            </div>
+            ${progressBar}
+            ${errorSection}
+            ${resultSection}
+          </div>
+        `;
+      }
+
+      function getStatusText(status) {
+        const texts = {
+          pending: 'Pendiente',
+          running: 'En progreso',
+          completed: 'Completado',
+          failed: 'Fallido',
+        };
+        return texts[status] || status;
+      }
+
+      function formatDuration(seconds) {
+        if (seconds < 60) return `${Math.round(seconds)}s`;
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.round(seconds % 60);
+        return `${mins}m ${secs}s`;
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function truncate(str, maxLen) {
+        if (str.length <= maxLen) return str;
+        return str.substring(0, maxLen - 3) + '...';
+      }
+
+      function showError(message) {
+        jobsContainer.innerHTML = `
+          <div class="empty-state">
+            <p style="color: #fca5a5;">Error: ${escapeHtml(message)}</p>
+          </div>
+        `;
+      }
+
+      function startAutoRefresh() {
+        if (autoRefreshInterval) return;
+        autoRefreshInterval = setInterval(fetchJobs, 3000);
+      }
+
+      function stopAutoRefresh() {
+        if (autoRefreshInterval) {
+          clearInterval(autoRefreshInterval);
+          autoRefreshInterval = null;
+        }
+      }
+
+      refreshButton.addEventListener('click', fetchJobs);
+
+      autoRefreshToggle.addEventListener('click', () => {
+        autoRefreshEnabled = !autoRefreshEnabled;
+        if (autoRefreshEnabled) {
+          autoRefreshToggle.textContent = '⏸️ Pausar auto-refresh';
+          startAutoRefresh();
+        } else {
+          autoRefreshToggle.textContent = '▶️ Reanudar auto-refresh';
+          stopAutoRefresh();
+        }
+      });
+
+      // Iniciar
+      fetchJobs();
+      startAutoRefresh();
+    </script>
+  </body>
+</html>
