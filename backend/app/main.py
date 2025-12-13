@@ -66,9 +66,11 @@ async def health_check():
     }
 
 
-# API v1 routes will be added here
-# from .api.v1 import libraries, entries, playlists, inbox, jobs
-# app.include_router(libraries.router, prefix="/api/v1", tags=["libraries"])
+# API v1 routes
+from .api.v1 import libraries
+
+app.include_router(libraries.router, prefix="/api/v1", tags=["libraries"])
+# More routers to be added:
 # app.include_router(entries.router, prefix="/api/v1", tags=["entries"])
 # app.include_router(playlists.router, prefix="/api/v1", tags=["playlists"])
 # app.include_router(inbox.router, prefix="/api/v1", tags=["inbox"])
