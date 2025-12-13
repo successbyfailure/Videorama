@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import logging
@@ -20,6 +21,7 @@ from pydantic import BaseModel, Field, validator
 from openai import OpenAI
 
 from .storage import SQLiteStore
+from .jobs import job_manager, JobStatus
 from versioning import get_version
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -231,13 +233,15 @@ def _compose_entry_context(url: str, title: Optional[str], notes: Optional[str],
 
 
 def _fetch_transcription_text(url: str) -> Optional[str]:
+    """Obtiene la transcripción de un video usando la API de VHS."""
     if not url:
         return None
     endpoint = f"{VHS_BASE_URL}/api/download"
     try:
-        response = requests.get(
+        response = requests.post(
             endpoint,
-            params={"url": url, "format": "transcript_text"},
+            json={"url": url, "format": "transcript_text"},
+            headers={"Content-Type": "application/json"},
             timeout=300,
         )
     except requests.RequestException:
@@ -979,6 +983,14 @@ def _stream_local_file(
 
 
 def _build_vhs_request(entry: Dict[str, Any], media_format: Optional[str]):
+    """
+    Construye la petición a VHS para streaming/download.
+
+    Returns:
+        Tupla de (endpoint, payload) donde:
+        - Si payload es None, usa GET al cache
+        - Si payload es dict, usa POST con JSON al endpoint de download
+    """
     preferred = str(entry.get("preferred_format") or DEFAULT_VHS_FORMAT)
     preferred = preferred.strip() or DEFAULT_VHS_FORMAT
     target_format = str(media_format or preferred).strip() or preferred
@@ -989,25 +1001,40 @@ def _build_vhs_request(entry: Dict[str, Any], media_format: Optional[str]):
     if not source_url:
         raise HTTPException(status_code=400, detail="La entrada no tiene URL de origen")
     endpoint = f"{VHS_BASE_URL}/api/download"
-    params = {"url": source_url, "format": target_format}
-    return endpoint, params
+    payload = {"url": source_url, "format": target_format}
+    return endpoint, payload
 
 
 def _proxy_vhs_stream(
     entry: Dict[str, Any], media_format: Optional[str], as_attachment: bool, request: Optional[Request]
 ) -> StreamingResponse:
-    endpoint, params = _build_vhs_request(entry, media_format)
+    endpoint, payload = _build_vhs_request(entry, media_format)
     request_headers = {}
     if request and request.headers.get("range"):
         request_headers["Range"] = request.headers["range"]
+
     try:
-        response = requests.get(
-            endpoint,
-            params=params,
-            stream=True,
-            timeout=VHS_HTTP_TIMEOUT,
-            headers=request_headers or None,
-        )
+        if payload is None:
+            # Acceso directo al cache (GET)
+            response = requests.get(
+                endpoint,
+                stream=True,
+                timeout=VHS_HTTP_TIMEOUT,
+                headers=request_headers or None,
+            )
+        else:
+            # Nueva API de VHS: POST con JSON
+            if request_headers:
+                request_headers["Content-Type"] = "application/json"
+            else:
+                request_headers = {"Content-Type": "application/json"}
+            response = requests.post(
+                endpoint,
+                json=payload,
+                stream=True,
+                timeout=VHS_HTTP_TIMEOUT,
+                headers=request_headers,
+            )
     except requests.RequestException as exc:  # pragma: no cover - network errors
         raise HTTPException(status_code=502, detail=f"VHS no respondió: {exc}") from exc
     if response.status_code >= 400 and response.status_code != 416:
@@ -1180,17 +1207,64 @@ def fetch_music_metadata(title: str, band: Optional[str] = None) -> Dict[str, An
 
 
 def trigger_vhs_download(url: str, media_format: str) -> None:
+    """
+    Solicita a VHS que descargue y cachee un video.
+    Usa la nueva API de VHS (POST con JSON).
+    """
     normalized_format = normalize_vhs_format(media_format)
     endpoint = f"{VHS_BASE_URL}/api/download"
     try:
-        requests.get(
+        requests.post(
             endpoint,
-            params={"url": url, "format": normalized_format},
+            json={"url": url, "format": normalized_format},
+            headers={"Content-Type": "application/json"},
             timeout=120,
         )
     except requests.RequestException:
         # No interrumpir el flujo si VHS no está disponible para descargar.
         return
+
+
+# ============================================================================
+# Wrappers Asíncronos para Operaciones Bloqueantes
+# ============================================================================
+# Estas funciones envuelven las operaciones síncronas bloqueantes en
+# asyncio.to_thread() para evitar bloquear el event loop de FastAPI.
+
+
+async def fetch_vhs_metadata_async(url: str) -> Dict[str, Any]:
+    """Versión async de fetch_vhs_metadata."""
+    return await asyncio.to_thread(fetch_vhs_metadata, url)
+
+
+async def fetch_music_metadata_async(title: str, band: Optional[str] = None) -> Dict[str, Any]:
+    """Versión async de fetch_music_metadata."""
+    return await asyncio.to_thread(fetch_music_metadata, title, band)
+
+
+async def infer_music_metadata_llm_async(metadata: Dict[str, Any], url: str) -> Dict[str, Any]:
+    """Versión async de _infer_music_metadata_llm."""
+    return await asyncio.to_thread(_infer_music_metadata_llm, metadata, url)
+
+
+async def llm_completion_async(prompt: str, model: str, context: str) -> str:
+    """Versión async de _llm_completion."""
+    return await asyncio.to_thread(_llm_completion, prompt, model, context)
+
+
+async def fetch_transcription_text_async(url: str) -> Optional[str]:
+    """Versión async de _fetch_transcription_text."""
+    return await asyncio.to_thread(_fetch_transcription_text, url)
+
+
+async def trigger_vhs_download_async(url: str, media_format: str) -> None:
+    """Versión async de trigger_vhs_download."""
+    await asyncio.to_thread(trigger_vhs_download, url, media_format)
+
+
+async def cache_thumbnail_async(entry_id: str, thumbnail_url: Optional[str]) -> Optional[str]:
+    """Versión async de cache_thumbnail."""
+    return await asyncio.to_thread(cache_thumbnail, entry_id, thumbnail_url)
 
 
 def derive_cache_key(url: str, media_format: str) -> str:
@@ -1611,19 +1685,62 @@ async def vhs_health() -> Dict[str, Any]:
 
 
 @app.get("/api/library")
-async def list_library(request: Request, library: Optional[str] = None) -> Dict[str, Any]:
-    base_url = build_public_base_url(request)
-    entries = load_library(base_url=base_url)
-    normalized_library = (library or "").strip().lower()
-    totals = {
-        "video": len([entry for entry in entries if entry.get("library") == "video"]),
-        "music": len([entry for entry in entries if entry.get("library") == "music"]),
-    }
-    totals["all"] = len(entries)
+async def list_library(
+    request: Request,
+    library: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """
+    Lista las entradas de la biblioteca con paginación.
 
+    Args:
+        library: Filtrar por biblioteca ("video" o "music").
+        limit: Número máximo de entradas a retornar (default: 50, max: 500).
+        offset: Número de entradas a saltar (default: 0).
+
+    Returns:
+        Objeto con:
+        - items: Lista de entradas paginadas
+        - count: Número de entradas retornadas
+        - total: Total de entradas (sin paginación)
+        - totals: Totales por biblioteca
+        - has_more: Si hay más entradas disponibles
+    """
+    # Validar límites
+    limit = max(1, min(limit, 500))  # Entre 1 y 500
+    offset = max(0, offset)
+
+    base_url = build_public_base_url(request)
+    all_entries = load_library(base_url=base_url)
+    normalized_library = (library or "").strip().lower()
+
+    totals = {
+        "video": len([entry for entry in all_entries if entry.get("library") == "video"]),
+        "music": len([entry for entry in all_entries if entry.get("library") == "music"]),
+    }
+    totals["all"] = len(all_entries)
+
+    # Filtrar por biblioteca
     if normalized_library in {"video", "music"}:
-        entries = [entry for entry in entries if entry.get("library") == normalized_library]
-    return {"items": entries, "count": len(entries), "totals": totals}
+        filtered_entries = [entry for entry in all_entries if entry.get("library") == normalized_library]
+    else:
+        filtered_entries = all_entries
+
+    total_filtered = len(filtered_entries)
+
+    # Aplicar paginación
+    paginated_entries = filtered_entries[offset:offset + limit]
+
+    return {
+        "items": paginated_entries,
+        "count": len(paginated_entries),
+        "total": total_filtered,
+        "totals": totals,
+        "has_more": (offset + limit) < total_filtered,
+        "offset": offset,
+        "limit": limit,
+    }
 
 
 @app.get("/api/library/{entry_id}")
@@ -1671,125 +1788,211 @@ async def download_entry(request: Request, entry_id: str, format: Optional[str] 
     return stream_entry_content(normalized, format, as_attachment=True, request=request)
 
 
-@app.post("/api/library", status_code=201)
+async def _add_entry_job(payload: AddLibraryEntry, job_id: str, base_url: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Función interna para añadir una entrada a la biblioteca.
+    Ejecuta todo el proceso de forma asíncrona sin bloquear el event loop.
+
+    Args:
+        payload: Datos de la entrada a añadir.
+        job_id: ID del job para tracking de progreso.
+        base_url: URL base para construir URLs públicas.
+
+    Returns:
+        La entrada normalizada.
+    """
+    try:
+        # Paso 1: Obtener metadatos de VHS (10-15%)
+        job_manager.update_job(job_id, status=JobStatus.RUNNING, progress=5, message="Obteniendo metadatos de VHS...")
+        metadata = await fetch_vhs_metadata_async(payload.url)
+
+        entry_id = entry_id_for_url(payload.url)
+        now = time.time()
+        metadata_blob = sanitize_metadata(metadata)
+
+        is_music_library = payload.library == "music"
+        should_fetch_music = is_music_library or _looks_like_music(metadata_blob, payload.url)
+
+        # Paso 2: Obtener metadatos musicales de iTunes (25-30%)
+        music_metadata: Dict[str, Any] = {}
+        if should_fetch_music:
+            job_manager.update_job(job_id, progress=20, message="Consultando metadatos musicales...")
+            try:
+                music_metadata = await fetch_music_metadata_async(
+                    metadata_blob.get("title") or payload.url,
+                    metadata_blob.get("band")
+                    or metadata_blob.get("artist")
+                    or metadata_blob.get("uploader"),
+                )
+            except HTTPException as exc:
+                logger.warning("Metadatos musicales no disponibles: %s", exc)
+        if music_metadata:
+            metadata_blob = _merge_metadata(metadata_blob, sanitize_metadata(music_metadata))
+
+        # Paso 3: Inferir metadatos con LLM (40-45%)
+        inferred_music_metadata: Dict[str, Any] = {}
+        if should_fetch_music:
+            job_manager.update_job(job_id, progress=35, message="Infiriendo metadatos con IA...")
+            try:
+                inferred_music_metadata = await infer_music_metadata_llm_async(metadata_blob, payload.url)
+            except HTTPException as exc:
+                logger.warning("No se pudo inferir metadatos con LLM: %s", exc)
+                inferred_music_metadata = {}
+        if inferred_music_metadata:
+            metadata_blob = _merge_metadata(metadata_blob, sanitize_metadata(inferred_music_metadata))
+
+        if payload.metadata:
+            metadata_blob.update(sanitize_metadata(payload.metadata))
+
+        metadata_blob = ensure_metadata_source(metadata_blob, payload.url)
+        metadata_blob["library"] = payload.library
+        store_audio = payload.store_audio if is_music_library else False
+        store_video = payload.store_video if is_music_library else True
+        metadata_blob["store_audio"] = store_audio
+        metadata_blob["store_video"] = store_video
+        band_name = payload.band or metadata_blob.get("band") or metadata_blob.get("artist") or metadata_blob.get("uploader")
+        album_name = payload.album or metadata_blob.get("album") or metadata_blob.get("album_name")
+        track_number = payload.track_number or metadata_blob.get("track_number")
+        if track_number:
+            try:
+                track_number = int(track_number)
+            except (TypeError, ValueError):
+                track_number = None
+        title = payload.title or metadata_blob.get("title") or payload.url
+        metadata_blob["title"] = title
+        metadata_blob["band"] = band_name or metadata_blob.get("band")
+        metadata_blob["album"] = album_name or metadata_blob.get("album")
+        metadata_blob["track_number"] = track_number or metadata_blob.get("track_number")
+
+        # Paso 4: Cachear thumbnail (60%)
+        job_manager.update_job(job_id, progress=55, message="Cacheando miniatura...")
+        remove_entry_thumbnails(entry_id)
+        raw_thumbnail = extract_thumbnail(metadata_blob)
+        thumbnail = await cache_thumbnail_async(entry_id, raw_thumbnail) or raw_thumbnail
+
+        category_value = (payload.category or "").strip() or classify_entry(metadata_blob)
+        if is_music_library:
+            normalized_music_category = (category_value or "album").strip().lower() or "album"
+            if normalized_music_category not in {"album", "live", "dj", "custom"}:
+                normalized_music_category = "custom"
+            category_value = normalized_music_category
+        category = category_value
+
+        lyrics = payload.lyrics
+        notes = payload.notes
+        if is_music_library:
+            lyrics = lyrics or notes
+            notes = None
+
+        audio_url = metadata_blob.get("audio_url") if is_music_library and store_audio else None
+        video_url = metadata_blob.get("video_url") if is_music_library and store_video else metadata_blob.get("video_url")
+        if is_music_library and store_video and not video_url:
+            video_url = payload.url
+        if not is_music_library:
+            video_url = video_url or payload.url
+
+        user_tags = sorted(
+            {
+                tag.strip()
+                for tag in payload.tags
+                if isinstance(tag, str) and tag.strip()
+            }
+        )
+
+        entry = {
+            "id": entry_id,
+            "url": payload.url,
+            "original_url": payload.url,
+            "library": payload.library,
+            "band": band_name,
+            "album": album_name,
+            "track_number": track_number,
+            "title": title,
+            "duration": metadata.get("duration"),
+            "uploader": metadata.get("uploader"),
+            "category": category,
+            "tags": user_tags,
+            "notes": notes,
+            "lyrics": lyrics,
+            "thumbnail": thumbnail,
+            "extractor": metadata.get("extractor_key") or metadata.get("extractor"),
+            "added_at": now,
+            "vhs_cache_key": derive_cache_key(payload.url, payload.format),
+            "preferred_format": payload.format,
+            "metadata": metadata_blob,
+            "audio_url": audio_url,
+            "video_url": video_url,
+        }
+
+        # Paso 5: Guardar en base de datos (80%)
+        job_manager.update_job(job_id, progress=75, message="Guardando en biblioteca...")
+        store.upsert_entry(entry)
+
+        # Paso 6: Auto-download si está activado (90-100%)
+        if payload.auto_download:
+            job_manager.update_job(job_id, progress=85, message="Iniciando descarga en VHS...")
+            await trigger_vhs_download_async(payload.url, payload.format)
+
+        job_manager.update_job(job_id, progress=95, message="Finalizando...")
+        stored_entry = normalize_entry(entry, base_url=base_url)
+        result = stored_entry or entry
+
+        job_manager.update_job(job_id, status=JobStatus.COMPLETED, progress=100, message="Entrada añadida exitosamente", result=result)
+        return result
+
+    except Exception as exc:
+        logger.exception(f"Error añadiendo entrada en job {job_id}: {exc}")
+        job_manager.update_job(job_id, status=JobStatus.FAILED, error=str(exc))
+        raise
+
+
+@app.post("/api/library", status_code=202)
 async def add_entry(request: Request, payload: AddLibraryEntry) -> Dict[str, Any]:
-    metadata = fetch_vhs_metadata(payload.url)
-    entry_id = entry_id_for_url(payload.url)
-    now = time.time()
-    metadata_blob = sanitize_metadata(metadata)
+    """
+    Añade una entrada a la biblioteca de forma asíncrona.
 
-    is_music_library = payload.library == "music"
-    should_fetch_music = is_music_library or _looks_like_music(metadata_blob, payload.url)
-    music_metadata: Dict[str, Any] = {}
-    if should_fetch_music:
-        try:
-            music_metadata = fetch_music_metadata(
-                metadata_blob.get("title") or payload.url,
-                metadata_blob.get("band")
-                or metadata_blob.get("artist")
-                or metadata_blob.get("uploader"),
-            )
-        except HTTPException as exc:
-            logger.warning("Metadatos musicales no disponibles: %s", exc)
-    if music_metadata:
-        metadata_blob = _merge_metadata(metadata_blob, sanitize_metadata(music_metadata))
-
-    inferred_music_metadata: Dict[str, Any] = {}
-    if should_fetch_music:
-        try:
-            inferred_music_metadata = _infer_music_metadata_llm(metadata_blob, payload.url)
-        except HTTPException as exc:
-            logger.warning("No se pudo inferir metadatos con LLM: %s", exc)
-            inferred_music_metadata = {}
-    if inferred_music_metadata:
-        metadata_blob = _merge_metadata(metadata_blob, sanitize_metadata(inferred_music_metadata))
-
-    if payload.metadata:
-        metadata_blob.update(sanitize_metadata(payload.metadata))
-
-    metadata_blob = ensure_metadata_source(metadata_blob, payload.url)
-    metadata_blob["library"] = payload.library
-    store_audio = payload.store_audio if is_music_library else False
-    store_video = payload.store_video if is_music_library else True
-    metadata_blob["store_audio"] = store_audio
-    metadata_blob["store_video"] = store_video
-    band_name = payload.band or metadata_blob.get("band") or metadata_blob.get("artist") or metadata_blob.get("uploader")
-    album_name = payload.album or metadata_blob.get("album") or metadata_blob.get("album_name")
-    track_number = payload.track_number or metadata_blob.get("track_number")
-    if track_number:
-        try:
-            track_number = int(track_number)
-        except (TypeError, ValueError):
-            track_number = None
-    title = payload.title or metadata_blob.get("title") or payload.url
-    metadata_blob["title"] = title
-    metadata_blob["band"] = band_name or metadata_blob.get("band")
-    metadata_blob["album"] = album_name or metadata_blob.get("album")
-    metadata_blob["track_number"] = track_number or metadata_blob.get("track_number")
-    remove_entry_thumbnails(entry_id)
-    raw_thumbnail = extract_thumbnail(metadata_blob)
-    thumbnail = cache_thumbnail(entry_id, raw_thumbnail) or raw_thumbnail
-    category_value = (payload.category or "").strip() or classify_entry(metadata_blob)
-    if is_music_library:
-        normalized_music_category = (category_value or "album").strip().lower() or "album"
-        if normalized_music_category not in {"album", "live", "dj", "custom"}:
-            normalized_music_category = "custom"
-        category_value = normalized_music_category
-    category = category_value
-
-    lyrics = payload.lyrics
-    notes = payload.notes
-    if is_music_library:
-        lyrics = lyrics or notes
-        notes = None
-
-    audio_url = metadata_blob.get("audio_url") if is_music_library and store_audio else None
-    video_url = metadata_blob.get("video_url") if is_music_library and store_video else metadata_blob.get("video_url")
-    if is_music_library and store_video and not video_url:
-        video_url = payload.url
-    if not is_music_library:
-        video_url = video_url or payload.url
-
-    user_tags = sorted(
-        {
-            tag.strip()
-            for tag in payload.tags
-            if isinstance(tag, str) and tag.strip()
+    Retorna inmediatamente un job_id que se puede usar para consultar el progreso.
+    """
+    # Crear job
+    job_id = job_manager.create_job(
+        job_type="add_entry",
+        metadata={
+            "url": payload.url,
+            "library": payload.library,
+            "title": payload.title,
         }
     )
 
-    entry = {
-        "id": entry_id,
-        "url": payload.url,
-        "original_url": payload.url,
-        "library": payload.library,
-        "band": band_name,
-        "album": album_name,
-        "track_number": track_number,
-        "title": title,
-        "duration": metadata.get("duration"),
-        "uploader": metadata.get("uploader"),
-        "category": category,
-        "tags": user_tags,
-        "notes": notes,
-        "lyrics": lyrics,
-        "thumbnail": thumbnail,
-        "extractor": metadata.get("extractor_key") or metadata.get("extractor"),
-        "added_at": now,
-        "vhs_cache_key": derive_cache_key(payload.url, payload.format),
-        "preferred_format": payload.format,
-        "metadata": metadata_blob,
-        "audio_url": audio_url,
-        "video_url": video_url,
+    # Ejecutar job en background
+    base_url = build_public_base_url(request)
+    asyncio.create_task(
+        job_manager.run_job(job_id, _add_entry_job, payload, job_id, base_url)
+    )
+
+    # Retornar inmediatamente con el job_id
+    return {
+        "job_id": job_id,
+        "status": "accepted",
+        "message": "Entrada en proceso de añadirse. Usa GET /api/jobs/{job_id} para consultar el progreso.",
+        "poll_url": f"/api/jobs/{job_id}",
     }
 
-    store.upsert_entry(entry)
 
-    if payload.auto_download:
-        trigger_vhs_download(payload.url, payload.format)
+@app.post("/api/library/sync", status_code=201)
+async def add_entry_sync(request: Request, payload: AddLibraryEntry) -> Dict[str, Any]:
+    """
+    Añade una entrada a la biblioteca de forma SÍNCRONA (legacy).
 
-    stored_entry = normalize_entry(entry, base_url=build_public_base_url(request))
-    return stored_entry or entry
+    DEPRECATED: Este endpoint bloquea la petición hasta completar.
+    Usa POST /api/library para el comportamiento asíncrono recomendado.
+    """
+    # Crear un job temporal para tracking interno (opcional)
+    job_id = secrets.token_urlsafe(8)
+    base_url = build_public_base_url(request)
+
+    # Ejecutar el job de forma síncrona (esperar a que termine)
+    result = await _add_entry_job(payload, job_id, base_url)
+    return result
 
 
 @app.put("/api/library/{entry_id}")
@@ -2256,4 +2459,54 @@ async def delete_telegram_contact(user_id: str) -> Dict[str, Any]:
     if not deleted:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return {"deleted": deleted}
+
+
+# ============================================================================
+# Jobs & Health Endpoints
+# ============================================================================
+
+
+@app.get("/api/health")
+async def health_check() -> Dict[str, Any]:
+    """
+    Health check endpoint.
+
+    Retorna el estado del servicio y información básica.
+    """
+    return {
+        "status": "ok",
+        "service": "videorama",
+        "version": VIDEORAMA_VERSION,
+    }
+
+
+@app.get("/api/jobs/{job_id}")
+async def get_job_status(job_id: str) -> Dict[str, Any]:
+    """
+    Consulta el estado de un job.
+
+    Retorna información sobre el progreso, estado y resultado del job.
+    """
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    return job.to_dict()
+
+
+@app.get("/api/jobs")
+async def list_jobs(limit: int = 50) -> Dict[str, Any]:
+    """
+    Lista los jobs más recientes.
+
+    Args:
+        limit: Número máximo de jobs a retornar (por defecto 50).
+
+    Returns:
+        Lista de jobs con su estado y progreso.
+    """
+    jobs = job_manager.list_jobs(limit=limit)
+    return {
+        "jobs": jobs,
+        "count": len(jobs),
+    }
 

@@ -129,62 +129,81 @@ sendButton.addEventListener('click', async () => {
     return;
   }
 
-  // Mostrar loading
-  mainContent.style.display = 'none';
-  loadingDiv.style.display = 'block';
+  // Preparar el payload según la API de Videorama
+  const payload = {
+    url: url,
+    auto_download: autoDownloadCheckbox.checked,
+    library: musicLibraryCheckbox.checked ? 'music' : 'video'
+  };
 
-  try {
-    // Preparar el payload según la API de Videorama
-    const payload = {
-      url: url,
-      auto_download: autoDownloadCheckbox.checked,
-      library: musicLibraryCheckbox.checked ? 'music' : 'video'
-    };
+  // Mostrar mensaje de envío inmediato
+  showStatus('Enviando video a Videorama...', 'info');
 
-    // Enviar a Videorama
-    const response = await fetch(`${serverUrl}/api/library`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify(payload)
+  // Enviar a Videorama y cerrar inmediatamente
+  // La API ahora retorna 202 con un job_id
+  fetch(`${serverUrl}/api/library`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  })
+    .then(async (response) => {
+      if (response.ok || response.status === 202) {
+        const data = await response.json();
+
+        // Mostrar notificación del navegador
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/icon128.png',
+          title: 'Video enviado a Videorama',
+          message: `El video está siendo procesado. Job ID: ${data.job_id || 'desconocido'}`,
+          priority: 1
+        });
+
+        // Si hay job_id, podríamos hacer polling opcional aquí
+        if (data.job_id) {
+          console.log('Job ID:', data.job_id);
+          // TODO: Implementar polling opcional en el background
+        }
+      } else {
+        // Error en la petición
+        const errorText = await response.text();
+        let errorMessage = 'Error al enviar el video';
+
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.detail || errorMessage;
+        } catch (e) {
+          errorMessage = `Error ${response.status}: ${errorText}`;
+        }
+
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/icon128.png',
+          title: 'Error en Videorama',
+          message: errorMessage,
+          priority: 2
+        });
+      }
+    })
+    .catch((error) => {
+      // Error de conexión
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: 'Error de conexión',
+        message: 'No se pudo conectar con Videorama: ' + error.message,
+        priority: 2
+      });
+      console.error('Error al enviar video:', error);
     });
 
-    loadingDiv.style.display = 'none';
-    mainContent.style.display = 'block';
-
-    if (response.ok) {
-      const data = await response.json();
-      showStatus('Video enviado correctamente a Videorama', 'success');
-
-      // Limpiar el input después de enviar
-      videoUrlInput.value = '';
-      videoUrlInput.classList.remove('detected-url');
-
-      // Opcional: cerrar el popup después de unos segundos
-      setTimeout(() => {
-        window.close();
-      }, 2000);
-    } else {
-      const errorText = await response.text();
-      let errorMessage = 'Error al enviar el video';
-
-      try {
-        const errorData = JSON.parse(errorText);
-        errorMessage = errorData.detail || errorMessage;
-      } catch (e) {
-        errorMessage = `Error ${response.status}: ${errorText}`;
-      }
-
-      showStatus(errorMessage, 'error');
-    }
-  } catch (error) {
-    loadingDiv.style.display = 'none';
-    mainContent.style.display = 'block';
-    showStatus('Error de conexión: ' + error.message, 'error');
-    console.error('Error al enviar video:', error);
-  }
+  // Cerrar el popup inmediatamente (no esperar la respuesta)
+  setTimeout(() => {
+    window.close();
+  }, 500);
 });
 
 // Botón de opciones
