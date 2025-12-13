@@ -43,6 +43,7 @@ services:
     #   dockerfile: Dockerfile
     container_name: videorama-backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     volumes:
       - ./backend:/app
       - ./storage:/storage
@@ -70,6 +71,7 @@ services:
     #   dockerfile: Dockerfile
     container_name: videorama-celery
     command: celery -A app.tasks worker --loglevel=info
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     volumes:
       - ./backend:/app
       - ./storage:/storage
@@ -94,6 +96,7 @@ services:
     #   dockerfile: Dockerfile
     container_name: videorama-frontend
     command: npm run dev
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     volumes:
       - ./frontend:/app
       - /app/node_modules
