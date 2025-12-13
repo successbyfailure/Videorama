@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Videorama Video Sender",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Envía videos desde cualquier página web a tu servidor Videorama",
   "permissions": [
     "activeTab",
     "storage",
-    "scripting"
+    "scripting",
+    "notifications"
   ],
   "host_permissions": [
     "http://*/*",
