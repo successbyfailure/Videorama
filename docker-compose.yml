@@ -32,6 +32,8 @@ services:
       - "8600:8600"
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ${VIDEORAMA_HOST_DATA_DIR:-./data}:/app/data
       - ${VIDEORAMA_HOST_VIDEOS_DIR:-./storage/videos}:/app/storage/videos
@@ -72,6 +74,8 @@ services:
         condition: service_started
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ${VIDEORAMA_HOST_DATA_DIR:-./data}:/app/data
       - ${VIDEORAMA_HOST_VIDEOS_DIR:-./storage/videos}:/app/storage/videos
