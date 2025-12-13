@@ -35,9 +35,12 @@ services:
 
   # Backend API
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    # Option 1: Use pre-built image from GitHub Container Registry
+    image: ${BACKEND_IMAGE:-ghcr.io/successbyfailure/videorama/backend:latest}
+    # Option 2: Build locally (comment image above and uncomment build below)
+    # build:
+    #   context: ./backend
+    #   dockerfile: Dockerfile
     container_name: videorama-backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
@@ -59,9 +62,12 @@ services:
 
   # Celery Worker (background tasks)
   celery-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    # Option 1: Use pre-built image from GitHub Container Registry
+    image: ${BACKEND_IMAGE:-ghcr.io/successbyfailure/videorama/backend:latest}
+    # Option 2: Build locally (comment image above and uncomment build below)
+    # build:
+    #   context: ./backend
+    #   dockerfile: Dockerfile
     container_name: videorama-celery
     command: celery -A app.tasks worker --loglevel=info
     volumes:
@@ -80,9 +86,12 @@ services:
 
   # Frontend (React)
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    # Option 1: Use pre-built image from GitHub Container Registry
+    image: ${FRONTEND_IMAGE:-ghcr.io/successbyfailure/videorama/frontend:latest}
+    # Option 2: Build locally (comment image above and uncomment build below)
+    # build:
+    #   context: ./frontend
+    #   dockerfile: Dockerfile
     container_name: videorama-frontend
     command: npm run dev
     volumes:
