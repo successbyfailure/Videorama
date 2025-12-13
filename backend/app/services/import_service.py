@@ -9,8 +9,8 @@ from pathlib import Path
 import time
 import uuid
 
-from ..models import Library, Entry, EntryFile, InboxItem, Tag
-from ..utils import calculate_file_hash, PathTemplateEngine, get_file_info
+from ..models import Library, Entry, EntryFile, InboxItem, Tag, EntryAutoTag, EntryProperty
+from ..utils import calculate_file_hash, PathTemplateEngine, get_file_info, move_file
 from .job_service import JobService
 from .llm_service import LLMService
 from .vhs_service import VHSService
@@ -338,8 +338,7 @@ class ImportService:
         final_path = Path(library.default_path) / subfolder / final_filename
 
         # Move file to final location
-        # TODO: Actually move file
-        # move_file(file_path, final_path)
+        move_file(file_path, final_path)
 
         # Create entry
         entry = Entry(
@@ -373,12 +372,143 @@ class ImportService:
 
         self.db.add(entry_file)
 
-        # TODO: Add tags and properties
+        # Add tags from classification and enrichment
+        self._create_entry_tags(
+            entry.uuid, classification, enriched, user_metadata or {}
+        )
+
+        # Add properties from classification and enrichment
+        self._create_entry_properties(
+            entry.uuid, classification, enriched, user_metadata or {}
+        )
 
         self.db.commit()
         self.db.refresh(entry)
 
         return entry
+
+    def _create_entry_tags(
+        self,
+        entry_uuid: str,
+        classification: Dict,
+        enriched: Dict,
+        user_metadata: Dict,
+    ):
+        """Create auto tags for entry from LLM classification and enrichment"""
+        # Tags from LLM classification
+        llm_tags = classification.get("tags", [])
+        for tag_name in llm_tags:
+            # Get or create tag
+            tag = self.db.query(Tag).filter(Tag.name == tag_name).first()
+            if not tag:
+                tag = Tag(name=tag_name, created_at=time.time())
+                self.db.add(tag)
+                self.db.flush()  # Get tag ID
+
+            # Create EntryAutoTag
+            auto_tag = EntryAutoTag(
+                entry_uuid=entry_uuid,
+                tag_id=tag.id,
+                source="llm",
+                confidence=classification.get("confidence"),
+                created_at=time.time(),
+            )
+            self.db.add(auto_tag)
+
+        # Tags from external APIs
+        for source_name, source_data in enriched.items():
+            if "tags" in source_data and isinstance(source_data["tags"], list):
+                for tag_name in source_data["tags"]:
+                    # Get or create tag
+                    tag = self.db.query(Tag).filter(Tag.name == tag_name).first()
+                    if not tag:
+                        tag = Tag(name=tag_name, created_at=time.time())
+                        self.db.add(tag)
+                        self.db.flush()
+
+                    # Create EntryAutoTag (avoid duplicates)
+                    existing = (
+                        self.db.query(EntryAutoTag)
+                        .filter(
+                            EntryAutoTag.entry_uuid == entry_uuid,
+                            EntryAutoTag.tag_id == tag.id,
+                        )
+                        .first()
+                    )
+                    if not existing:
+                        auto_tag = EntryAutoTag(
+                            entry_uuid=entry_uuid,
+                            tag_id=tag.id,
+                            source="external_api",
+                            created_at=time.time(),
+                        )
+                        self.db.add(auto_tag)
+
+    def _create_entry_properties(
+        self,
+        entry_uuid: str,
+        classification: Dict,
+        enriched: Dict,
+        user_metadata: Dict,
+    ):
+        """Create properties for entry from all sources"""
+        # Properties from LLM classification
+        properties = classification.get("properties", {})
+        for key, value in properties.items():
+            if value:  # Only add non-empty properties
+                prop = EntryProperty(
+                    entry_uuid=entry_uuid,
+                    key=key,
+                    value=str(value),
+                    source="llm",
+                )
+                self.db.add(prop)
+
+        # Properties from external APIs
+        for source_name, source_data in enriched.items():
+            for key, value in source_data.items():
+                if key != "tags" and value:  # Skip tags field and empty values
+                    # Check if property already exists
+                    existing = (
+                        self.db.query(EntryProperty)
+                        .filter(
+                            EntryProperty.entry_uuid == entry_uuid,
+                            EntryProperty.key == key,
+                        )
+                        .first()
+                    )
+                    if not existing:
+                        prop = EntryProperty(
+                            entry_uuid=entry_uuid,
+                            key=key,
+                            value=str(value),
+                            source="external_api",
+                        )
+                        self.db.add(prop)
+
+        # Properties from user metadata
+        for key, value in user_metadata.items():
+            if value:
+                # User metadata overwrites existing
+                existing = (
+                    self.db.query(EntryProperty)
+                    .filter(
+                        EntryProperty.entry_uuid == entry_uuid,
+                        EntryProperty.key == key,
+                    )
+                    .first()
+                )
+                if existing:
+                    existing.value = str(value)
+                    existing.source = "user"
+                else:
+                    prop = EntryProperty(
+                        entry_uuid=entry_uuid,
+                        key=key,
+                        value=str(value),
+                        source="user",
+                    )
+                    self.db.add(prop)
 
     def _build_template_variables(self, classification: Dict, enriched: Dict) -> Dict:
         """Build variables for path template"""
@@ -424,4 +554,189 @@ class ImportService:
             "inbox_id": inbox_item.id,
             "inbox_type": inbox_type,
             "job_id": job_id,
+        }
+
+    async def import_from_filesystem(
+        self,
+        directory_path: str,
+        library_id: Optional[str] = None,
+        recursive: bool = True,
+        mode: str = "move",  # move, copy, or index
+        file_extensions: Optional[List[str]] = None,
+        imported_by: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Import media files from filesystem
+
+        Args:
+            directory_path: Path to scan
+            library_id: Optional library to import to
+            recursive: Scan subdirectories
+            mode: 'move', 'copy', or 'index'
+            file_extensions: Filter by extensions (e.g., ['.mp4', '.mkv', '.mp3'])
+            imported_by: User who initiated import
+
+        Returns:
+            Dict with job_id and import results
+        """
+        # Create job
+        job_id = str(uuid.uuid4())
+
+        # Default extensions if not provided
+        if not file_extensions:
+            file_extensions = [
+                '.mp4', '.mkv', '.avi', '.mov', '.webm',  # Video
+                '.mp3', '.m4a', '.flac', '.wav', '.ogg',  # Audio
+            ]
+
+        # Validate directory exists
+        dir_path = Path(directory_path)
+        if not dir_path.exists() or not dir_path.is_dir():
+            return {
+                "success": False,
+                "error": f"Directory not found: {directory_path}",
+                "job_id": job_id,
+            }
+
+        # Scan for files
+        files_to_import = []
+        if recursive:
+            for ext in file_extensions:
+                files_to_import.extend(dir_path.rglob(f"*{ext}"))
+        else:
+            for ext in file_extensions:
+                files_to_import.extend(dir_path.glob(f"*{ext}"))
+
+        if not files_to_import:
+            return {
+                "success": True,
+                "message": "No media files found",
+                "job_id": job_id,
+                "files_found": 0,
+            }
+
+        # Process each file
+        imported_count = 0
+        skipped_count = 0
+        error_count = 0
+        results = []
+
+        for file_path in files_to_import:
+            try:
+                # Calculate hash
+                content_hash = calculate_file_hash(str(file_path))
+
+                # Check for duplicates
+                existing = self.db.query(EntryFile).filter(
+                    EntryFile.content_hash == content_hash
+                ).first()
+
+                if existing:
+                    skipped_count += 1
+                    results.append({
+                        "file": str(file_path),
+                        "status": "skipped",
+                        "reason": "duplicate",
+                    })
+                    continue
+
+                # Extract basic metadata from filename
+                title = file_path.stem
+
+                # Get file info
+                file_info = get_file_info(str(file_path))
+
+                # Classify with LLM if possible
+                classification = {}
+                enriched = {}
+
+                if self.llm:
+                    try:
+                        # Use filename for classification
+                        classification = await self.llm.classify_entry(
+                            title=title,
+                            url=None,
+                            metadata={"filename": file_path.name},
+                        )
+                    except Exception as e:
+                        print(f"LLM classification failed for {file_path.name}: {e}")
+                        # Use default classification
+                        classification = {
+                            "library": library_id or "videos",
+                            "confidence": 0.3,
+                            "tags": [],
+                            "properties": {},
+                        }
+
+                # Determine target library
+                target_library_id = library_id or classification.get("library", "videos")
+                library = self.db.query(Library).filter(Library.id == target_library_id).first()
+
+                if not library:
+                    error_count += 1
+                    results.append({
+                        "file": str(file_path),
+                        "status": "error",
+                        "reason": f"Library '{target_library_id}' not found",
+                    })
+                    continue
+
+                # Create entry
+                if mode == "index":
+                    # Index only - keep file in place
+                    final_path = file_path
+                else:
+                    # Move or copy file
+                    final_filename = f"{uuid.uuid4()}{file_path.suffix}"
+                    subfolder = classification.get("subfolder", "")
+
+                    if library.auto_organize and library.path_template:
+                        template_vars = self._build_template_variables(classification, enriched)
+                        subfolder = PathTemplateEngine.render(library.path_template, template_vars)
+
+                    final_path = Path(library.default_path) / subfolder / final_filename
+
+                    if mode == "move":
+                        move_file(file_path, final_path)
+                    else:  # copy
+                        from ..utils.files import copy_file
+                        copy_file(file_path, final_path)
+
+                # Create Entry and EntryFile
+                entry = self._create_entry_from_import(
+                    library=library,
+                    title=title,
+                    original_url=None,
+                    classification=classification,
+                    enriched=enriched,
+                    file_path=str(final_path),
+                    content_hash=content_hash,
+                    user_metadata={},
+                    imported_by=imported_by,
+                    job_id=job_id,
+                )
+
+                imported_count += 1
+                results.append({
+                    "file": str(file_path),
+                    "status": "imported",
+                    "entry_uuid": entry.uuid,
+                })
+
+            except Exception as e:
+                error_count += 1
+                results.append({
+                    "file": str(file_path),
+                    "status": "error",
+                    "reason": str(e),
+                })
+
+        return {
+            "success": True,
+            "job_id": job_id,
+            "files_found": len(files_to_import),
+            "imported": imported_count,
+            "skipped": skipped_count,
+            "errors": error_count,
+            "results": results,
         }

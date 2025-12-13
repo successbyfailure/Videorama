@@ -12,6 +12,7 @@ import uuid
 from ...database import get_db
 from ...models import Playlist, PlaylistEntry, Entry
 from ...schemas.playlist import PlaylistCreate, PlaylistUpdate, PlaylistResponse
+from ...services.playlist_query import PlaylistQueryService
 
 router = APIRouter()
 
@@ -40,8 +41,12 @@ def list_playlists(
         playlist_dict = PlaylistResponse.model_validate(playlist).model_dump()
 
         if playlist.is_dynamic:
-            # TODO: Evaluate dynamic playlist query
-            playlist_dict["entry_count"] = 0
+            # Evaluate dynamic query to get entry count
+            query_service = PlaylistQueryService(db)
+            entry_count = query_service.count_query_results(
+                playlist.query, playlist.library_id
+            )
+            playlist_dict["entry_count"] = entry_count
         else:
             playlist_dict["entry_count"] = len(playlist.entries)
 
@@ -117,6 +122,72 @@ def delete_playlist(playlist_id: str, db: Session = Depends(get_db)):
     db.commit()
 
     return None
+
+
+@router.get("/playlists/{playlist_id}/entries")
+def get_playlist_entries(playlist_id: str, db: Session = Depends(get_db)):
+    """
+    Get entries in a playlist
+
+    For static playlists: returns ordered list
+    For dynamic playlists: evaluates query and returns matching entries
+    """
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    if playlist.is_dynamic:
+        # Evaluate dynamic query
+        query_service = PlaylistQueryService(db)
+        entries = query_service.evaluate_query(
+            playlist.query,
+            playlist.library_id,
+            playlist.sort_by,
+            playlist.sort_order,
+            playlist.limit_results,
+        )
+
+        return {
+            "playlist_id": playlist_id,
+            "is_dynamic": True,
+            "entries": [
+                {
+                    "uuid": entry.uuid,
+                    "title": entry.title,
+                    "platform": entry.platform,
+                    "favorite": entry.favorite,
+                    "view_count": entry.view_count,
+                    "rating": entry.rating,
+                }
+                for entry in entries
+            ],
+        }
+    else:
+        # Static playlist: return ordered entries
+        playlist_entries = (
+            db.query(PlaylistEntry)
+            .filter(PlaylistEntry.playlist_id == playlist_id)
+            .order_by(PlaylistEntry.position)
+            .all()
+        )
+
+        return {
+            "playlist_id": playlist_id,
+            "is_dynamic": False,
+            "entries": [
+                {
+                    "uuid": pe.entry.uuid,
+                    "title": pe.entry.title,
+                    "platform": pe.entry.platform,
+                    "favorite": pe.entry.favorite,
+                    "view_count": pe.entry.view_count,
+                    "rating": pe.entry.rating,
+                    "position": pe.position,
+                }
+                for pe in playlist_entries
+            ],
+        }
 
 
 @router.post("/playlists/{playlist_id}/entries/{entry_uuid}")

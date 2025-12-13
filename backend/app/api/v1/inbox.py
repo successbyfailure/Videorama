@@ -6,10 +6,13 @@ Manage items pending review
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import json
 
 from ...database import get_db
 from ...models.inbox import InboxItem
+from ...models import Library
 from ...schemas.inbox import InboxItemResponse
+from ...services.import_service import ImportService
 
 router = APIRouter()
 
@@ -55,19 +58,96 @@ def approve_inbox_item(inbox_id: str, db: Session = Depends(get_db)):
     """
     Approve and process an inbox item
 
-    TODO: Implement approval logic (create entry from inbox data)
+    Creates a real Entry from the inbox data
     """
     item = db.query(InboxItem).filter(InboxItem.id == inbox_id).first()
 
     if not item:
         raise HTTPException(status_code=404, detail="Inbox item not found")
 
-    # Mark as reviewed
-    item.reviewed = True
+    # Parse entry data
+    try:
+        entry_data = json.loads(item.entry_data)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid entry data format")
 
+    # Parse suggested metadata if exists
+    suggested_metadata = {}
+    if item.suggested_metadata:
+        try:
+            suggested_metadata = json.loads(item.suggested_metadata)
+        except json.JSONDecodeError:
+            pass
+
+    # Get library (use suggested or fail)
+    library_id = item.suggested_library
+    if not library_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No library specified. Cannot create entry without target library.",
+        )
+
+    library = db.query(Library).filter(Library.id == library_id).first()
+    if not library:
+        raise HTTPException(status_code=404, detail=f"Library {library_id} not found")
+
+    # Extract data from entry_data
+    original_url = entry_data.get("original_url")
+    title = entry_data.get("title", "Untitled")
+    file_path = entry_data.get("file_path")
+    content_hash = entry_data.get("content_hash")
+
+    if not file_path or not content_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing required fields: file_path and content_hash",
+        )
+
+    # Create entry using import service helper
+    import_service = ImportService(db)
+
+    # Build classification dict from suggested metadata
+    classification = suggested_metadata.get("classification", {})
+    if not classification:
+        classification = {
+            "library": library_id,
+            "confidence": item.confidence or 0.5,
+            "tags": suggested_metadata.get("tags", []),
+            "properties": suggested_metadata.get("properties", {}),
+        }
+
+    # Build enriched dict from suggested metadata
+    enriched = suggested_metadata.get("enriched", {})
+
+    # Create the entry
+    try:
+        entry = import_service._create_entry_from_import(
+            library=library,
+            title=title,
+            original_url=original_url,
+            classification=classification,
+            enriched=enriched,
+            file_path=file_path,
+            content_hash=content_hash,
+            user_metadata=entry_data.get("user_metadata", {}),
+            imported_by=entry_data.get("imported_by"),
+            job_id=item.job_id,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create entry: {str(e)}",
+        )
+
+    # Mark inbox item as reviewed
+    item.reviewed = True
     db.commit()
 
-    return {"message": "Item approved (processing not yet implemented)", "id": inbox_id}
+    return {
+        "message": "Item approved and entry created",
+        "inbox_id": inbox_id,
+        "entry_uuid": entry.uuid,
+    }
 
 
 @router.delete("/inbox/{inbox_id}", status_code=204)

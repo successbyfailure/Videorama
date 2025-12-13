@@ -105,16 +105,24 @@ async def import_from_filesystem(
 
     Returns job_id for tracking progress.
     """
-    # TODO: Implement filesystem import
-    # This would:
-    # 1. Scan directory recursively
-    # 2. For each file:
-    #    - Calculate hash
-    #    - Check duplicates
-    #    - Classify with LLM
-    #    - Move/copy/index
-    # 3. Return job with results
+    import_service = ImportService(db)
 
-    raise HTTPException(
-        status_code=501, detail="Filesystem import not yet implemented"
+    # Start filesystem import
+    result = await import_service.import_from_filesystem(
+        directory_path=request.directory_path,
+        library_id=request.library_id,
+        recursive=request.recursive,
+        mode=request.mode,
+        file_extensions=request.file_extensions,
+        imported_by=request.imported_by,
     )
+
+    return {
+        "success": result["success"],
+        "job_id": result["job_id"],
+        "message": result.get("message", "Filesystem import completed"),
+        "files_found": result.get("files_found", 0),
+        "imported": result.get("imported", 0),
+        "skipped": result.get("skipped", 0),
+        "errors": result.get("errors", 0),
+    }

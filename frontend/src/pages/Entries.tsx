@@ -2,13 +2,23 @@ import { useState } from 'react'
 import { Plus, Star, Eye, Edit, Trash2, Filter } from 'lucide-react'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
-import { useEntries, useDeleteEntry } from '@/hooks/useEntries'
+import EntryDetail from '@/components/EntryDetail'
+import {
+  useEntries,
+  useDeleteEntry,
+  useUpdateEntry,
+  useEntry,
+} from '@/hooks/useEntries'
 import { useLibraries } from '@/hooks/useLibraries'
+import { Entry } from '@/types/entry'
 
 export default function Entries() {
   const [selectedLibrary, setSelectedLibrary] = useState<string | undefined>()
   const [searchQuery, setSearchQuery] = useState('')
   const [showFavorites, setShowFavorites] = useState(false)
+  const [selectedEntryUuid, setSelectedEntryUuid] = useState<string | null>(
+    null
+  )
 
   const { data: libraries } = useLibraries()
   const { data: entries, isLoading } = useEntries({
@@ -17,12 +27,23 @@ export default function Entries() {
     favorite: showFavorites || undefined,
     limit: 50,
   })
+  const { data: selectedEntry } = useEntry(selectedEntryUuid || '')
   const deleteEntry = useDeleteEntry()
+  const updateEntry = useUpdateEntry()
 
   const handleDelete = async (uuid: string) => {
-    if (confirm('Are you sure you want to delete this entry?')) {
-      await deleteEntry.mutateAsync(uuid)
+    await deleteEntry.mutateAsync(uuid)
+    if (selectedEntryUuid === uuid) {
+      setSelectedEntryUuid(null)
     }
+  }
+
+  const handleUpdate = async (uuid: string, updates: any) => {
+    await updateEntry.mutateAsync({ uuid, updates })
+  }
+
+  const handleCardClick = (entry: Entry) => {
+    setSelectedEntryUuid(entry.uuid)
   }
 
   return (
@@ -55,7 +76,7 @@ export default function Entries() {
           <select
             value={selectedLibrary || ''}
             onChange={(e) => setSelectedLibrary(e.target.value || undefined)}
-            className="input-field max-w-xs"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white max-w-xs"
           >
             <option value="">All Libraries</option>
             {libraries?.map((lib) => (
@@ -70,7 +91,7 @@ export default function Entries() {
             placeholder="Search..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="input-field max-w-sm"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white max-w-sm"
           />
 
           <label className="flex items-center gap-2">
@@ -93,7 +114,12 @@ export default function Entries() {
       ) : entries && entries.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {entries.map((entry) => (
-            <Card key={entry.uuid} padding="none">
+            <Card
+              key={entry.uuid}
+              padding="none"
+              onClick={() => handleCardClick(entry)}
+              className="cursor-pointer hover:shadow-lg transition-shadow"
+            >
               {/* Thumbnail placeholder */}
               <div className="aspect-video bg-gray-200 dark:bg-gray-700 rounded-t-lg flex items-center justify-center">
                 <Eye size={48} className="text-gray-400" />
@@ -129,14 +155,25 @@ export default function Entries() {
                 </div>
 
                 <div className="flex items-center gap-2 mt-4">
-                  <Button size="small" variant="ghost" className="flex-1">
+                  <Button
+                    size="small"
+                    variant="ghost"
+                    className="flex-1"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleCardClick(entry)
+                    }}
+                  >
                     <Edit size={16} className="mr-1" />
-                    Edit
+                    View
                   </Button>
                   <Button
                     size="small"
                     variant="danger"
-                    onClick={() => handleDelete(entry.uuid)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDelete(entry.uuid)
+                    }}
                   >
                     <Trash2 size={16} />
                   </Button>
@@ -162,6 +199,15 @@ export default function Entries() {
           </div>
         </Card>
       )}
+
+      {/* Entry Detail Modal */}
+      <EntryDetail
+        entry={selectedEntry || null}
+        isOpen={!!selectedEntryUuid}
+        onClose={() => setSelectedEntryUuid(null)}
+        onUpdate={handleUpdate}
+        onDelete={handleDelete}
+      />
     </div>
   )
 }

@@ -1,18 +1,52 @@
 import { useState } from 'react'
-import { Plus, Edit, Trash2 } from 'lucide-react'
+import { Plus, Edit, Trash2, Library as LibraryIcon } from 'lucide-react'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
-import { useLibraries, useDeleteLibrary } from '@/hooks/useLibraries'
+import LibraryForm from '@/components/LibraryForm'
+import {
+  useLibraries,
+  useDeleteLibrary,
+  useCreateLibrary,
+  useUpdateLibrary,
+} from '@/hooks/useLibraries'
+import { Library, LibraryCreate, LibraryUpdate } from '@/types/library'
 
 export default function Libraries() {
   const { data: libraries, isLoading } = useLibraries(true) // Include private
   const deleteLibrary = useDeleteLibrary()
-  const [selectedLibrary, setSelectedLibrary] = useState<string | null>(null)
+  const createLibrary = useCreateLibrary()
+  const updateLibrary = useUpdateLibrary()
+
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [selectedLibrary, setSelectedLibrary] = useState<Library | null>(null)
 
   const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this library?')) {
       await deleteLibrary.mutateAsync(id)
     }
+  }
+
+  const handleCreate = () => {
+    setSelectedLibrary(null)
+    setIsFormOpen(true)
+  }
+
+  const handleEdit = (library: Library) => {
+    setSelectedLibrary(library)
+    setIsFormOpen(true)
+  }
+
+  const handleSubmit = async (data: LibraryCreate | LibraryUpdate) => {
+    if (selectedLibrary) {
+      await updateLibrary.mutateAsync({
+        id: selectedLibrary.id,
+        updates: data as LibraryUpdate,
+      })
+    } else {
+      await createLibrary.mutateAsync(data as LibraryCreate)
+    }
+    setIsFormOpen(false)
+    setSelectedLibrary(null)
   }
 
   if (isLoading) {
@@ -30,7 +64,7 @@ export default function Libraries() {
             Manage your media libraries
           </p>
         </div>
-        <Button>
+        <Button onClick={handleCreate}>
           <Plus size={20} className="mr-2" />
           New Library
         </Button>
@@ -54,7 +88,7 @@ export default function Libraries() {
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setSelectedLibrary(library.id)}
+                    onClick={() => handleEdit(library)}
                     className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                   >
                     <Edit size={16} />
@@ -113,14 +147,14 @@ export default function Libraries() {
           <div className="col-span-full">
             <Card padding="large">
               <div className="text-center py-12">
-                <Library size={48} className="mx-auto text-gray-400 mb-4" />
+                <LibraryIcon size={48} className="mx-auto text-gray-400 mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
                   No libraries yet
                 </h3>
                 <p className="text-gray-600 dark:text-gray-400 mb-6">
                   Create your first library to start organizing media
                 </p>
-                <Button>
+                <Button onClick={handleCreate}>
                   <Plus size={20} className="mr-2" />
                   Create Library
                 </Button>
@@ -129,6 +163,17 @@ export default function Libraries() {
           </div>
         )}
       </div>
+
+      <LibraryForm
+        isOpen={isFormOpen}
+        onClose={() => {
+          setIsFormOpen(false)
+          setSelectedLibrary(null)
+        }}
+        onSubmit={handleSubmit}
+        library={selectedLibrary}
+        isLoading={createLibrary.isPending || updateLibrary.isPending}
+      />
     </div>
   )
 }

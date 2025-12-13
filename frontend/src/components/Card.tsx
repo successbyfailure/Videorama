@@ -5,12 +5,14 @@ interface CardProps {
   children: ReactNode
   className?: string
   padding?: 'none' | 'small' | 'medium' | 'large'
+  onClick?: () => void
 }
 
 export default function Card({
   children,
   className,
   padding = 'medium',
+  onClick,
 }: CardProps) {
   const paddingClasses = {
     none: '',
@@ -26,6 +28,7 @@ export default function Card({
         paddingClasses[padding],
         className
       )}
+      onClick={onClick}
     >
       {children}
     </div>
