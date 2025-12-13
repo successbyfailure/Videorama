@@ -16,7 +16,10 @@ import type {
   ImportURLResponse,
 } from '@/types'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// Simple API configuration:
+// - Development: VITE_API_URL environment variable (docker-compose sets it)
+// - Production: Empty string = relative URLs (works with any reverse proxy)
+const API_BASE_URL = import.meta.env.VITE_API_URL || ''
 
 const api = axios.create({
   baseURL: `${API_BASE_URL}/api/v1`,
