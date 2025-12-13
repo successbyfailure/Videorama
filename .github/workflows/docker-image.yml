@@ -17,6 +17,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set repository name to lowercase
+        id: repo
+        run: echo "name=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -34,7 +38,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}/backend
+          images: ghcr.io/${{ steps.repo.outputs.name }}/backend
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -48,8 +52,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/backend:buildcache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/backend:buildcache,mode=max
+          cache-from: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/backend:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/backend:buildcache,mode=max
           provenance: false
 
   build-frontend:
@@ -58,6 +62,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set repository name to lowercase
+        id: repo
+        run: echo "name=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -76,7 +84,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}/frontend
+          images: ghcr.io/${{ steps.repo.outputs.name }}/frontend
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -90,6 +98,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/frontend:buildcache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/frontend:buildcache,mode=max
+          cache-from: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/frontend:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/frontend:buildcache,mode=max
           provenance: false

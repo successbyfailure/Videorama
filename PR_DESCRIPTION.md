@@ -188,6 +188,8 @@ This PR introduces Videorama v2.0.0, a complete ground-up rewrite with:
 8. `feat: Integrate VHS API v0.2.7 for media downloads`
 9. `fix: Add .dockerignore files and Docker troubleshooting guide`
 10. `fix: Update GitHub Actions workflow to build backend and frontend separately`
+11. `docs: Add Pull Request description for v2.0.0`
+12. `fix: Convert repository name to lowercase in GitHub Actions`
 
 ## 🚀 Getting Started
 
