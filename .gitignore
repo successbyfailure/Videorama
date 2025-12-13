@@ -205,3 +205,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Videorama v2.0.0
+storage/*
+!storage/.gitkeep
+node_modules/
+frontend/node_modules/
+frontend/dist/
+*.db

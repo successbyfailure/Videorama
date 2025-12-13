@@ -1,0 +1,173 @@
+services:
+  env-sync:
+    container_name: env-sync
+    image: ${VIDEORAMA_IMAGE}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python scripts/sync_env.py
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
+    volumes:
+      - ${VIDEORAMA_HOST_CONFIG_DIR:-.}/.env:/app/.env
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
+    restart: "no"
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+
+  videorama:
+    container_name: videorama
+    image: ${VIDEORAMA_IMAGE}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn videorama.main:app --host 0.0.0.0 --port 8600
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
+    depends_on:
+      env-sync:
+        condition: service_completed_successfully
+    ports:
+      - "8600:8600"
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${VIDEORAMA_HOST_DATA_DIR:-./data}:/app/data
+      - ${VIDEORAMA_HOST_VIDEOS_DIR:-./storage/videos}:/app/storage/videos
+      - ${VIDEORAMA_HOST_VIDEOCLIPS_DIR:-./storage/videoclips}:/app/storage/videoclips
+      - ${VIDEORAMA_HOST_MUSICA_DIR:-./storage/musica}:/app/storage/musica
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=videorama
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          curl -f http://localhost:8600/api/health || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - videorama-net
+
+  videorama-bot:
+    container_name: videorama-bot
+    image: ${VIDEORAMA_IMAGE}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python -m videorama.telegram_bot
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
+    depends_on:
+      env-sync:
+        condition: service_completed_successfully
+      videorama:
+        condition: service_started
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles:
+      - telegram
+    volumes:
+      - ${VIDEORAMA_HOST_DATA_DIR:-./data}:/app/data
+      - ${VIDEORAMA_HOST_VIDEOS_DIR:-./storage/videos}:/app/storage/videos
+      - ${VIDEORAMA_HOST_VIDEOCLIPS_DIR:-./storage/videoclips}:/app/storage/videoclips
+      - ${VIDEORAMA_HOST_MUSICA_DIR:-./storage/musica}:/app/storage/musica
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=videorama
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          curl -f http://videorama:8600/api/health || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - videorama-net
+
+  videorama-mcp:
+    container_name: videorama-mcp
+    image: ${VIDEORAMA_IMAGE}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >-
+      python -m videorama.mcp_server
+      --api-url http://videorama:8600
+      --transport http
+      --host 0.0.0.0
+      --port 8765
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
+    depends_on:
+      env-sync:
+        condition: service_completed_successfully
+      videorama:
+        condition: service_started
+    env_file:
+      - .env
+    ports:
+      - "8765:8765"
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=videorama
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          python - <<'PY'
+          import socket, sys
+          try:
+              with socket.create_connection(("localhost", 8765), timeout=5):
+                  sys.exit(0)
+          except Exception:
+              sys.exit(1)
+          PY
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - videorama-net
+
+  watchtower:
+    container_name: videorama-watchtower
+    image: containrrr/watchtower:1.7.1
+    command: --interval 60 --label-enable --scope videorama --cleanup
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+    networks:
+      - videorama-net
+
+networks:
+  videorama-net:
+    driver: bridge

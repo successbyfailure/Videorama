@@ -1,274 +1,379 @@
-# Videorama · VHS Suite
+# Videorama v2.0.0
 
-**Versiones**: Videorama 0.1.7 · Bot de Telegram 0.1.4 · Servidor MCP 0.1.3
+**Modern media library manager with AI-powered organization**
 
-Las versiones se cargan desde `versions.json`, aparecen en el _footer_ de las páginas y pueden consultarse desde todos los canales (MCP, bot de Telegram y web).
+> 📦 **Note**: Version 1.x code has been moved to `/old-code` for reference
 
-Videorama reúne tres servicios pensados para gestionar vídeos de manera ágil: un **API de captura y transformación (VHS)**, una **biblioteca web retro** y un **bot opcional de Telegram**. VHS vive ahora en un repositorio independiente y se despliega por separado; esta carpeta contiene únicamente Videorama, el bot y el MCP, que se conectan a la URL de VHS que definas en tu entorno.
+---
 
-## Tabla de contenido
+## 🎯 Overview
 
-- [Componentes](#componentes)
-- [Arquitectura y flujo](#arquitectura-y-flujo)
-- [Requisitos previos](#requisitos-previos)
-- [Configuración](#configuración)
-- [Puesta en marcha con Docker Compose](#puesta-en-marcha-con-docker-compose)
-- [Ejecución local](#ejecución-local)
-- [Endpoints y funcionalidades clave](#endpoints-y-funcionalidades-clave)
-- [Flujos de trabajo habituales](#flujos-de-trabajo-habituales)
-- [Mantenimiento y despliegues continuos](#mantenimiento-y-despliegues-continuos)
-- [Estructura del proyecto](#estructura-del-proyecto)
-- [Resolución de problemas](#resolución-de-problemas)
-- [Licencia](#licencia)
-- [Servidor MCP](#servidor-mcp)
+Videorama is a self-hosted media library manager that combines powerful organization features with AI-driven classification. Import content from URLs or local filesystems, organize it automatically with configurable templates, and enjoy through an intuitive web interface.
 
-## Componentes
+### Key Features
 
-### VHS · Video Harvester Service (FastAPI)
+- 📚 **Configurable Libraries** - Create custom libraries (Movies, Music, VideoClips, Private) with individual settings
+- 🤖 **AI-Powered Classification** - Automatic categorization using LLM + external APIs (iTunes, TMDb, MusicBrainz)
+- 🏷️ **Hierarchical Tags** - Separate automatic and user tags with full hierarchy support
+- 📂 **Flexible Organization** - Configurable path templates per library
+- 🔄 **Smart Import** - From URLs, local filesystems, or monitored folders
+- 🎵 **Audio/Video Duality** - Extract audio from videoclips to music library
+- 📋 **Dynamic Playlists** - Create playlists with complex query filters
+- 📥 **Inbox System** - Review low-confidence imports before finalizing
+- 🔗 **Integrations** - Telegram bot, browser plugin, MCP server
 
-- Descarga vídeo/audio con [yt-dlp](https://github.com/yt-dlp/yt-dlp), guardando caché en disco con control de caducidad.
-- Transcribe audio a texto mediante OpenAI o servicios compatibles con `whisper-asr`.
-- Ejecuta **perfiles rápidos de `ffmpeg`** (audio, 1080p/720p/480p, etc.) sobre material descargado o subido.
-- Endpoint `/api/probe` para inspeccionar URLs soportadas sin necesidad de bajarlas.
-- Panel web minimalista (`/` y `/docs/api`) para pruebas manuales.
+---
 
-### Videorama Library (FastAPI)
+## 🏗️ Architecture
 
-- API `/api/library` para guardar, consultar o eliminar elementos de la colección.
-- Clasificación automática por proveedor, duración y etiquetas devueltas por VHS.
-- Sincroniza nuevas entradas con VHS para precachear en segundo plano.
-- Guarda datos en SQLite (`data/videorama/library.db`).
-- Panel web retro en `/import` con formulario, vista previa y confirmaciones instantáneas.
-- Gestor de listas estáticas/dinámicas y categorías directamente desde la biblioteca.
+### Tech Stack
 
-### VideoramaBot (Telegram)
+**Backend:**
+- FastAPI (Python 3.11+)
+- PostgreSQL 16
+- SQLAlchemy 2.0
+- Celery + Redis (background tasks)
 
-- Comandos `/add` y `/list` para operar la biblioteca desde cualquier chat.
-- Menús rápidos de texto y soporte para subir/convertir archivos multimedia.
-- Reutiliza los presets de `ffmpeg` definidos en VHS (`TELEGRAM_VHS_PRESET`).
+**Frontend:**
+- React 18 + TypeScript
+- Vite
+- TanStack Query
+- Tailwind CSS
 
-## Arquitectura y flujo
+### Database Schema
 
-- **Puertos**: VHS expone `:8601`, Videorama `:8600` y el servidor MCP HTTP `:8765/mcp`. El bot consume la API de Videorama.
-- **Datos**: todo lo que se descarga o sube vive bajo `data/` (montado como volumen en Docker). Las rutas clave se configuran con variables de entorno.
-- **Cacheo y precarga**: Videorama solicita a VHS que precargue contenido con el formato por defecto definido en `VIDEORAMA_DEFAULT_FORMAT`.
-- **Imágenes**: Videorama, el bot y el MCP usan `Dockerfile` en esta carpeta. VHS tiene su propia imagen en su repositorio y debe desplegarse aparte; apunta `VHS_BASE_URL` a la instancia que quieras usar.
+```
+libraries          → Media libraries (Movies, Music, etc.)
+entries            → Media items (UUID-based)
+entry_files        → Physical files (with content hash)
+entry_relations    → Relationships between entries
+tags               → Tag catalog (hierarchical)
+entry_auto_tags    → Automatic tags (import/path/LLM/API)
+entry_user_tags    → User-defined tags
+entry_properties   → Flexible key-value properties
+playlists          → Static and dynamic playlists
+playlist_entries   → Entries in static playlists
+inbox              → Items pending review
+jobs               → Persistent async jobs
+reindex_jobs       → Library re-indexation tracking
+```
 
-## Requisitos previos
+---
 
-- Docker y Docker Compose (para el flujo recomendado).
-- Python 3.11+ y `ffmpeg` instalados en el PATH si optas por ejecución local.
-- Token de bot de Telegram (opcional) para `videorama/telegram_bot.py`.
+## 🚀 Quick Start
 
-## Configuración
+### Prerequisites
 
-1. Copia el archivo de ejemplo y ajústalo a tu entorno:
+- Docker & Docker Compose
+- (Optional) OpenAI-compatible API key for AI features
 
+### Installation
+
+1. **Clone the repository**
    ```bash
-   cp example.env .env
-   # Edita los valores según tus claves y rutas locales
+   git clone https://github.com/successbyfailure/Videorama.git
+   cd Videorama
    ```
 
-2. Variables destacadas por servicio:
-
-   **Videorama (API y modelos)**
-
-   | Variable | Descripción | Valor por defecto |
-   | --- | --- | --- |
-   | `VHS_BASE_URL` / `VHS_HTTP_TIMEOUT` | URL de VHS y timeout para las peticiones | `http://localhost:8601` / `60` |
-   | `VIDEORAMA_THUMBNAIL_TIMEOUT` | Timeout para obtener miniaturas desde VHS u orígenes remotos | `20` |
-   | `VIDEORAMA_DEFAULT_FORMAT` | Formato que Videorama pedirá a VHS al precachear | `video_high` |
-   | `VIDEORAMA_PUBLIC_URL` | URL pública completa de la biblioteca para generar enlaces de visionado | _(vacío)_ |
-  | `OPENAI_COMPATIBLE_BASE_URL` | Endpoint para los modelos | `https://api.openai.com/v1` |
-  | `OPENAI_COMPATIBLE_API_KEY` | Claves para los modelos | _(vacío)_ |
-   | `VIDEORAMA_SUMMARY_MODEL` / `VIDEORAMA_TAGS_MODEL` / `VIDEORAMA_LYRICS_MODEL` | Modelos usados para resumen, etiquetas y letras | `gpt-4o-mini` |
-   | `VIDEORAMA_SUMMARY_PROMPT` / `VIDEORAMA_TAGS_PROMPT` / `VIDEORAMA_MUSIC_TAGS_PROMPT` / `VIDEORAMA_LYRICS_PROMPT` | Prompts personalizables para IA | Ver `example.env` |
-
-   **Bot de Telegram**
-
-   | Variable | Descripción | Valor por defecto |
-   | --- | --- | --- |
-  | `VIDEORAMA_API_URL` / `VIDEORAMA_API_TIMEOUT` | URL de la API de Videorama y timeout de peticiones | `http://localhost:8600` / `30` (en Docker suele usarse `http://videorama:8600`) |
-  | `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram | _(vacío)_ |
-   | `TELEGRAM_VHS_PRESET` | Perfil de `ffmpeg` para conversiones vía bot | `ffmpeg_720p` |
-   | `TELEGRAM_DOWNLOAD_LIMIT_BYTES` | Límite de tamaño para descargas directas desde Telegram | `20971520` |
-
-   **Servidor MCP**
-
-   | Variable | Descripción | Valor por defecto |
-   | --- | --- | --- |
-   | `VIDEORAMA_MCP_TRANSPORT` | Transporte para MCP (`http` por ahora) | `http` |
-   | `VIDEORAMA_MCP_HOST` / `VIDEORAMA_MCP_PORT` | Host y puerto para el servidor MCP | `0.0.0.0` / `8765` |
-
-   **Despliegue**
-
-   | Variable | Descripción | Valor por defecto |
-   | --- | --- | --- |
-   | `VIDEORAMA_HOST_CONFIG_DIR` | Carpeta del host donde vive `.env` | `.` |
-   | `VIDEORAMA_HOST_DATA_DIR` | Ruta del host para montar `data/` en los contenedores | `./data` |
-   | `VIDEORAMA_HOST_VIDEOS_DIR` | Ruta del host para el volumen de `storage/videos` | `./storage/videos` |
-   | `VIDEORAMA_HOST_VIDEOCLIPS_DIR` | Ruta del host para el volumen de `storage/videoclips` | `./storage/videoclips` |
-   | `VIDEORAMA_HOST_MUSICA_DIR` | Ruta del host para el volumen de `storage/musica` | `./storage/musica` |
-   | `VIDEORAMA_UID` / `VIDEORAMA_GID` | Usuario y grupo con los que se ejecutan los contenedores | `1000` / `1000` |
-   | `VIDEORAMA_IMAGE` | Nombre de la imagen usada por Videorama/Bot/MCP | `ghcr.io/successbyfailure/videorama:latest` |
-
-## Puesta en marcha con Docker Compose
-
-1. Arranca o apunta a una instancia de VHS desplegada aparte (por ejemplo, desde su repositorio oficial o imagen publicada) y define `VHS_BASE_URL` en `.env` hacia esa URL.
-
-2. Desde `Videorama/`, levanta la biblioteca, el bot y el MCP (solo se construye la imagen de Videorama):
-
+2. **Configure environment**
    ```bash
-   docker compose up --build
+   cp .env.example .env
+   # Edit .env with your settings
    ```
 
-3. Una vez arriba:
-   - VHS: la URL configurada en `VHS_BASE_URL`.
-   - Videorama: <http://localhost:8600>
-   - Servidor MCP (HTTP): <http://localhost:8765/mcp>
-   - El bot se conectará automáticamente si `TELEGRAM_BOT_TOKEN` está definido.
+3. **Start services**
+   ```bash
+   docker-compose up -d
+   ```
 
-4. Los contextos de construcción excluyen `data/` y cualquier `*.env`, evitando subir datos o credenciales a las imágenes finales.
+4. **Access the application**
+   - Frontend: http://localhost:5173
+   - Backend API: http://localhost:8000
+   - API Docs: http://localhost:8000/docs
 
-> Usa `docker compose logs -f <servicio>` para inspeccionar los procesos y `docker compose down` para detenerlos conservando los volúmenes.
+---
 
-## Ejecución local
+## 📖 Usage
 
+### Creating a Library
+
+1. Go to **Settings → Libraries**
+2. Click **+ New Library**
+3. Configure:
+   - Name and icon
+   - Storage path(s)
+   - Path template (e.g., `{genre}/{artist}/{album}/{title}.{ext}`)
+   - Auto-organization settings
+   - LLM confidence threshold
+
+### Importing Content
+
+**From URL:**
+1. Go to **Import → From URL**
+2. Paste URL(s)
+3. Select library (or use "Auto" for AI detection)
+4. Preview and confirm
+
+**From Filesystem:**
+1. Go to **Import → From Disk**
+2. Select folder to scan
+3. Choose mode:
+   - **Auto-organize**: AI classifies and reorganizes files
+   - **Copy as-is**: Preserve original structure
+   - **Index only**: Leave files in place
+4. Review and import
+
+### Managing Tags
+
+- **Auto Tags**: Generated from imports, folder paths, LLM, or external APIs
+- **User Tags**: Manually added, have priority over auto tags
+- **Hierarchical**: Tags can have parent-child relationships
+- **Bulk Operations**: Merge, rename, or clean up tags
+
+### Playlists
+
+**Static Playlists:**
+- Manually add/remove entries
+- Reorder as needed
+
+**Dynamic Playlists:**
+- Define complex filters (tags, platform, date range, etc.)
+- Auto-updates with matching entries
+- Example: "Rock from YouTube added in last 30 days"
+
+---
+
+## 🔧 Configuration
+
+### Library Path Templates
+
+Templates support variables that are populated by AI classification:
+
+```
+Music:      {genre}/{artist}/{album}/{track_number:02d} - {title}.{ext}
+Movies:     {genre}/{year}/{title} ({year}).{ext}
+VideoClips: {genre}/{artist}/{title}.{ext}
+Series:     {title}/Season {season:02d}/{title} - S{season:02d}E{episode:02d}.{ext}
+Flat:       {title}.{ext}
+```
+
+**Available variables:**
+- `{title}`, `{artist}`, `{album}`, `{genre}`, `{year}`, `{track_number}`
+- `{director}`, `{season}`, `{episode}`, `{platform}`, `{uploader}`
+- `{uuid}`, `{date}`, `{ext}`, and more
+
+### LLM Configuration
+
+Videorama uses OpenAI-compatible APIs for AI features:
+
+```env
+OPENAI_API_KEY=sk-your-key
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o
+```
+
+Compatible with: OpenAI, Azure OpenAI, Anthropic (via proxy), local models (Ollama, LMStudio), etc.
+
+### External APIs
+
+- **TMDb** (movies/series): `TMDB_API_KEY`
+- **Spotify** (music): `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`
+- iTunes Search API: Built-in, no key required
+- MusicBrainz: Built-in, no key required
+
+---
+
+## 🎨 Features in Detail
+
+### AI-Powered Import Flow
+
+1. **Title Extraction**: LLM extracts clean title from filename/metadata
+2. **External Enrichment**: Queries iTunes, TMDb, MusicBrainz for metadata
+3. **Full Classification**: LLM classifies with all available context
+   - Determines library
+   - Suggests folder structure
+   - Generates tags
+   - Fills properties
+   - Returns confidence score
+4. **Decision**: High confidence → Import | Low confidence → Inbox
+
+### Duplicate Detection
+
+- **Content-based**: SHA256 hash of file content
+- **Smart handling**:
+  - If video file matches existing → check if audio extracted
+  - If audio matches video → create relation without duplicating
+  - Full duplicates → sent to inbox for review
+
+### Watch Folders
+
+- Configure folders to monitor per library
+- Auto-import new files at defined intervals
+- Supports multiple watch folders per library
+- Can be enabled/disabled individually
+
+### Re-indexation
+
+Scan library to detect filesystem changes:
+- **Moved files**: Update paths based on content hash
+- **Deleted files**: Mark as unavailable
+- **New files**: Auto-import if configured
+- **Corrupted files**: Detect hash mismatches
+- **Metadata refresh**: Re-query external APIs (optional)
+
+---
+
+## 🔌 Integrations
+
+### Telegram Bot
+
+Import content directly from Telegram:
+```env
+TELEGRAM_BOT_TOKEN=your-token
+```
+
+Send video/audio URLs to bot → Select library → Auto-import
+
+### Browser Plugin
+
+Chrome extension for one-click imports from any website.
+
+### MCP Server
+
+Claude AI can interact with your Videorama library via MCP protocol.
+
+---
+
+## 📊 API Documentation
+
+Full API documentation available at: http://localhost:8000/docs
+
+Key endpoints:
+- `GET /api/v1/libraries` - List libraries
+- `POST /api/v1/entries` - Create entry
+- `GET /api/v1/entries/{uuid}` - Get entry details
+- `POST /api/v1/import/url` - Import from URL
+- `POST /api/v1/import/filesystem` - Import from filesystem
+- `GET /api/v1/inbox` - List inbox items
+- `GET /api/v1/playlists` - List playlists
+- `POST /api/v1/playlists/dynamic/evaluate` - Evaluate dynamic playlist
+
+---
+
+## 🛠️ Development
+
+### Project Structure
+
+```
+videorama/
+├── backend/
+│   ├── app/
+│   │   ├── models/          # SQLAlchemy models
+│   │   ├── schemas/         # Pydantic schemas
+│   │   ├── api/v1/          # API endpoints
+│   │   ├── services/        # Business logic
+│   │   └── utils/           # Utilities
+│   ├── alembic/             # Database migrations
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── components/      # React components
+│   │   ├── pages/           # Page components
+│   │   ├── services/        # API clients
+│   │   └── types/           # TypeScript types
+│   └── package.json
+├── old-code/                # Legacy v1.x code (archived)
+├── docker-compose.yml
+└── .env
+```
+
+### Running Locally
+
+**Backend:**
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+cd backend
+python -m venv venv
+source venv/bin/activate  # or `venv\Scripts\activate` on Windows
 pip install -r requirements.txt
-# Terminal 1: VHS (repositorio independiente)
-# Sigue las instrucciones del proyecto de VHS y arráncalo en otro terminal
-# apuntando al puerto configurado (ej.: 8601).
-
-# Terminal 2: Videorama
-uvicorn videorama.main:app --reload --host 0.0.0.0 --port 8600
-
-# (Opcional) Bot de Telegram en el mismo entorno
-export TELEGRAM_BOT_TOKEN="<tu token>"
-export VIDEORAMA_API_URL="http://localhost:8600"
-python -m videorama.telegram_bot
+uvicorn app.main:app --reload
 ```
 
-Si ya tienes VHS desplegado en otro servidor, omite la Terminal 1 y configura `VHS_BASE_URL` para apuntar a esa instancia remota.
+**Frontend:**
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-## Servidor MCP
-
-Videorama incluye un servidor [Model Context Protocol](https://github.com/modelcontextprotocol/specification) para exponer
-herramientas con las que consultar o poblar la biblioteca desde clientes compatibles (por ejemplo, asistentes locales). Es
-un servicio opcional y separado del API principal.
-
-1. Instala las dependencias en un entorno virtual limpio (evita mezclarlo con el bot de Telegram debido a diferencias en
-   versiones de `httpx`):
-
-   ```bash
-   python -m venv .venv-mcp
-   source .venv-mcp/bin/activate
-   pip install -r requirements-mcp.txt
-   ```
-
-2. Lanza el servidor conectado al API de Videorama (usa `VIDEORAMA_API_URL` o `--api-url` para apuntar a otro host). Puedes elegir
-   transporte `stdio` (modo local) o `http` (expuesto en `/mcp`):
-
-   ```bash
-   # Stdio (por defecto)
-   python -m videorama.mcp_server --api-url http://localhost:8600
-
-   # HTTP accesible en http://localhost:8765/mcp
-   python -m videorama.mcp_server --api-url http://localhost:8600 --transport http --host 0.0.0.0 --port 8765
-   ```
-
-3. Herramientas disponibles:
-
-   - `health`: comprueba el estado del API.
-   - `list_recent_entries`: devuelve las últimas entradas (parámetro opcional `limit`).
-   - `get_entry`: obtiene los detalles completos de una entrada por `entry_id`.
-   - `add_entry_from_url`: agrega una nueva URL a la biblioteca y puede disparar la descarga en VHS con `auto_download`.
-
-## Endpoints y funcionalidades clave
-
-### VHS
-
-- `GET /api/health`: estado del servicio.
-- `GET /api/probe?url=...`: inspecciona metadatos sin descargar.
-- `GET /api/download?url=...&format=...`: descarga/convierte en formatos `video_*`, `audio_*`, `ffmpeg_*` o `transcript_*`.
-- `POST /api/transcribe/upload`: sube un fichero y devuelve subtítulos en JSON/TXT/SRT.
-- `POST /api/ffmpeg/upload`: aplica un perfil `ffmpeg_*` sobre un archivo subido y devuelve la conversión.
-- `GET /api/cache`: lista la caché (incluye endpoints para descargar o eliminar).
-- `GET /api/stats/usage`: métricas de descargas, recodificaciones y transcripciones.
-
-### Videorama
-
-- `GET /api/library`: listado completo con recuento.
-- `POST /api/library`: añade una URL, consulta `/api/probe` y dispara descargas opcionales en VHS.
-- `POST /api/library/upload`: sube un archivo local (audio/vídeo) y genera entrada lista para compartir.
-- `DELETE /api/library/{id}`: elimina un elemento.
-- `GET /media/{entry_id}/{filename}`: expone archivos subidos para reproducir o descargar.
-- `GET /api/playlists` · `POST /api/playlists` · `DELETE /api/playlists/{id}`: CRUD de listas personalizadas.
-- `GET /api/category-settings` · `PUT /api/category-settings`: alias/visibilidad de categorías.
-- `GET /api/health`: estado del servicio.
-
-### Bot de Telegram
-
-- `/add <url>`: agrega un vídeo y lanza precacheo en VHS.
-- `/list`: muestra las últimas 5 entradas.
-- `/menu`: despliega los botones principales.
-- Reenvía un archivo y el bot ofrecerá subirlo a la biblioteca o convertirlo con el preset `TELEGRAM_VHS_PRESET` usando `/api/ffmpeg/upload`.
-
-## Flujos de trabajo habituales
-
-1. **Agregar un vídeo remoto**: envía la URL a `/api/library` (o usa `/add` en el bot). Videorama consultará VHS, clasificará la entrada y puede lanzar la descarga.
-2. **Subir un archivo local**: usa `/api/library/upload` para alojarlo en `storage/videos` (ruta interna de subidas) y obtener un enlace reproducible vía `/media/...`.
-3. **Convertir un archivo puntual**: manda el fichero a `/api/ffmpeg/upload` indicando el perfil `ffmpeg_*` deseado; útil para obtener audio/MP3 o copias comprimidas.
-4. **Gestionar la colección**: consulta `/api/playlists` y `/api/category-settings` para crear vistas dinámicas o categorizar por duración/proveedor.
-
-## Mantenimiento y despliegues continuos
-
-El script `scripts/auto_update.sh` comprueba periódicamente el repositorio remoto, sincroniza nuevas variables de `example.env` hacia `.env` y reinicia los servicios si detecta cambios.
-
-Uso básico:
+### Database Migrations
 
 ```bash
-INTERVAL_SECONDS=300 ./scripts/auto_update.sh
+cd backend
+alembic revision --autogenerate -m "Description"
+alembic upgrade head
 ```
 
-Ejemplo en contenedor (requiere socket de Docker y el repo montado):
+---
 
-```bash
-docker run --rm \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$(pwd)":/workspace/Videorama \
-  -w /workspace/Videorama \
-  -e INTERVAL_SECONDS=180 \
-  docker:27-cli \
-  sh -c "apk add --no-cache git && ./scripts/auto_update.sh"
-```
+## 📝 Version History
 
-## Estructura del proyecto
+### v2.0.0 (Current)
 
-```
-assets/                 Recursos estáticos de Videorama.
-data/                   Caché, base de datos y ficheros subidos (montados como volumen en Docker).
-scripts/                Utilidades de mantenimiento (incluye auto_update.sh).
-storage/                Volúmenes locales para vídeos, música y clips.
-templates/              Plantillas HTML de la biblioteca retro.
-videorama/              Código del servicio Videorama y bot de Telegram.
-docker-compose.yml      Orquestación de Videorama/Bot/MCP apuntando a un VHS externo.
-Dockerfile              Imagen de Videorama, el bot y el MCP.
-requirements.txt        Dependencias Python de Videorama/Bot/MCP.
-requirements-mcp.txt    Dependencias mínimas para el servidor MCP.
-versions.json           Versiones cargadas por la interfaz y los servicios.
-```
+**Major Rewrite:**
+- Complete architecture redesign
+- PostgreSQL instead of SQLite
+- React frontend instead of Jinja2 templates
+- Configurable libraries and path templates
+- AI-powered classification with external API enrichment
+- Hierarchical tags with auto/user separation
+- Dynamic playlists with query builder
+- Persistent job system and inbox
+- Watch folders and re-indexation
+- Audio/video duality for videoclips
 
-## Resolución de problemas
+### v1.x (Legacy)
 
-- **No se descargan vídeos**: revisa permisos de red y que `yt-dlp` soporte la URL; consulta `/api/probe` para ver si el proveedor es compatible.
-- **Errores de `ffmpeg`**: asegúrate de que `ffmpeg` está instalado y accesible y que el preset solicitado existe en la configuración.
-- **El bot no responde**: verifica `TELEGRAM_BOT_TOKEN` y que `VIDEORAMA_API_URL` sea accesible desde la red de Telegram.
-- **Caché crece demasiado**: limpia con los endpoints de `/api/cache`.
+Previous version archived in `/old-code` directory. See `/old-code/README.md` for v1.x documentation.
 
-## Licencia
+---
 
-Consulta el archivo de licencia asociado al proyecto o las condiciones proporcionadas por el equipo mantenedor.
+## 🤝 Contributing
 
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+---
+
+## 📄 License
+
+See LICENSE file for details.
+
+---
+
+## 🙏 Credits
+
+Built with:
+- [FastAPI](https://fastapi.tiangolo.com/)
+- [React](https://react.dev/)
+- [PostgreSQL](https://www.postgresql.org/)
+- [SQLAlchemy](https://www.sqlalchemy.org/)
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+
+External APIs:
+- [TMDb](https://www.themoviedb.org/)
+- [iTunes Search API](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/)
+- [MusicBrainz](https://musicbrainz.org/)
+
+---
+
+## 📮 Support
+
+- Issues: [GitHub Issues](https://github.com/successbyfailure/Videorama/issues)
+- Discussions: [GitHub Discussions](https://github.com/successbyfailure/Videorama/discussions)
+
+---
+
+**Made with ❤️ for media enthusiasts**
