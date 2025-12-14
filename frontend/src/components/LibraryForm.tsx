@@ -4,7 +4,8 @@ import Input from './Input'
 import Textarea from './Textarea'
 import Toggle from './Toggle'
 import Button from './Button'
-import { Library, LibraryCreate, LibraryUpdate } from '@/types/library'
+import { Library, LibraryCreate, LibraryUpdate, DirectoryEntry } from '@/types/library'
+import { librariesApi } from '@/services/api'
 
 interface LibraryFormProps {
   isOpen: boolean
@@ -36,11 +37,15 @@ export default function LibraryForm({
 
   useEffect(() => {
     if (library) {
+      // Best-effort to display relative path if it lives under /storage
+      const displayPath = library.default_path.startsWith('/storage/')
+        ? library.default_path.replace('/storage/', '')
+        : library.default_path
       setFormData({
         id: library.id,
         name: library.name,
         icon: library.icon || '🎬',
-        default_path: library.default_path,
+        default_path: displayPath,
         auto_organize: library.auto_organize,
         is_private: library.is_private,
         path_template: library.path_template || undefined,
@@ -59,6 +64,34 @@ export default function LibraryForm({
     }
     setErrors({})
   }, [library, isOpen])
+
+  const [browserOpen, setBrowserOpen] = useState(false)
+  const [browserPath, setBrowserPath] = useState<string>('')
+  const [browserEntries, setBrowserEntries] = useState<DirectoryEntry[]>([])
+  const [browserParent, setBrowserParent] = useState<string>('')
+  const [browserLoading, setBrowserLoading] = useState(false)
+  const [browserError, setBrowserError] = useState<string | null>(null)
+
+  const loadDirectory = async (path: string = '') => {
+    setBrowserLoading(true)
+    setBrowserError(null)
+    try {
+      const data = await librariesApi.browse(path || undefined)
+      setBrowserEntries(data.directories)
+      setBrowserParent(data.parent_path)
+    setBrowserPath(data.current_path)
+  } catch (err: any) {
+      setBrowserError(err?.response?.data?.detail || err?.message || 'Failed to browse')
+    } finally {
+      setBrowserLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (browserOpen) {
+      loadDirectory('')
+    }
+  }, [browserOpen])
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {}
@@ -188,10 +221,18 @@ export default function LibraryForm({
             value={formData.default_path}
             onChange={(e) => handleChange('default_path', e.target.value)}
             error={errors.default_path}
-            placeholder="/home/user/Videos/Movies"
-            helperText="Base directory where files will be stored"
+            placeholder="videos"
+            helperText="Relative to storage base (e.g., videos => /storage/videos)"
             required
           />
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => setBrowserOpen(true)} size="small">
+              Browse storage
+            </Button>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              Browsing starts at Videorama storage base.
+            </span>
+          </div>
 
           <Toggle
             label="Auto-organize"
@@ -270,6 +311,96 @@ export default function LibraryForm({
           />
         </div>
       </div>
+
+      {/* Folder Browser */}
+      {browserOpen && (
+        <Modal
+          isOpen={browserOpen}
+          onClose={() => setBrowserOpen(false)}
+          title="Select Folder"
+          size="large"
+          footer={null}
+        >
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Current: /{browserPath}
+                </p>
+                {browserError && (
+                  <p className="text-sm text-red-600 dark:text-red-400">{browserError}</p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {browserParent !== undefined && browserParent !== '' && (
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    onClick={() => loadDirectory(browserParent)}
+                    disabled={browserLoading}
+                  >
+                    Up one level
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="small"
+                  onClick={() => loadDirectory(browserPath)}
+                  disabled={browserLoading}
+                >
+                  Refresh
+                </Button>
+              </div>
+            </div>
+
+            <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded">
+              {browserLoading ? (
+                <div className="p-4 text-sm text-gray-600 dark:text-gray-300">Loading...</div>
+              ) : browserEntries.length === 0 ? (
+                <div className="p-4 text-sm text-gray-600 dark:text-gray-300">
+                  No subdirectories here.
+                </div>
+              ) : (
+                <ul>
+                  {browserEntries.map((dir) => (
+                    <li
+                      key={dir.relative_path}
+                      className="flex items-center justify-between px-4 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+                    >
+                      <span className="text-sm text-gray-800 dark:text-gray-200">
+                        {dir.name}
+                        {typeof dir.child_count === 'number' && (
+                          <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                            ({dir.child_count} items)
+                          </span>
+                        )}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          size="small"
+                          onClick={() => loadDirectory(dir.relative_path)}
+                        >
+                          Open
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            handleChange('default_path', dir.relative_path)
+                            setBrowserOpen(false)
+                          }}
+                        >
+                          Select
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
     </Modal>
   )
 }

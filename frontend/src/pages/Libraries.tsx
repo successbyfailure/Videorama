@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Edit, Trash2, Library as LibraryIcon } from 'lucide-react'
+import { Plus, Edit, Trash2, Library as LibraryIcon, RefreshCw } from 'lucide-react'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import LibraryForm from '@/components/LibraryForm'
@@ -10,6 +10,7 @@ import {
   useUpdateLibrary,
 } from '@/hooks/useLibraries'
 import { Library, LibraryCreate, LibraryUpdate } from '@/types/library'
+import { librariesApi } from '@/services/api'
 
 export default function Libraries() {
   const { data: libraries, isLoading } = useLibraries(true) // Include private
@@ -92,6 +93,20 @@ export default function Libraries() {
                     className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                   >
                     <Edit size={16} />
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await librariesApi.reindex(library.id)
+                        alert(`Reindex job started: ${res.job_id}`)
+                      } catch (err: any) {
+                        alert(err?.response?.data?.detail || err?.message || 'Failed to start reindex')
+                      }
+                    }}
+                    className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
+                    title="Reindex library"
+                  >
+                    <RefreshCw size={16} />
                   </button>
                   <button
                     onClick={() => handleDelete(library.id)}

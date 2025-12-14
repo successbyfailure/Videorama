@@ -32,7 +32,24 @@ export default function Entries() {
   const updateEntry = useUpdateEntry()
 
   const handleDelete = async (uuid: string) => {
-    await deleteEntry.mutateAsync(uuid)
+    const choice = window.prompt(
+      'Eliminar entrada:\n- Escribe "db" para borrar solo de la base de datos.\n- Escribe "file" para borrar también el fichero.\nPulsa Cancelar para salir.'
+    )
+    if (!choice) return
+
+    if (choice.toLowerCase() !== 'db' && choice.toLowerCase() !== 'file') {
+      alert('Introduce "db" o "file"')
+      return
+    }
+
+    const removeFiles = choice.toLowerCase() === 'file'
+    const confirmMsg = removeFiles
+      ? '⚠️ Borrar entrada y fichero del disco. ¿Confirmas?'
+      : 'Borrar solo de la base de datos. ¿Confirmas?'
+    const proceed = window.confirm(confirmMsg)
+    if (!proceed) return
+
+    await deleteEntry.mutateAsync({ uuid, removeFiles })
     if (selectedEntryUuid === uuid) {
       setSelectedEntryUuid(null)
     }

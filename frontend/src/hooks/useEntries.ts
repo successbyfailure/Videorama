@@ -54,7 +54,8 @@ export const useDeleteEntry = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (uuid: string) => entriesApi.delete(uuid),
+    mutationFn: ({ uuid, removeFiles }: { uuid: string; removeFiles: boolean }) =>
+      entriesApi.delete(uuid, removeFiles),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['entries'] })
     },

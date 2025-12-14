@@ -56,6 +56,20 @@ export const librariesApi = {
   delete: async (id: string) => {
     await api.delete(`/libraries/${id}`)
   },
+
+  browse: async (path?: string) => {
+    const { data } = await api.get<{
+      base_path: string
+      current_path: string
+      parent_path: string
+      directories: { name: string; relative_path: string; absolute_path: string; child_count?: number }[]
+    }>('/libraries/browse', { params: { path } })
+    return data
+  },
+  reindex: async (id: string) => {
+    const { data } = await api.post<{ job_id: string }>(`/libraries/${id}/reindex`)
+    return data
+  },
 }
 
 // ========== Entries ==========
@@ -88,8 +102,8 @@ export const entriesApi = {
     return data
   },
 
-  delete: async (uuid: string) => {
-    await api.delete(`/entries/${uuid}`)
+  delete: async (uuid: string, removeFiles: boolean) => {
+    await api.delete(`/entries/${uuid}`, { params: { remove_files: removeFiles } })
   },
 
   incrementViewCount: async (uuid: string) => {
@@ -127,6 +141,21 @@ export const inboxApi = {
 
   approve: async (id: string, approval: InboxApprove) => {
     const { data } = await api.post(`/inbox/${id}/approve`, approval)
+    return data
+  },
+
+  reprobe: async (id: string) => {
+    const { data } = await api.post(`/inbox/${id}/probe`)
+    return data
+  },
+
+  reclassify: async (id: string) => {
+    const { data } = await api.post(`/inbox/${id}/reclassify`)
+    return data
+  },
+
+  redownload: async (id: string) => {
+    const { data } = await api.post(`/inbox/${id}/redownload`)
     return data
   },
 
@@ -226,6 +255,7 @@ export interface Settings {
   storage_base_path: string
   vhs_base_url: string
   vhs_timeout: number
+  vhs_verify_ssl: boolean
   openai_api_key: string | null
   openai_base_url: string
   openai_model: string
@@ -241,6 +271,7 @@ export interface SettingsUpdate {
   storage_base_path?: string
   vhs_base_url?: string
   vhs_timeout?: number
+  vhs_verify_ssl?: boolean
   openai_api_key?: string
   openai_base_url?: string
   openai_model?: string

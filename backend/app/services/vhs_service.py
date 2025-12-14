@@ -13,6 +13,7 @@ class VHSService:
     def __init__(self):
         self.base_url = settings.VHS_BASE_URL
         self.timeout = settings.VHS_TIMEOUT
+        self.verify_ssl = settings.VHS_VERIFY_SSL
 
     async def download_no_cache(
         self,
@@ -31,7 +32,7 @@ class VHSService:
         Returns:
             Downloaded file content as bytes
         """
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, verify=self.verify_ssl) as client:
             response = await client.post(
                 f"{self.base_url}/api/no-cache",
                 json={
@@ -60,7 +61,7 @@ class VHSService:
         Returns:
             Downloaded file content as bytes
         """
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, verify=self.verify_ssl) as client:
             response = await client.post(
                 f"{self.base_url}/api/download",
                 json={
@@ -87,7 +88,7 @@ class VHSService:
         Returns:
             Metadata dictionary from yt-dlp
         """
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, verify=self.verify_ssl) as client:
             response = await client.post(
                 f"{self.base_url}/api/probe",
                 json={
@@ -115,7 +116,7 @@ class VHSService:
         Returns:
             List of search results with id, title, url, duration, etc.
         """
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, verify=self.verify_ssl) as client:
             response = await client.post(
                 f"{self.base_url}/api/search",
                 json={
@@ -146,7 +147,7 @@ class VHSService:
         Returns:
             Transcript content (format depends on transcript_format)
         """
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, verify=self.verify_ssl) as client:
             response = await client.post(
                 f"{self.base_url}/api/no-cache",
                 json={
@@ -169,7 +170,7 @@ class VHSService:
         Returns:
             Health status with version info
         """
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(timeout=5, verify=self.verify_ssl) as client:
             response = await client.get(f"{self.base_url}/api/health")
             response.raise_for_status()
             return response.json()
@@ -181,7 +182,7 @@ class VHSService:
         Returns:
             Stats dictionary with totals, cache hits, formats, etc.
         """
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, verify=self.verify_ssl) as client:
             response = await client.get(f"{self.base_url}/api/stats/usage")
             response.raise_for_status()
             return response.json()

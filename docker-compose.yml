@@ -84,6 +84,8 @@ services:
       - STORAGE_BASE_PATH=/storage
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    env_file:
+      - .env
     depends_on:
       - postgres
       - redis

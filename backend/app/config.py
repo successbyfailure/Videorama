@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # VHS Integration
     VHS_BASE_URL: str = "http://localhost:8000"
     VHS_TIMEOUT: int = 60
+    VHS_VERIFY_SSL: bool = True
 
     # LLM Configuration
     OPENAI_API_KEY: Optional[str] = None
@@ -48,6 +49,18 @@ class Settings(BaseSettings):
     # Celery
     CELERY_BROKER_URL: str = "redis://redis:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://redis:6379/0"
+
+    # LLM Prompts (override to customize)
+    LLM_TITLE_PROMPT: str = (
+        "Extract a clean, human-readable title from this filename and metadata.\n\n"
+        "Return ONLY the clean title, nothing else."
+    )
+    LLM_CLASSIFY_PROMPT: str = (
+        "You are a media librarian assistant. Classify this media item and suggest organization."
+    )
+    LLM_ENHANCE_PROMPT: str = (
+        "Enhance this media item's metadata. Fill missing fields, improve descriptions, suggest additional tags."
+    )
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

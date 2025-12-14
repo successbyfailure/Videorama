@@ -18,6 +18,11 @@ export default function JobsPanel({ isOpen, onClose }: JobsPanelProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
     },
+    onError: (error: any) => {
+      const message =
+        error?.response?.data?.detail || error?.message || 'Failed to cancel job'
+      alert(message)
+    },
   })
 
   // Delete job mutation
@@ -25,6 +30,11 @@ export default function JobsPanel({ isOpen, onClose }: JobsPanelProps) {
     mutationFn: (jobId: string) => jobsApi.delete(jobId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
+    },
+    onError: (error: any) => {
+      const message =
+        error?.response?.data?.detail || error?.message || 'Failed to delete job'
+      alert(message)
     },
   })
 

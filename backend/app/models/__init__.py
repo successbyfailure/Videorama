@@ -10,6 +10,7 @@ from .property import EntryProperty
 from .playlist import Playlist, PlaylistEntry
 from .inbox import InboxItem
 from .job import Job, ReindexJob
+from .app_settings import AppSettings
 
 __all__ = [
     "Library",
@@ -25,4 +26,5 @@ __all__ = [
     "InboxItem",
     "Job",
     "ReindexJob",
+    "AppSettings",
 ]

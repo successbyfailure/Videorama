@@ -42,3 +42,10 @@ export interface LibraryUpdate {
   watch_folders?: string[]
   scan_interval?: number
 }
+
+export interface DirectoryEntry {
+  name: string
+  relative_path: string
+  absolute_path: string
+  child_count?: number
+}

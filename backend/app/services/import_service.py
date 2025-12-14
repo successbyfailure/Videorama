@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 import time
 import uuid
+import asyncio
 
 from ..models import Library, Entry, EntryFile, InboxItem, Tag, EntryAutoTag, EntryProperty
 from ..utils import calculate_file_hash, PathTemplateEngine, get_file_info, move_file
@@ -67,57 +68,147 @@ class ImportService:
         try:
             # Update job status
             self.job_service.update_job_status(
-                self.db, job.id, "running", 0.1, "Downloading and extracting metadata"
+                self.db, job.id, "running", 0.1, "Probing URL"
             )
 
-            # Step 1: Download file and get metadata (integrate with VHS here)
-            # For now, simulated
+            # Step 1: Probe URL (store as base metadata)
             file_metadata = await self._fetch_url_metadata(url)
-
             if not file_metadata:
                 raise Exception("Failed to fetch URL metadata")
 
-            # Step 2: Extract title with LLM
+            # Keep original probe data for inbox fallback
+            probe_snapshot = {
+                "title": file_metadata.get("title"),
+                "duration": file_metadata.get("duration"),
+                "thumbnail": file_metadata.get("thumbnail"),
+                "uploader": file_metadata.get("uploader") or file_metadata.get("channel"),
+                "platform": file_metadata.get("extractor") or file_metadata.get("ie_key"),
+                "metadata": file_metadata,
+            }
+
+            # Step 2/3 in parallel: download file AND enrich/classify
             self.job_service.update_job_status(
-                self.db, job.id, "running", 0.3, "Extracting title with AI"
+                self.db, job.id, "running", 0.25, "Downloading file and enriching metadata"
             )
 
-            title = await self.llm.extract_title(
-                file_metadata.get("filename", ""),
-                file_metadata,
+            async def download_task():
+                self.job_service.update_job_status(
+                    self.db, job.id, "running", 0.3, "Downloading file"
+                )
+                fmt = media_format or self.vhs.get_format_for_media_type(library_id or "video")
+                return await self._download_file(url, fmt)
+
+            async def classify_task():
+                # Extract title with LLM (or fallback)
+                self.job_service.update_job_status(
+                    self.db, job.id, "running", 0.35, "Extracting title"
+                )
+                title_local = await self.llm.extract_title(
+                    file_metadata.get("filename", ""),
+                    file_metadata,
+                )
+                if not title_local:
+                    title_local = (
+                        file_metadata.get("title")
+                        or file_metadata.get("filename")
+                        or url.split("/")[-1]
+                    )
+
+                # Enrich
+                self.job_service.update_job_status(
+                    self.db, job.id, "running", 0.45, "Enriching metadata"
+                )
+                enriched_local = await self._enrich_from_apis(title_local, file_metadata)
+
+                # Classify
+                self.job_service.update_job_status(
+                    self.db, job.id, "running", 0.55, "Classifying with AI"
+                )
+                libraries_ctx = self._get_libraries_for_context()
+                context = self._get_classification_context()
+
+                classification_local = await self.llm.classify_media(
+                    title=title_local,
+                    filename=file_metadata.get("filename", ""),
+                    metadata=file_metadata,
+                    enriched_data=enriched_local,
+                    libraries=libraries_ctx,
+                    context=context,
+                )
+
+                return title_local, enriched_local, classification_local
+
+            download_result, classify_result = await asyncio.gather(
+                download_task(), classify_task(), return_exceptions=True
             )
 
-            # Fallback to VHS metadata title if LLM doesn't return one
-            if not title:
+            # Handle classification result
+            if isinstance(classify_result, Exception):
                 title = file_metadata.get("title") or file_metadata.get("filename") or url.split("/")[-1]
+                enriched = {}
+                classification = {
+                    "confidence": 0.0,
+                    "library": None,
+                    "subfolder": None,
+                    "tags": [],
+                    "properties": {},
+                    "error": str(classify_result),
+                }
+            else:
+                title, enriched, classification = classify_result
 
-            # Step 3: Enrich from external APIs
-            self.job_service.update_job_status(
-                self.db, job.id, "running", 0.5, "Enriching metadata from external sources"
-            )
-
-            enriched = await self._enrich_from_apis(title, file_metadata)
-
-            # Step 4: Classify with LLM
-            self.job_service.update_job_status(
-                self.db, job.id, "running", 0.7, "Classifying with AI"
-            )
-
-            libraries = self._get_libraries_for_context()
-            context = self._get_classification_context()
-
-            classification = await self.llm.classify_media(
-                title=title,
-                filename=file_metadata.get("filename", ""),
-                metadata=file_metadata,
-                enriched_data=enriched,
-                libraries=libraries,
-                context=context,
-            )
+            # Handle download result
+            if isinstance(download_result, Exception):
+                error_msg = f"Download failed: {download_result}"
+                self.job_service.update_job_status(
+                    self.db, job.id, "failed", error=error_msg
+                )
+                return await self._send_to_inbox(
+                    job_id=job.id,
+                    entry_data={
+                        "title": title,
+                        "original_url": url,
+                        "metadata": file_metadata,
+                        "enriched": enriched,
+                        "probe": probe_snapshot,
+                    },
+                    suggested_library=classification.get("library"),
+                    suggested_metadata=classification,
+                    confidence=classification.get("confidence", 0.0),
+                    inbox_type="failed",
+                    error_message=error_msg,
+                )
+            else:
+                downloaded_file = download_result
 
             # Step 5: Decide if auto-import or send to inbox
             target_library = library_id or classification.get("library")
             confidence = classification.get("confidence", 0.0)
+
+            # Calculate hash and check duplicates (we have the file now)
+            self.job_service.update_job_status(
+                self.db, job.id, "running", 0.65, "Checking for duplicates"
+            )
+            content_hash = calculate_file_hash(downloaded_file)
+            duplicate = self.db.query(EntryFile).filter(
+                EntryFile.content_hash == content_hash
+            ).first()
+
+            if duplicate:
+                try:
+                    Path(downloaded_file).unlink()
+                except Exception:
+                    pass
+
+                return await self._send_to_inbox(
+                    job_id=job.id,
+                    entry_data={
+                        "title": title,
+                        "original_url": url,
+                        "duplicate_of": duplicate.entry_uuid,
+                    },
+                    inbox_type="duplicate",
+                )
 
             if not target_library:
                 # Send to inbox - no library could be determined
@@ -128,6 +219,9 @@ class ImportService:
                         "original_url": url,
                         "metadata": file_metadata,
                         "enriched": enriched,
+                        "file_path": downloaded_file,
+                        "content_hash": content_hash,
+                        "probe": probe_snapshot,
                     },
                     suggested_library=None,
                     suggested_metadata=classification,
@@ -143,7 +237,7 @@ class ImportService:
 
             # Check confidence threshold
             if auto_mode and confidence < library.llm_confidence_threshold:
-                # Send to inbox for review
+                # Send to inbox for review (keep file info)
                 return await self._send_to_inbox(
                     job_id=job.id,
                     entry_data={
@@ -151,6 +245,9 @@ class ImportService:
                         "original_url": url,
                         "metadata": file_metadata,
                         "enriched": enriched,
+                        "file_path": downloaded_file,
+                        "content_hash": content_hash,
+                        "probe": probe_snapshot,
                     },
                     suggested_library=target_library,
                     suggested_metadata=classification,
@@ -158,46 +255,11 @@ class ImportService:
                     inbox_type="low_confidence",
                 )
 
-            # Step 6: Download file using VHS
+            # Step 6: Organize file and create entry
             self.job_service.update_job_status(
-                self.db, job.id, "running", 0.8, "Downloading file"
+                self.db, job.id, "running", 0.85, "Organizing file"
             )
 
-            # Determine VHS format based on classified library type or use provided format
-            if not media_format:
-                media_format = self.vhs.get_format_for_media_type(target_library)
-            downloaded_file = await self._download_file(url, media_format)
-
-            # Step 7: Calculate hash and check duplicates
-            self.job_service.update_job_status(
-                self.db, job.id, "running", 0.9, "Checking for duplicates"
-            )
-
-            content_hash = calculate_file_hash(downloaded_file)
-
-            duplicate = self.db.query(EntryFile).filter(
-                EntryFile.content_hash == content_hash
-            ).first()
-
-            if duplicate:
-                # Clean up temporary file
-                try:
-                    Path(downloaded_file).unlink()
-                except Exception:
-                    pass
-
-                # Send to inbox - duplicate detected
-                return await self._send_to_inbox(
-                    job_id=job.id,
-                    entry_data={
-                        "title": title,
-                        "original_url": url,
-                        "duplicate_of": duplicate.entry_uuid,
-                    },
-                    inbox_type="duplicate",
-                )
-
-            # Step 8: Organize file and create entry
             entry = await self._create_entry_from_import(
                 library=library,
                 title=title,
@@ -279,56 +341,65 @@ class ImportService:
         import os
         logger = logging.getLogger(__name__)
 
-        try:
-            # Download using VHS no-cache endpoint (default behavior)
-            logger.info(f"Downloading from VHS: {url}, format: {media_format}")
-            content = await self.vhs.download_no_cache(
-                url=url,
-                media_format=media_format,
-                source="videorama"
-            )
+        logger.info(f"Using VHS base URL: {self.vhs.base_url}, verify_ssl={getattr(self.vhs, 'verify_ssl', None)}")
+        attempt = 0
+        last_err: Optional[Exception] = None
+        backoff_seconds = [1, 2, 4, 8, 10]
+        while attempt < len(backoff_seconds):
+            attempt += 1
+            try:
+                # Download using VHS no-cache endpoint (default behavior)
+                logger.info(f"Downloading from VHS (attempt {attempt}): {url}, format: {media_format}")
+                content = await self.vhs.download_no_cache(
+                    url=url,
+                    media_format=media_format,
+                    source="videorama"
+                )
 
-            logger.info(f"Downloaded {len(content)} bytes from VHS")
+                logger.info(f"Downloaded {len(content)} bytes from VHS")
 
-            # Determine file extension based on format
-            ext_map = {
-                "video_max": ".mp4",
-                "video_1080": ".mp4",
-                "video_med": ".mp4",
-                "video_low": ".mp4",
-                "audio_max": ".m4a",
-                "audio_med": ".m4a",
-                "audio_low": ".m4a",
-            }
+                # Determine file extension based on format
+                ext_map = {
+                    "video_max": ".mp4",
+                    "video_1080": ".mp4",
+                    "video_med": ".mp4",
+                    "video_low": ".mp4",
+                    "audio_max": ".m4a",
+                    "audio_med": ".m4a",
+                    "audio_low": ".m4a",
+                }
 
-            ext = ext_map.get(media_format, ".mp4")
+                ext = ext_map.get(media_format, ".mp4")
 
-            # Use /storage/temp instead of /tmp to avoid automatic cleanup
-            temp_dir = Path("/storage/temp")
-            temp_dir.mkdir(parents=True, exist_ok=True)
+                # Use /storage/temp instead of /tmp to avoid automatic cleanup
+                temp_dir = Path("/storage/temp")
+                temp_dir.mkdir(parents=True, exist_ok=True)
 
-            temp_path = temp_dir / f"{uuid.uuid4()}{ext}"
+                temp_path = temp_dir / f"{uuid.uuid4()}{ext}"
 
-            logger.info(f"Saving file to: {temp_path}")
+                logger.info(f"Saving file to: {temp_path}")
 
-            with open(temp_path, 'wb') as f:
-                f.write(content)
+                with open(temp_path, 'wb') as f:
+                    f.write(content)
 
-            # Verify file exists and has correct size
-            if not temp_path.exists():
-                raise Exception(f"File was not created at {temp_path}")
+                # Verify file exists and has correct size
+                if not temp_path.exists():
+                    raise Exception(f"File was not created at {temp_path}")
 
-            file_size = temp_path.stat().st_size
-            logger.info(f"File saved successfully: {temp_path}, size: {file_size} bytes")
+                file_size = temp_path.stat().st_size
+                logger.info(f"File saved successfully: {temp_path}, size: {file_size} bytes")
 
-            if file_size != len(content):
-                raise Exception(f"File size mismatch: expected {len(content)}, got {file_size}")
+                if file_size != len(content):
+                    raise Exception(f"File size mismatch: expected {len(content)}, got {file_size}")
 
-            return str(temp_path)
+                return str(temp_path)
+            except Exception as e:
+                last_err = e
+                logger.error(f"Failed to download file (attempt {attempt}): {repr(e)}")
+                # small backoff before retrying
+                await asyncio.sleep(backoff_seconds[attempt - 1])
 
-        except Exception as e:
-            logger.error(f"Failed to download file: {e}")
-            raise Exception(f"Failed to download file from VHS: {e}")
+        raise Exception(f"Failed to download file from VHS after {attempt} attempts: {last_err}")
 
     async def _enrich_from_apis(self, title: str, metadata: Dict) -> Dict[str, Any]:
         """Enrich metadata from external APIs"""
@@ -380,18 +451,21 @@ class ImportService:
         job_id: str,
     ) -> Entry:
         """Create entry from import data"""
-        # Determine subfolder
-        subfolder = classification.get("subfolder", "")
+        if not library.default_path:
+            raise Exception("Library default_path is not configured.")
+
+        # Determine subfolder (ensure string)
+        subfolder = classification.get("subfolder") or ""
 
         # If library has auto_organize and path_template, use template
         if library.auto_organize and library.path_template:
             template_vars = self._build_template_variables(classification, enriched)
             subfolder = PathTemplateEngine.render(library.path_template, template_vars)
 
-        # Determine final file path
-        file_ext = Path(file_path).suffix
-        final_filename = f"{uuid.uuid4()}{file_ext}"
-        final_path = Path(library.default_path) / subfolder / final_filename
+        # Determine final file path using a slugified title (fall back to UUID on collision)
+        file_ext = Path(file_path).suffix or ""
+        final_path = self._build_final_path(library.default_path, subfolder, title, file_ext)
+        final_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Move file to final location
         move_file(file_path, final_path)
@@ -413,7 +487,7 @@ class ImportService:
         self.db.add(entry)
 
         # Create entry file
-        file_info = get_file_info(file_path)
+        file_info = get_file_info(final_path)
 
         entry_file = EntryFile(
             id=str(uuid.uuid4()),
@@ -443,6 +517,30 @@ class ImportService:
 
         return entry
 
+    def _build_final_path(self, base_path: str, subfolder: str, title: str, ext: str) -> Path:
+        """
+        Build a filesystem-safe destination path using the title.
+        If a collision exists, append a short suffix.
+        """
+        import re
+
+        safe_base = re.sub(r"[^a-zA-Z0-9-_]+", "-", title).strip("-").lower() or str(uuid.uuid4())
+        # Trim to avoid overly long filenames
+        safe_base = safe_base[:120]
+        parent = Path(base_path) / subfolder
+        candidate = parent / f"{safe_base}{ext}"
+
+        counter = 1
+        while candidate.exists() and counter < 50:
+            candidate = parent / f"{safe_base}-{counter}{ext}"
+            counter += 1
+
+        # Last resort
+        if candidate.exists():
+            candidate = parent / f"{safe_base}-{uuid.uuid4()}{ext}"
+
+        return candidate
+
     def _create_entry_tags(
         self,
         entry_uuid: str,
@@ -457,7 +555,7 @@ class ImportService:
             # Get or create tag
             tag = self.db.query(Tag).filter(Tag.name == tag_name).first()
             if not tag:
-                tag = Tag(name=tag_name, created_at=time.time())
+                tag = Tag(name=tag_name)
                 self.db.add(tag)
                 self.db.flush()  # Get tag ID
 
@@ -478,7 +576,7 @@ class ImportService:
                     # Get or create tag
                     tag = self.db.query(Tag).filter(Tag.name == tag_name).first()
                     if not tag:
-                        tag = Tag(name=tag_name, created_at=time.time())
+                        tag = Tag(name=tag_name)
                         self.db.add(tag)
                         self.db.flush()
 

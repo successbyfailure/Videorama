@@ -52,6 +52,7 @@ class LibraryResponse(LibraryBase):
 
     id: str
     last_scan_at: Optional[float] = None
+    entry_count: int = 0
 
     class Config:
         from_attributes = True  # For SQLAlchemy models

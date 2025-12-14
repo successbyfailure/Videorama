@@ -10,6 +10,7 @@ import uuid
 import json
 
 from ..models.job import Job
+from ..models.inbox import InboxItem
 from ..schemas.job import JobCreate
 
 
@@ -249,7 +250,15 @@ class JobService:
         if not job:
             return False
 
-        db.delete(job)
-        db.commit()
+        try:
+            # Detach inbox items referencing this job to avoid FK issues
+            db.query(InboxItem).filter(InboxItem.job_id == job_id).update(
+                {"job_id": None}
+            )
 
-        return True
+            db.delete(job)
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            raise

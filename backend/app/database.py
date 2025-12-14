@@ -44,3 +44,12 @@ def init_db():
     """
     from . import models  # noqa
     Base.metadata.create_all(bind=engine)
+
+    # Seed persisted settings from environment on first run
+    from .services.settings_service import SettingsService
+
+    db = SessionLocal()
+    try:
+        SettingsService.get_settings(db)
+    finally:
+        db.close()

@@ -42,12 +42,11 @@ class LLMService:
             # Fallback: simple cleanup
             return filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").strip()
 
-        prompt = f"""Extract a clean, human-readable title from this filename and metadata.
+        prompt = f"""{settings.LLM_TITLE_PROMPT}
 
 Filename: {filename}
 Metadata: {json.dumps(metadata or {}, indent=2)}
 
-Return ONLY the clean title, nothing else.
 Examples:
 - "queen_bohemian_rhapsody_official.mp4" → "Bohemian Rhapsody"
 - "The.Matrix.1999.1080p.BluRay.mp4" → "The Matrix"
@@ -110,7 +109,7 @@ Examples:
         existing_tags = context.get("existing_tags", []) if context else []
         existing_structure = context.get("folder_structure", []) if context else []
 
-        prompt = f"""You are a media librarian assistant. Classify this media item and suggest organization.
+        prompt = f"""{settings.LLM_CLASSIFY_PROMPT}
 
 **Item Information:**
 Title: {title}
@@ -215,7 +214,7 @@ Return ONLY valid JSON, no additional text.
         if not self.enabled:
             return entry_data
 
-        prompt = f"""Enhance this media item's metadata. Fill missing fields, improve descriptions, suggest additional tags.
+        prompt = f"""{settings.LLM_ENHANCE_PROMPT}
 
 Current Data:
 {json.dumps(entry_data, indent=2)}

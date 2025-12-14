@@ -65,25 +65,43 @@ def list_entries(
     # Enrich with related data
     response = []
     for entry in entries:
-        entry_dict = EntryResponse.model_validate(entry).model_dump()
-
-        # Add files
-        entry_dict["files"] = [
-            {"id": f.id, "file_type": f.file_type, "format": f.format, "size": f.size}
-            for f in entry.files
-        ]
-
-        # Add properties
-        entry_dict["properties"] = {
-            prop.key: prop.value for prop in entry.properties
+        entry_dict = {
+            "uuid": entry.uuid,
+            "title": entry.title,
+            "description": entry.description,
+            "duration": entry.duration,
+            "thumbnail_url": entry.thumbnail_url,
+            "library_id": entry.library_id,
+            "subfolder": entry.subfolder,
+            "platform": entry.platform,
+            "uploader": entry.uploader,
+            "import_source": entry.import_source,
+            "original_url": entry.original_url,
+            "imported_by": entry.imported_by,
+            "view_count": entry.view_count or 0,
+            "favorite": entry.favorite or False,
+            "rating": entry.rating,
+            "added_at": entry.added_at,
+            "updated_at": entry.updated_at,
+            "last_viewed_at": entry.last_viewed_at,
+            "import_job_id": entry.import_job_id,
+            "files": [
+                {
+                    "id": f.id,
+                    "entry_uuid": f.entry_uuid,
+                    "file_type": f.file_type,
+                    "format": f.format,
+                    "size": f.size,
+                    "file_path": f.file_path,
+                    "content_hash": f.content_hash,
+                }
+                for f in entry.files
+            ],
+            "properties": {prop.key: prop.value for prop in entry.properties},
+            "user_tags": [tag.tag.name for tag in entry.user_tags],
+            "auto_tags": [],
+            "relations": [],
         }
-
-        # Add user tags
-        entry_dict["user_tags"] = [
-            tag.tag.name for tag in entry.user_tags
-        ]
-
-        # TODO: Add auto tags
 
         response.append(EntryResponse(**entry_dict))
 
@@ -145,16 +163,27 @@ def update_entry(
 
 
 @router.delete("/entries/{entry_uuid}", status_code=204)
-def delete_entry(entry_uuid: str, db: Session = Depends(get_db)):
-    """Delete an entry and its associated files"""
+def delete_entry(
+    entry_uuid: str,
+    remove_files: bool = False,
+    db: Session = Depends(get_db),
+):
+    """
+    Delete an entry. Optionally remove physical files from disk.
+    """
     entry = db.query(Entry).filter(Entry.uuid == entry_uuid).first()
 
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
 
-    # TODO: Delete physical files
-    # for file in entry.files:
-    #     Path(file.file_path).unlink(missing_ok=True)
+    # Delete physical files if requested
+    if remove_files:
+        for file in entry.files:
+            try:
+                Path(file.file_path).unlink(missing_ok=True)
+            except Exception:
+                # Ignore filesystem errors to allow DB cleanup
+                pass
 
     db.delete(entry)
     db.commit()

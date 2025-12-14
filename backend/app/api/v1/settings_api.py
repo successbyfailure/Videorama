@@ -3,11 +3,13 @@ Videorama v2.0.0 - Settings API
 GET/UPDATE application settings
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
-import os
-from pathlib import Path
+from sqlalchemy.orm import Session
+
+from ...database import get_db
+from ...services.settings_service import SettingsService
 
 router = APIRouter()
 
@@ -26,6 +28,7 @@ class SettingsSchema(BaseModel):
     # VHS Integration
     vhs_base_url: str
     vhs_timeout: int
+    vhs_verify_ssl: bool
 
     # LLM Configuration
     openai_api_key: Optional[str] = None
@@ -49,6 +52,7 @@ class SettingsUpdateSchema(BaseModel):
     storage_base_path: Optional[str] = None
     vhs_base_url: Optional[str] = None
     vhs_timeout: Optional[int] = None
+    vhs_verify_ssl: Optional[bool] = None
     openai_api_key: Optional[str] = None
     openai_base_url: Optional[str] = None
     openai_model: Optional[str] = None
@@ -59,109 +63,56 @@ class SettingsUpdateSchema(BaseModel):
 
 
 @router.get("/settings", response_model=SettingsSchema)
-async def get_settings():
-    """Get current application settings"""
-    from app.config import settings
+async def get_settings(db: Session = Depends(get_db)):
+    """Get current application settings from the database"""
+    record = SettingsService.get_settings(db)
 
-    # Mask sensitive values for API response
     return SettingsSchema(
-        app_name=settings.APP_NAME,
-        version=settings.VERSION,
-        debug=settings.DEBUG,
-        storage_base_path=settings.STORAGE_BASE_PATH,
-        vhs_base_url=settings.VHS_BASE_URL,
-        vhs_timeout=settings.VHS_TIMEOUT,
-        openai_api_key=_mask_secret(settings.OPENAI_API_KEY),
-        openai_base_url=settings.OPENAI_BASE_URL,
-        openai_model=settings.OPENAI_MODEL,
-        tmdb_api_key=_mask_secret(settings.TMDB_API_KEY),
-        spotify_client_id=_mask_secret(settings.SPOTIFY_CLIENT_ID),
-        spotify_client_secret=_mask_secret(settings.SPOTIFY_CLIENT_SECRET),
-        telegram_bot_token=_mask_secret(settings.TELEGRAM_BOT_TOKEN),
+        app_name=record.app_name,
+        version=record.version,
+        debug=record.debug,
+        storage_base_path=record.storage_base_path,
+        vhs_base_url=record.vhs_base_url,
+        vhs_timeout=record.vhs_timeout,
+        vhs_verify_ssl=record.vhs_verify_ssl,
+        openai_api_key=_mask_secret(record.openai_api_key),
+        openai_base_url=record.openai_base_url,
+        openai_model=record.openai_model,
+        tmdb_api_key=_mask_secret(record.tmdb_api_key),
+        spotify_client_id=_mask_secret(record.spotify_client_id),
+        spotify_client_secret=_mask_secret(record.spotify_client_secret),
+        telegram_bot_token=_mask_secret(record.telegram_bot_token),
     )
 
 
 @router.put("/settings", response_model=SettingsSchema)
-async def update_settings(updates: SettingsUpdateSchema):
+async def update_settings(
+    updates: SettingsUpdateSchema, db: Session = Depends(get_db)
+):
     """
     Update application settings
 
-    NOTE: This updates the .env file. Changes require application restart.
+    Persists to the database. Also mirrors changes to in-memory config for runtime use.
     """
-    env_path = Path(".env")
+    update_dict = updates.model_dump(exclude_none=True)
+    record = SettingsService.update_settings(db, update_dict)
 
-    if not env_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=".env file not found. Please create one from .env.example",
-        )
-
-    # Read current .env file
-    env_lines = env_path.read_text().splitlines()
-
-    # Mapping of schema fields to env var names
-    field_to_env = {
-        "app_name": "APP_NAME",
-        "debug": "DEBUG",
-        "storage_base_path": "STORAGE_BASE_PATH",
-        "vhs_base_url": "VHS_BASE_URL",
-        "vhs_timeout": "VHS_TIMEOUT",
-        "openai_api_key": "OPENAI_API_KEY",
-        "openai_base_url": "OPENAI_BASE_URL",
-        "openai_model": "OPENAI_MODEL",
-        "tmdb_api_key": "TMDB_API_KEY",
-        "spotify_client_id": "SPOTIFY_CLIENT_ID",
-        "spotify_client_secret": "SPOTIFY_CLIENT_SECRET",
-        "telegram_bot_token": "TELEGRAM_BOT_TOKEN",
-    }
-
-    # Update env vars
-    updated_lines = []
-    updated_keys = set()
-
-    for line in env_lines:
-        line = line.rstrip()
-
-        # Skip empty lines and comments
-        if not line or line.startswith("#"):
-            updated_lines.append(line)
-            continue
-
-        # Parse key=value
-        if "=" in line:
-            key = line.split("=", 1)[0].strip()
-
-            # Check if this key needs to be updated
-            updated = False
-            for field_name, env_name in field_to_env.items():
-                if key == env_name:
-                    new_value = getattr(updates, field_name)
-                    if new_value is not None:
-                        # Don't update if it's a masked secret
-                        if isinstance(new_value, str) and new_value.startswith("***"):
-                            updated_lines.append(line)
-                        else:
-                            # Convert bool to string
-                            if isinstance(new_value, bool):
-                                new_value = str(new_value)
-                            elif isinstance(new_value, int):
-                                new_value = str(new_value)
-
-                            updated_lines.append(f"{key}={new_value}")
-                            updated_keys.add(key)
-                        updated = True
-                        break
-
-            if not updated:
-                updated_lines.append(line)
-        else:
-            updated_lines.append(line)
-
-    # Write updated .env file
-    env_path.write_text("\n".join(updated_lines) + "\n")
-
-    # Return current settings (NOTE: Won't reflect changes until restart)
-    return await get_settings()
+    return SettingsSchema(
+        app_name=record.app_name,
+        version=record.version,
+        debug=record.debug,
+        storage_base_path=record.storage_base_path,
+        vhs_base_url=record.vhs_base_url,
+        vhs_timeout=record.vhs_timeout,
+        vhs_verify_ssl=record.vhs_verify_ssl,
+        openai_api_key=_mask_secret(record.openai_api_key),
+        openai_base_url=record.openai_base_url,
+        openai_model=record.openai_model,
+        tmdb_api_key=_mask_secret(record.tmdb_api_key),
+        spotify_client_id=_mask_secret(record.spotify_client_id),
+        spotify_client_secret=_mask_secret(record.spotify_client_secret),
+        telegram_bot_token=_mask_secret(record.telegram_bot_token),
+    )
 
 
 def _mask_secret(value: Optional[str]) -> Optional[str]:
