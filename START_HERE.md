@@ -40,11 +40,12 @@
 - Celery Worker + Beat (planificador sin errores de permisos)
 - Auto-refresh UI (jobs/inbox con invalidaciones)
 - Search Integration – buscar videos desde VHS y importar
+- **Video Streaming – HTTP Range Requests para seek/scrubbing (NEW!)**
 
 ### ⚠️ Necesita Trabajo
 1. **PRIORIDAD 1:** ✅ COMPLETADO - LLM ahora funciona con confidence 0.8+
-2. **PRIORIDAD 2:** Revisión de UX/estilo pendiente (inputs legibles, cards).
-3. **PRIORIDAD 3:** Streaming endpoint (seek en videos) pendiente.
+2. **PRIORIDAD 2:** ✅ COMPLETADO - Streaming endpoint implementado
+3. **PRIORIDAD 3:** Revisión de UX/estilo pendiente (inputs legibles, cards).
 
 ---
 

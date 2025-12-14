@@ -3,10 +3,13 @@ Videorama v2.0.0 - Entries API
 CRUD endpoints for media entries
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import time
+from pathlib import Path
+import os
 
 from ...database import get_db
 from ...models import Entry, EntryFile, Library, Tag, EntryUserTag, EntryProperty
@@ -206,3 +209,109 @@ def increment_view_count(entry_uuid: str, db: Session = Depends(get_db)):
     db.refresh(entry)
 
     return get_entry(entry_uuid, db)
+
+
+@router.get("/entries/{entry_uuid}/stream")
+async def stream_entry(
+    entry_uuid: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Stream entry file with HTTP Range Request support for video seeking
+
+    Supports:
+    - Full file download (200 OK)
+    - Partial content (206 Partial Content) for seeking
+    - Proper Content-Type detection
+    - Accept-Ranges header for browser compatibility
+
+    Example:
+        GET /api/v1/entries/{uuid}/stream
+        Range: bytes=0-1023
+    """
+    # Get entry
+    entry = db.query(Entry).filter(Entry.uuid == entry_uuid).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    # Get primary file (first file)
+    if not entry.files or len(entry.files) == 0:
+        raise HTTPException(status_code=404, detail="No file found for this entry")
+
+    entry_file = entry.files[0]
+    file_path = Path(entry_file.file_path)
+
+    # Verify file exists
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Physical file not found")
+
+    # Get file size
+    file_size = file_path.stat().st_size
+
+    # Determine content type
+    content_type = entry_file.file_type or "video/mp4"
+
+    # Parse Range header
+    range_header = request.headers.get("range")
+
+    if range_header:
+        # Parse range: "bytes=start-end"
+        try:
+            range_str = range_header.replace("bytes=", "")
+            parts = range_str.split("-")
+            start = int(parts[0]) if parts[0] else 0
+            end = int(parts[1]) if parts[1] else file_size - 1
+
+            # Validate range
+            if start >= file_size or end >= file_size or start > end:
+                raise HTTPException(
+                    status_code=416,
+                    detail="Range not satisfiable",
+                    headers={
+                        "Content-Range": f"bytes */{file_size}"
+                    }
+                )
+
+            chunk_size = end - start + 1
+
+            # Generator to stream file chunk
+            def file_chunk_iterator():
+                with open(file_path, "rb") as f:
+                    f.seek(start)
+                    remaining = chunk_size
+                    while remaining > 0:
+                        # Read in 64KB chunks
+                        read_size = min(65536, remaining)
+                        chunk = f.read(read_size)
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+
+            # Return 206 Partial Content
+            return StreamingResponse(
+                file_chunk_iterator(),
+                status_code=206,
+                headers={
+                    "Content-Range": f"bytes {start}-{end}/{file_size}",
+                    "Accept-Ranges": "bytes",
+                    "Content-Length": str(chunk_size),
+                    "Content-Type": content_type,
+                },
+                media_type=content_type
+            )
+
+        except ValueError:
+            # Invalid range format, return full file
+            pass
+
+    # No range or invalid range - return full file with Accept-Ranges header
+    return FileResponse(
+        file_path,
+        media_type=content_type,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(file_size)
+        }
+    )

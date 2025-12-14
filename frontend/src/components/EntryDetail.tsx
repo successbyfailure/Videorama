@@ -36,6 +36,7 @@ export default function EntryDetail({
 }: EntryDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editData, setEditData] = useState<any>({})
+  const [isPlaying, setIsPlaying] = useState(false)
 
   if (!entry) return null
 
@@ -103,32 +104,64 @@ export default function EntryDetail({
       }
     >
       <div className="space-y-6">
-        {/* Media Preview */}
+        {/* Media Preview / Player */}
         {!isEditing && (
           <div className="aspect-video bg-gray-900 rounded-lg overflow-hidden relative">
-            {thumbnailFile ? (
-              <img
-                src={`/static/${thumbnailFile.file_path}`}
-                alt={entry.title}
-                className="w-full h-full object-cover"
-              />
+            {isPlaying && (videoFile || audioFile) ? (
+              // Video/Audio Player
+              videoFile ? (
+                <video
+                  src={`/api/v1/entries/${entry.uuid}/stream`}
+                  controls
+                  autoPlay
+                  className="w-full h-full"
+                  onEnded={() => setIsPlaying(false)}
+                  poster={entry.thumbnail_url || undefined}
+                >
+                  Your browser does not support the video tag.
+                </video>
+              ) : (
+                <audio
+                  src={`/api/v1/entries/${entry.uuid}/stream`}
+                  controls
+                  autoPlay
+                  className="w-full"
+                  onEnded={() => setIsPlaying(false)}
+                >
+                  Your browser does not support the audio tag.
+                </audio>
+              )
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-gray-400">
-                {videoFile ? (
-                  <Film className="w-16 h-16" />
-                ) : audioFile ? (
-                  <Music className="w-16 h-16" />
+              // Thumbnail / Placeholder
+              <>
+                {thumbnailFile ? (
+                  <img
+                    src={`/static/${thumbnailFile.file_path}`}
+                    alt={entry.title}
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
-                  <ImageIcon className="w-16 h-16" />
+                  <div className="w-full h-full flex items-center justify-center text-gray-400">
+                    {videoFile ? (
+                      <Film className="w-16 h-16" />
+                    ) : audioFile ? (
+                      <Music className="w-16 h-16" />
+                    ) : (
+                      <ImageIcon className="w-16 h-16" />
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
 
-            {/* Play overlay */}
-            {(videoFile || audioFile) && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 hover:bg-opacity-30 transition-all cursor-pointer">
-                <Play className="w-16 h-16 text-white opacity-0 hover:opacity-100 transition-opacity" />
-              </div>
+                {/* Play overlay */}
+                {(videoFile || audioFile) && (
+                  <div
+                    className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 hover:bg-opacity-30 transition-all cursor-pointer"
+                    onClick={() => setIsPlaying(true)}
+                  >
+                    <Play className="w-16 h-16 text-white opacity-70 hover:opacity-100 transition-opacity" />
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

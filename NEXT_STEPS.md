@@ -26,6 +26,7 @@
 - ✅ Auto-refresh en UI (Jobs: 2s, Inbox: 3s)
 - ✅ VHS Service integration (download + search)
 - ✅ File downloads a /storage/temp
+- ✅ **Video Streaming con HTTP Range Requests** (NUEVO!)
 
 ### LO QUE NECESITA ARREGLO
 - ⚠️ Inbox approve tested pero puede mejorar UX
@@ -53,35 +54,17 @@
 
 ---
 
-## 🎯 NUEVA PRIORIDAD 1: Streaming Endpoint
+## 🎯 ~~NUEVA PRIORIDAD 1: Streaming Endpoint~~ ✅ COMPLETADO
 
-### Objetivo
-Permitir seek/scrubbing en video player
+### ✅ Resuelto en Sesión 5 (2025-12-14)
 
-### Nuevo Endpoint
-`GET /api/v1/entries/{uuid}/stream`
+**Implementado:**
+- ✅ Endpoint `/api/v1/entries/{uuid}/stream` con HTTP Range Requests
+- ✅ Video player integrado en EntryDetail.tsx
+- ✅ Seek/scrubbing funcionando correctamente
+- ✅ 206 Partial Content responses
 
-### Implementación Sugerida
-```python
-from fastapi.responses import StreamingResponse
-from fastapi import Header
-from pathlib import Path
-
-@router.get("/entries/{uuid}/stream")
-async def stream_entry(
-    uuid: str,
-    range: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
-):
-    # 1. Get entry and file
-    # 2. Parse Range header
-    # 3. Return 206 Partial Content with proper headers
-```
-
-**Frontend Update:**
-```typescript
-<video src={`/api/v1/entries/${entry.uuid}/stream`} controls />
-```
+**Ver detalles:** [CURRENT_STATUS.md](CURRENT_STATUS.md) - Sesión 5
 
 ---
 
