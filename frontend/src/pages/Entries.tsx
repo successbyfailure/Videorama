@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Star, Eye, Edit, Trash2, Filter } from 'lucide-react'
+import { Plus, Star, Eye, Edit, Trash2, Filter, Film, Music } from 'lucide-react'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import EntryDetail from '@/components/EntryDetail'
@@ -27,7 +27,7 @@ export default function Entries() {
     favorite: showFavorites || undefined,
     limit: 50,
   })
-  const { data: selectedEntry } = useEntry(selectedEntryUuid || '')
+  const { data: selectedEntry, isLoading: isLoadingEntry } = useEntry(selectedEntryUuid || '')
   const deleteEntry = useDeleteEntry()
   const updateEntry = useUpdateEntry()
 
@@ -137,9 +137,39 @@ export default function Entries() {
               onClick={() => handleCardClick(entry)}
               className="cursor-pointer hover:shadow-lg transition-shadow"
             >
-              {/* Thumbnail placeholder */}
-              <div className="aspect-video bg-gray-200 dark:bg-gray-700 rounded-t-lg flex items-center justify-center">
-                <Eye size={48} className="text-gray-400" />
+              {/* Thumbnail */}
+              <div className="aspect-video bg-gray-900 rounded-t-lg overflow-hidden relative">
+                {entry.thumbnail_url ? (
+                  <img
+                    src={entry.thumbnail_url}
+                    alt={entry.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : entry.files && entry.files.length > 0 ? (
+                  // Show video icon for video files, music icon for audio
+                  <div className="w-full h-full flex items-center justify-center text-gray-400">
+                    {entry.files[0].file_type === 'video' ? (
+                      <Film size={48} />
+                    ) : entry.files[0].file_type === 'audio' ? (
+                      <Music size={48} />
+                    ) : (
+                      <Eye size={48} />
+                    )}
+                  </div>
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-400">
+                    <Eye size={48} />
+                  </div>
+                )}
+
+                {/* Play overlay hint */}
+                <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-30 transition-opacity flex items-center justify-center">
+                  <div className="opacity-0 hover:opacity-100 transition-opacity">
+                    <div className="w-16 h-16 bg-white bg-opacity-90 rounded-full flex items-center justify-center">
+                      <div className="w-0 h-0 border-t-8 border-t-transparent border-l-12 border-l-gray-900 border-b-8 border-b-transparent ml-1"></div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="p-4">
@@ -218,13 +248,28 @@ export default function Entries() {
       )}
 
       {/* Entry Detail Modal */}
-      <EntryDetail
-        entry={selectedEntry || null}
-        isOpen={!!selectedEntryUuid}
-        onClose={() => setSelectedEntryUuid(null)}
-        onUpdate={handleUpdate}
-        onDelete={handleDelete}
-      />
+      {selectedEntryUuid && (
+        <>
+          {isLoadingEntry ? (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-8">
+                <div className="flex items-center gap-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                  <span className="text-gray-900 dark:text-white">Loading entry...</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <EntryDetail
+              entry={selectedEntry || null}
+              isOpen={!!selectedEntryUuid}
+              onClose={() => setSelectedEntryUuid(null)}
+              onUpdate={handleUpdate}
+              onDelete={handleDelete}
+            />
+          )}
+        </>
+      )}
     </div>
   )
 }
