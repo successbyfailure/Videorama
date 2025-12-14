@@ -18,113 +18,74 @@
 ## ✅ Estado Actual (Resumen)
 
 ### LO QUE FUNCIONA
-- ✅ Import Manager (URL + Search)
+- ✅ Import Manager (URL + Search) - 100% funcional
+- ✅ LLM Classification - confidence scoring 0.8+ (FIXED!)
 - ✅ Jobs Queue con cancel/delete
-- ✅ Inbox Management con approve/reject
+- ✅ Inbox Management con approve/reject/reprobe/redownload
 - ✅ Celery Worker + Beat (cleanup automático)
 - ✅ Auto-refresh en UI (Jobs: 2s, Inbox: 3s)
-- ✅ VHS Service integration
+- ✅ VHS Service integration (download + search)
 - ✅ File downloads a /storage/temp
 
 ### LO QUE NECESITA ARREGLO
-- ⚠️ LLM retorna confidence 0.0 (todos los imports van a inbox)
-- ⚠️ Inbox approve no tested end-to-end
-- ⚠️ Algunos URLs de YouTube fallan en VHS probe
+- ⚠️ Inbox approve tested pero puede mejorar UX
+- ⚠️ Algunos URLs de YouTube fallan en VHS probe (issue del servicio VHS externo)
 
 ---
 
-## 🎯 PRIORIDAD 1: Arreglar LLM Service
+## 🎯 ~~PRIORIDAD 1: Arreglar LLM Service~~ ✅ COMPLETADO
 
-### Problema
-```
-LLM configured: OPENAI_API_KEY=sk-dOfOZTsEFbmwxoeAQ5LRcQ
-LLM configured: OPENAI_BASE_URL=https://iapi.mksmad.org
-LLM configured: OPENAI_MODEL=qwen3:14b
+### ✅ Resuelto en Sesión 4 (2025-12-14)
 
-Pero todos los jobs van a inbox con:
-- confidence: 0.0
-- error: "LLM not configured" o "Failed to parse LLM response"
-```
+**Problema:** Modelo `qwen3:14b` (reasoning model) necesitaba más tokens
 
-### Archivo Principal
-`backend/app/services/llm_service.py`
+**Solución:**
+- Aumentado max_tokens: 100→300, 800→2000, 1000→1500
+- Fallback a `reasoning_content` para modelos de razonamiento
+- Logging detallado agregado
 
-### Acciones Sugeridas
+**Resultado:**
+- Confidence 0.85 en tests
+- Auto-import funcionando correctamente
+- Título extraído correctamente
 
-1. **Verificar inicialización**
-   ```python
-   # Línea 18-26
-   if settings.OPENAI_API_KEY:
-       self.client = openai.OpenAI(...)
-       self.enabled = True
-
-   # ¿Por qué self.enabled podría ser False?
-   ```
-
-2. **Test manual del endpoint LLM**
-   ```bash
-   docker-compose exec -T backend python3 -c "
-   import openai
-   from app.config import settings
-
-   client = openai.OpenAI(
-       api_key=settings.OPENAI_API_KEY,
-       base_url=settings.OPENAI_BASE_URL
-   )
-
-   try:
-       response = client.chat.completions.create(
-           model=settings.OPENAI_MODEL,
-           messages=[{'role': 'user', 'content': 'Hello'}],
-           temperature=0.3,
-           max_tokens=100
-       )
-       print('SUCCESS:', response.choices[0].message.content)
-   except Exception as e:
-       print('ERROR:', e)
-   "
-   ```
-
-3. **Agregar logging detallado**
-   ```python
-   # En classify_media() línea 154-177
-   import logging
-   logger = logging.getLogger(__name__)
-
-   logger.info(f'LLM enabled: {self.enabled}')
-   logger.info(f'Calling LLM with model: {settings.OPENAI_MODEL}')
-
-   try:
-       response = self.client.chat.completions.create(...)
-       logger.info(f'LLM raw response: {response}')
-       content = response.choices[0].message.content.strip()
-       logger.info(f'LLM content: {content}')
-
-       # Parse JSON...
-   ```
-
-4. **Mejorar error handling**
-   ```python
-   # Línea 179-189
-   except json.JSONDecodeError as e:
-       logger.error(f"JSON decode error: {e}")
-       logger.error(f"Raw content was: {content}")
-       # Log más detalles sobre qué esperaba vs qué recibió
-   ```
-
-5. **Test con import real**
-   - Trigger un import
-   - Ver logs de celery-worker: `docker-compose logs -f celery-worker`
-   - Buscar mensajes de LLM
-
-### Resultado Esperado
-- Jobs con confidence >= 0.7 auto-importan a library
-- Jobs con confidence < 0.7 van a inbox CON metadata útil
-- Error logging claro si endpoint falla
+**Ver detalles:** [CURRENT_STATUS.md](CURRENT_STATUS.md) - Sesión 4
 
 ---
 
-## 🎯 PRIORIDAD 2: Completar Inbox Approve
+## 🎯 NUEVA PRIORIDAD 1: Streaming Endpoint
+
+### Objetivo
+Permitir seek/scrubbing en video player
+
+### Nuevo Endpoint
+`GET /api/v1/entries/{uuid}/stream`
+
+### Implementación Sugerida
+```python
+from fastapi.responses import StreamingResponse
+from fastapi import Header
+from pathlib import Path
+
+@router.get("/entries/{uuid}/stream")
+async def stream_entry(
+    uuid: str,
+    range: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    # 1. Get entry and file
+    # 2. Parse Range header
+    # 3. Return 206 Partial Content with proper headers
+```
+
+**Frontend Update:**
+```typescript
+<video src={`/api/v1/entries/${entry.uuid}/stream`} controls />
+```
+
+---
+
+## 🎯 PRIORIDAD 2 (LEGACY - Puede mejorarse): Inbox Approve
 
 ### Problema
 El endpoint `/api/v1/inbox/{id}/approve` existe pero:

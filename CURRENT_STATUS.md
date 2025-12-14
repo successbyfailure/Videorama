@@ -1,6 +1,6 @@
 # Videorama v2.0 - Estado Actual
 **Fecha:** 2025-12-14
-**Sesión:** Finalizada - Handoff para nuevo agente
+**Sesión:** Sesión 4 - LLM Fix + Search Implementation
 
 ---
 
@@ -18,7 +18,63 @@
 
 ---
 
-## 🔧 Trabajo Completado en Esta Sesión
+## 🔧 Trabajo Completado en Sesión 4 (2025-12-14)
+
+### 1. ✅ LLM Service Fixed
+**Problema:** LLM devolvía confidence 0.0 en todas las clasificaciones
+
+**Causa Raíz:** El modelo `qwen3:14b` es un modelo de razonamiento que necesita más tokens. Los `max_tokens` configurados eran demasiado bajos:
+- extract_title: 100 tokens → insuficiente
+- classify_media: 800 tokens → insuficiente
+
+**Solución Implementada:**
+1. **Aumentado max_tokens** ([llm_service.py](backend/app/services/llm_service.py))
+   - extract_title: 100 → 300 tokens
+   - classify_media: 800 → 2000 tokens
+   - enhance_metadata: 1000 → 1500 tokens
+
+2. **Fallback a reasoning_content** (líneas 70-71, 177-178, 257-258)
+   - Modelos de razonamiento usan `reasoning_content` para "pensar"
+   - Código ahora usa: `msg.content or msg.reasoning_content`
+   - Garantiza captura del output incluso si content está vacío
+
+3. **Logging detallado** (líneas 13, 27, 31, 61, 73, 77, 80, 166, 180, 195, 200, 211, 248, 266, 270)
+   - logger.info() para eventos importantes
+   - logger.debug() para detalles técnicos
+   - logger.error() para fallos con contexto
+
+**Resultado:**
+- ✅ Test exitoso con confidence **0.85**
+- ✅ Auto-import funcionando (entry_uuid: b61224d9-186e-48b1-a318-f9d1ab5ee356)
+- ✅ Título extraído correctamente: "Neil deGrasse Tyson Explains The Three-Body Problem"
+- ✅ Clasificación correcta: library "videos"
+
+### 2. ✅ Search Integration Verified
+**Estado:** Funcionalidad ya existía, se verificó funcionamiento completo
+
+**Componentes Verificados:**
+1. **Backend:**
+   - [vhs_service.py:102-131](backend/app/services/vhs_service.py) - VHSService.search()
+   - [import_endpoints.py:216-271](backend/app/api/v1/import_endpoints.py) - POST /import/search
+
+2. **Frontend:**
+   - [Import/index.tsx](frontend/src/pages/Import/index.tsx) - Tab container
+   - [Import/URLImport.tsx](frontend/src/pages/Import/URLImport.tsx) - URL import tab
+   - [Import/SearchImport.tsx](frontend/src/pages/Import/SearchImport.tsx) - Search tab
+
+**Test Exitoso:**
+```json
+{
+  "query": "neil degrasse tyson",
+  "results": 5 videos from YouTube,
+  "platforms": ["youtube"],
+  "metadata": ["id", "title", "url", "duration", "uploader", "platform"]
+}
+```
+
+---
+
+## 🔧 Trabajo Completado en Sesiones Anteriores
 
 ### 1. Jobs Queue Management ✅
 **Problema:** Los jobs se quedaban bloqueados en "running" y nunca completaban

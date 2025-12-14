@@ -6,8 +6,11 @@ OpenAI-compatible LLM integration for classification and extraction
 from typing import Dict, Any, Optional, List
 import json
 import openai
+import logging
 
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class LLMService:
@@ -21,9 +24,11 @@ class LLMService:
                 base_url=settings.OPENAI_BASE_URL,
             )
             self.enabled = True
+            logger.info(f"LLM Service initialized - Model: {settings.OPENAI_MODEL}, Base URL: {settings.OPENAI_BASE_URL}")
         else:
             self.client = None
             self.enabled = False
+            logger.warning("LLM Service disabled - No API key configured")
 
     async def extract_title(
         self, filename: str, metadata: Optional[Dict] = None
@@ -53,20 +58,27 @@ Examples:
 """
 
         try:
+            logger.debug(f"Extracting title for: {filename}")
             response = self.client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=100,
+                max_tokens=300,  # Increased for reasoning models
             )
 
-            title = response.choices[0].message.content.strip()
+            msg = response.choices[0].message
+            # Use reasoning_content as fallback for reasoning models (qwen3, o1, etc)
+            title = (msg.content or msg.reasoning_content or "").strip()
+
+            logger.info(f"LLM extracted title: {title}")
             return title if title else None
 
         except Exception as e:
-            print(f"LLM title extraction error: {e}")
+            logger.error(f"LLM title extraction error: {e}")
             # Fallback
-            return filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").strip()
+            fallback = filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").strip()
+            logger.info(f"Using fallback title: {fallback}")
+            return fallback
 
     async def classify_media(
         self,
@@ -151,14 +163,21 @@ Return ONLY valid JSON, no additional text.
 """
 
         try:
+            logger.debug(f"Classifying media: {title}")
+            logger.debug(f"Available libraries: {[lib['id'] for lib in (libraries or [])]}")
+
             response = self.client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=800,
+                max_tokens=2000,  # Increased for reasoning models
             )
 
-            content = response.choices[0].message.content.strip()
+            msg = response.choices[0].message
+            # Use reasoning_content as fallback for reasoning models
+            content = (msg.content or msg.reasoning_content or "").strip()
+
+            logger.debug(f"LLM raw response (first 500 chars): {content[:500]}")
 
             # Extract JSON from response
             # Sometimes LLM wraps JSON in markdown code blocks
@@ -173,11 +192,12 @@ Return ONLY valid JSON, no additional text.
             result["confidence"] = float(result.get("confidence", 0.5))
             result["confidence"] = max(0.0, min(1.0, result["confidence"]))
 
+            logger.info(f"LLM classification result - Library: {result.get('library')}, Confidence: {result['confidence']}")
             return result
 
         except json.JSONDecodeError as e:
-            print(f"LLM JSON decode error: {e}")
-            print(f"Response: {content if 'content' in locals() else 'N/A'}")
+            logger.error(f"LLM JSON decode error: {e}")
+            logger.error(f"Response content: {content if 'content' in locals() else 'N/A'}")
             return {
                 "confidence": 0.0,
                 "library": None,
@@ -188,7 +208,7 @@ Return ONLY valid JSON, no additional text.
             }
 
         except Exception as e:
-            print(f"LLM classification error: {e}")
+            logger.error(f"LLM classification error: {type(e).__name__}: {e}")
             return {
                 "confidence": 0.0,
                 "library": None,
@@ -225,14 +245,17 @@ Return enhanced metadata in JSON format with the same structure.
 """
 
         try:
+            logger.debug("Enhancing metadata with LLM")
             response = self.client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.4,
-                max_tokens=1000,
+                max_tokens=1500,  # Increased for reasoning models
             )
 
-            content = response.choices[0].message.content.strip()
+            msg = response.choices[0].message
+            # Use reasoning_content as fallback for reasoning models
+            content = (msg.content or msg.reasoning_content or "").strip()
 
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0].strip()
@@ -240,8 +263,9 @@ Return enhanced metadata in JSON format with the same structure.
                 content = content.split("```")[1].split("```")[0].strip()
 
             enhanced = json.loads(content)
+            logger.info("Metadata enhanced successfully")
             return enhanced
 
         except Exception as e:
-            print(f"LLM metadata enhancement error: {e}")
+            logger.error(f"LLM metadata enhancement error: {e}")
             return entry_data

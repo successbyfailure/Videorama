@@ -33,16 +33,18 @@
 ## 🎯 Estado Rápido
 
 ### ✅ Funciona Perfecto
-- Import Manager (URL + Search)
+- Import Manager (URL + Search) – descarga VHS funcionando y entra a librería/inbox
+- LLM Classification – confidence scoring funciona correctamente (fixed!)
 - Jobs Queue (ver, cancelar, borrar)
-- Inbox (listar, filtrar)
-- Celery Worker + Beat
-- Auto-refresh UI
+- Inbox (listar, filtrar, reprobe/redownload/reclassify, aprobar manual)
+- Celery Worker + Beat (planificador sin errores de permisos)
+- Auto-refresh UI (jobs/inbox con invalidaciones)
+- Search Integration – buscar videos desde VHS y importar
 
 ### ⚠️ Necesita Trabajo
-1. **PRIORIDAD 1:** LLM retorna confidence 0.0
-2. **PRIORIDAD 2:** Inbox approve no tested
-3. **PRIORIDAD 3:** Streaming endpoint (para seek en videos)
+1. **PRIORIDAD 1:** ✅ COMPLETADO - LLM ahora funciona con confidence 0.8+
+2. **PRIORIDAD 2:** Revisión de UX/estilo pendiente (inputs legibles, cards).
+3. **PRIORIDAD 3:** Streaming endpoint (seek en videos) pendiente.
 
 ---
 
