@@ -1,10 +1,10 @@
 export interface Job {
   id: string
   type: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
   progress: number
   current_step: string | null
-  result: string | null
+  result: Record<string, any> | null
   error: string | null
   created_at: number
   started_at: number | null

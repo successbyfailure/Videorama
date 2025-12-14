@@ -183,7 +183,7 @@ class JobService:
         count = (
             db.query(Job)
             .filter(
-                Job.status.in_(["completed", "failed"]),
+                Job.status.in_(["completed", "failed", "cancelled"]),
                 Job.completed_at < cutoff_time,
             )
             .delete()
@@ -192,3 +192,64 @@ class JobService:
         db.commit()
 
         return count
+
+    @staticmethod
+    def cancel_job(db: Session, job_id: str) -> Optional[Job]:
+        """
+        Cancel a running job
+
+        Args:
+            db: Database session
+            job_id: Job ID to cancel
+
+        Returns:
+            Updated job or None if not found
+        """
+        job = db.query(Job).filter(Job.id == job_id).first()
+
+        if not job:
+            return None
+
+        # Only cancel if job is pending or running
+        if job.status not in ["pending", "running"]:
+            return job
+
+        # Update status to cancelled
+        job.status = "cancelled"
+        job.updated_at = time.time()
+        job.completed_at = time.time()
+
+        db.commit()
+        db.refresh(job)
+
+        # Try to revoke Celery task if it exists
+        try:
+            from ..tasks import celery_app
+            celery_app.control.revoke(job_id, terminate=True)
+        except Exception:
+            # Ignore errors if Celery is not available or task doesn't exist
+            pass
+
+        return job
+
+    @staticmethod
+    def delete_job(db: Session, job_id: str) -> bool:
+        """
+        Delete a job from the database
+
+        Args:
+            db: Database session
+            job_id: Job ID to delete
+
+        Returns:
+            True if deleted, False if not found
+        """
+        job = db.query(Job).filter(Job.id == job_id).first()
+
+        if not job:
+            return False
+
+        db.delete(job)
+        db.commit()
+
+        return True

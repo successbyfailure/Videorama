@@ -107,7 +107,7 @@ export default function Inbox() {
       ) : inboxItems && inboxItems.length > 0 ? (
         <div className="space-y-4">
           {inboxItems.map((item) => {
-            const entryData = JSON.parse(item.entry_data || '{}')
+            const entryData = item.entry_data || {}
 
             return (
               <Card key={item.id} padding="medium">

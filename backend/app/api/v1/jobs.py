@@ -47,3 +47,25 @@ def cleanup_old_jobs(
     count = JobService.cleanup_old_jobs(db, max_age_seconds=max_age_hours * 3600)
 
     return {"deleted": count, "message": f"Deleted {count} old jobs"}
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=JobResponse)
+def cancel_job(job_id: str, db: Session = Depends(get_db)):
+    """Cancel a running job"""
+    job = JobService.cancel_job(db, job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return job
+
+
+@router.delete("/jobs/{job_id}")
+def delete_job(job_id: str, db: Session = Depends(get_db)):
+    """Delete a job"""
+    deleted = JobService.delete_job(db, job_id)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return {"success": True, "message": "Job deleted"}

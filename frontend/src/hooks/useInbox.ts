@@ -13,6 +13,7 @@ export const useInboxItems = (params?: InboxParams) => {
   return useQuery({
     queryKey: ['inbox', params],
     queryFn: () => inboxApi.list(params),
+    refetchInterval: 3000, // Refetch every 3 seconds
   })
 }
 

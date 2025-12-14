@@ -152,6 +152,15 @@ export const jobsApi = {
     return data
   },
 
+  cancel: async (id: string) => {
+    const { data } = await api.post<Job>(`/jobs/${id}/cancel`)
+    return data
+  },
+
+  delete: async (id: string) => {
+    await api.delete(`/jobs/${id}`)
+  },
+
   cleanup: async (olderThan: number) => {
     const { data } = await api.delete('/jobs/cleanup', {
       params: { older_than: olderThan },

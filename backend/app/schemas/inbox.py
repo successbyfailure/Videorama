@@ -2,8 +2,9 @@
 Videorama v2.0.0 - Inbox Schemas
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict
+import json
 
 
 class InboxItemResponse(BaseModel):
@@ -19,6 +20,32 @@ class InboxItemResponse(BaseModel):
     error_message: Optional[str] = None
     reviewed: bool = False
     created_at: float
+
+    @field_validator('entry_data', mode='before')
+    @classmethod
+    def parse_entry_data(cls, v):
+        """Parse entry_data from JSON string if needed"""
+        if v is None:
+            return {}
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return {}
+        return v
+
+    @field_validator('suggested_metadata', mode='before')
+    @classmethod
+    def parse_suggested_metadata(cls, v):
+        """Parse suggested_metadata from JSON string if needed"""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return None
+        return v
 
     class Config:
         from_attributes = True

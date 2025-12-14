@@ -7,6 +7,7 @@ import Inbox from './pages/Inbox'
 import Playlists from './pages/Playlists'
 import Tags from './pages/Tags'
 import Settings from './pages/Settings'
+import Import from './pages/Import'
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
         <Route index element={<Dashboard />} />
         <Route path="libraries" element={<Libraries />} />
         <Route path="entries" element={<Entries />} />
+        <Route path="import" element={<Import />} />
         <Route path="inbox" element={<Inbox />} />
         <Route path="playlists" element={<Playlists />} />
         <Route path="tags" element={<Tags />} />

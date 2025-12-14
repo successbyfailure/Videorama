@@ -108,9 +108,9 @@ class VHSService:
         Search for videos
 
         Args:
-            query: Search query
-            limit: Max results (1-25)
-            source: Source identifier (default: api)
+            query: Search query (minimum 3 characters)
+            limit: Max results (1-25, default 8)
+            source: Source identifier (default: api) - NOT used by VHS
 
         Returns:
             List of search results with id, title, url, duration, etc.
@@ -121,11 +121,13 @@ class VHSService:
                 json={
                     "query": query,
                     "limit": min(max(limit, 1), 25),
-                    "source": source
                 }
             )
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+            # VHS API returns {"query": "...", "items": [...]}
+            # Extract the items list
+            return data.get("items", [])
 
     async def get_transcript(
         self,

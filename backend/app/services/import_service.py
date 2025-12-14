@@ -12,6 +12,7 @@ import uuid
 from ..models import Library, Entry, EntryFile, InboxItem, Tag, EntryAutoTag, EntryProperty
 from ..utils import calculate_file_hash, PathTemplateEngine, get_file_info, move_file
 from .job_service import JobService
+from ..schemas.job import JobCreate
 from .llm_service import LLMService
 from .vhs_service import VHSService
 from .external_apis import enrich_metadata
@@ -34,6 +35,8 @@ class ImportService:
         user_metadata: Optional[Dict] = None,
         imported_by: Optional[str] = None,
         auto_mode: bool = True,
+        media_format: Optional[str] = None,
+        job_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Import media from URL
@@ -44,15 +47,22 @@ class ImportService:
             user_metadata: User-provided metadata override
             imported_by: Who initiated the import
             auto_mode: If True, auto-import on high confidence, else send to inbox
+            job_id: Existing job ID (if called from Celery task)
 
         Returns:
             Import result with entry_uuid or inbox_id
         """
-        # Create job
-        job = self.job_service.create_job(
-            self.db,
-            {"type": "import"},
-        )
+        # Create job if not provided (or get existing job)
+        if job_id:
+            from ..models.job import Job
+            job = self.db.query(Job).filter(Job.id == job_id).first()
+            if not job:
+                raise Exception(f"Job not found: {job_id}")
+        else:
+            job = self.job_service.create_job(
+                self.db,
+                JobCreate(type="import"),
+            )
 
         try:
             # Update job status
@@ -76,6 +86,10 @@ class ImportService:
                 file_metadata.get("filename", ""),
                 file_metadata,
             )
+
+            # Fallback to VHS metadata title if LLM doesn't return one
+            if not title:
+                title = file_metadata.get("title") or file_metadata.get("filename") or url.split("/")[-1]
 
             # Step 3: Enrich from external APIs
             self.job_service.update_job_status(
@@ -149,8 +163,9 @@ class ImportService:
                 self.db, job.id, "running", 0.8, "Downloading file"
             )
 
-            # Determine VHS format based on classified library type
-            media_format = self.vhs.get_format_for_media_type(target_library)
+            # Determine VHS format based on classified library type or use provided format
+            if not media_format:
+                media_format = self.vhs.get_format_for_media_type(target_library)
             downloaded_file = await self._download_file(url, media_format)
 
             # Step 7: Calculate hash and check duplicates
@@ -165,6 +180,12 @@ class ImportService:
             ).first()
 
             if duplicate:
+                # Clean up temporary file
+                try:
+                    Path(downloaded_file).unlink()
+                except Exception:
+                    pass
+
                 # Send to inbox - duplicate detected
                 return await self._send_to_inbox(
                     job_id=job.id,
@@ -205,7 +226,19 @@ class ImportService:
             }
 
         except Exception as e:
-            # Job failed
+            # Clean up temporary file if it exists
+            try:
+                if 'downloaded_file' in locals() and downloaded_file:
+                    temp_file = Path(downloaded_file)
+                    if temp_file.exists():
+                        temp_file.unlink()
+            except Exception:
+                pass
+
+            # Job failed - rollback any pending transaction first
+            self.db.rollback()
+
+            # Now update job status
             self.job_service.update_job_status(
                 self.db, job.id, "failed", error=str(e)
             )
@@ -242,13 +275,20 @@ class ImportService:
         Returns:
             Path to downloaded file
         """
+        import logging
+        import os
+        logger = logging.getLogger(__name__)
+
         try:
             # Download using VHS no-cache endpoint (default behavior)
+            logger.info(f"Downloading from VHS: {url}, format: {media_format}")
             content = await self.vhs.download_no_cache(
                 url=url,
                 media_format=media_format,
                 source="videorama"
             )
+
+            logger.info(f"Downloaded {len(content)} bytes from VHS")
 
             # Determine file extension based on format
             ext_map = {
@@ -263,15 +303,31 @@ class ImportService:
 
             ext = ext_map.get(media_format, ".mp4")
 
-            # Save to temporary file
-            temp_path = f"/tmp/{uuid.uuid4()}{ext}"
+            # Use /storage/temp instead of /tmp to avoid automatic cleanup
+            temp_dir = Path("/storage/temp")
+            temp_dir.mkdir(parents=True, exist_ok=True)
+
+            temp_path = temp_dir / f"{uuid.uuid4()}{ext}"
+
+            logger.info(f"Saving file to: {temp_path}")
 
             with open(temp_path, 'wb') as f:
                 f.write(content)
 
-            return temp_path
+            # Verify file exists and has correct size
+            if not temp_path.exists():
+                raise Exception(f"File was not created at {temp_path}")
+
+            file_size = temp_path.stat().st_size
+            logger.info(f"File saved successfully: {temp_path}, size: {file_size} bytes")
+
+            if file_size != len(content):
+                raise Exception(f"File size mismatch: expected {len(content)}, got {file_size}")
+
+            return str(temp_path)
 
         except Exception as e:
+            logger.error(f"Failed to download file: {e}")
             raise Exception(f"Failed to download file from VHS: {e}")
 
     async def _enrich_from_apis(self, title: str, metadata: Dict) -> Dict[str, Any]:
@@ -533,13 +589,15 @@ class ImportService:
         error_message: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Send item to inbox for review"""
+        import json as json_module
+
         inbox_item = InboxItem(
             id=str(uuid.uuid4()),
             job_id=job_id,
             type=inbox_type,
-            entry_data=str(entry_data),  # JSON string
+            entry_data=json_module.dumps(entry_data),  # JSON string
             suggested_library=suggested_library,
-            suggested_metadata=str(suggested_metadata) if suggested_metadata else None,
+            suggested_metadata=json_module.dumps(suggested_metadata) if suggested_metadata else None,
             confidence=confidence,
             error_message=error_message,
             created_at=time.time(),
@@ -548,6 +606,19 @@ class ImportService:
         self.db.add(inbox_item)
         self.db.commit()
         self.db.refresh(inbox_item)
+
+        # Update job status to completed (sent to inbox for review)
+        # Note: We mark it as completed even though it went to inbox
+        # because the import process completed successfully (just needs manual review)
+        self.job_service.update_job_status(
+            self.db, job_id, "completed", 1.0, "Sent to inbox for review"
+        )
+        self.job_service.set_job_result(
+            self.db, job_id, {
+                "inbox_id": inbox_item.id,
+                "inbox_type": inbox_type,
+            }
+        )
 
         return {
             "success": False,

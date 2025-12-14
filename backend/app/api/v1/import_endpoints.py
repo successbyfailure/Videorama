@@ -5,11 +5,12 @@ Endpoints for importing media from URLs and filesystem
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, HttpUrl
 
 from ...database import get_db
 from ...services.import_service import ImportService
+from ...services.vhs_service import VHSService
 
 router = APIRouter()
 
@@ -21,6 +22,7 @@ class ImportURLRequest(BaseModel):
     library_id: Optional[str] = None  # None = auto-detect
     imported_by: Optional[str] = None
     auto_mode: bool = True  # Auto-import if confidence high, else inbox
+    format: Optional[str] = None  # VHS format (video_max, audio_max, etc.)
 
 
 class ImportURLResponse(BaseModel):
@@ -52,31 +54,33 @@ async def import_from_url(
 
     Returns job_id for tracking progress.
     """
-    import_service = ImportService(db)
+    from ...tasks import import_from_url_task
+    from ...schemas.job import JobCreate
+    from ...services.job_service import JobService
 
-    # Start import (async via background task would be better, but for now inline)
-    result = await import_service.import_from_url(
+    # Create job immediately
+    job = JobService.create_job(db, JobCreate(type="import"))
+
+    # Dispatch to Celery for async processing
+    import_from_url_task.delay(
+        job_id=job.id,
         url=str(request.url),
         library_id=request.library_id,
+        user_metadata=None,
         imported_by=request.imported_by,
         auto_mode=request.auto_mode,
+        media_format=request.format,
     )
 
-    if result.get("success"):
-        return ImportURLResponse(
-            success=True,
-            job_id=result["job_id"],
-            entry_uuid=result.get("entry_uuid"),
-            message="Import completed successfully",
-        )
-    else:
-        return ImportURLResponse(
-            success=False,
-            job_id=result["job_id"],
-            inbox_id=result.get("inbox_id"),
-            inbox_type=result.get("inbox_type"),
-            message=f"Import sent to inbox: {result.get('inbox_type')}",
-        )
+    # Return immediately with job_id
+    return ImportURLResponse(
+        success=True,
+        job_id=job.id,
+        entry_uuid=None,
+        inbox_id=None,
+        inbox_type=None,
+        message="Import started. Check job status for progress.",
+    )
 
 
 class ImportFilesystemRequest(BaseModel):
@@ -126,3 +130,142 @@ async def import_from_filesystem(
         "skipped": result.get("skipped", 0),
         "errors": result.get("errors", 0),
     }
+
+
+class ProbeURLRequest(BaseModel):
+    """Request schema for URL probe"""
+
+    url: HttpUrl
+
+
+class ProbeURLResponse(BaseModel):
+    """Response schema for URL probe"""
+
+    success: bool
+    url: str
+    title: Optional[str] = None
+    duration: Optional[int] = None
+    thumbnail: Optional[str] = None
+    uploader: Optional[str] = None
+    platform: Optional[str] = None
+    description: Optional[str] = None
+    formats: Optional[List[Dict[str, Any]]] = None
+    error: Optional[str] = None
+
+
+@router.post("/import/probe", response_model=ProbeURLResponse)
+async def probe_url(
+    request: ProbeURLRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Probe URL for metadata without importing
+
+    This endpoint calls VHS /api/probe to get video metadata
+    without actually downloading the file. Useful for:
+    - Previewing video before import
+    - Showing available formats
+    - Validating URL before import
+
+    Returns metadata including title, duration, thumbnail, etc.
+    """
+    vhs = VHSService()
+
+    try:
+        # Call VHS probe
+        metadata = await vhs.probe(str(request.url), source="videorama")
+
+        return ProbeURLResponse(
+            success=True,
+            url=str(request.url),
+            title=metadata.get("title"),
+            duration=metadata.get("duration"),
+            thumbnail=metadata.get("thumbnail"),
+            uploader=metadata.get("uploader") or metadata.get("channel"),
+            platform=metadata.get("extractor") or metadata.get("ie_key"),
+            description=metadata.get("description"),
+            formats=metadata.get("formats"),
+        )
+
+    except Exception as e:
+        return ProbeURLResponse(
+            success=False,
+            url=str(request.url),
+            error=str(e),
+        )
+
+
+class SearchRequest(BaseModel):
+    """Request schema for video search"""
+
+    query: str
+    limit: int = 10
+    source: Optional[str] = None  # For future: filter by source (youtube, soundcloud, etc.)
+
+
+class SearchResponse(BaseModel):
+    """Response schema for video search"""
+
+    success: bool
+    query: str
+    results: List[Dict[str, Any]]
+    count: int
+    error: Optional[str] = None
+
+
+@router.post("/import/search", response_model=SearchResponse)
+async def search_videos(
+    request: SearchRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Search for videos via VHS
+
+    Searches for videos across supported platforms (YouTube, SoundCloud, etc.)
+    Returns list of results with:
+    - id, title, url
+    - duration, thumbnail
+    - uploader, platform
+
+    Note: Search source filtering will be implemented in future versions.
+    Currently searches all available sources in VHS.
+    """
+    vhs = VHSService()
+
+    try:
+        # Call VHS search
+        results = await vhs.search(
+            query=request.query,
+            limit=request.limit,
+            source="videorama"
+        )
+
+        # Normalize VHS results: map 'extractor' to 'platform'
+        normalized_results = []
+        for item in results:
+            normalized = {
+                "id": item.get("id"),
+                "title": item.get("title"),
+                "url": item.get("url"),
+                "duration": item.get("duration"),
+                "thumbnail": item.get("thumbnail"),
+                "uploader": item.get("uploader"),
+                "platform": item.get("extractor", "").lower() if item.get("extractor") else None,
+            }
+            normalized_results.append(normalized)
+
+        return SearchResponse(
+            success=True,
+            query=request.query,
+            results=normalized_results,
+            count=len(normalized_results),
+        )
+
+    except Exception as e:
+        return SearchResponse(
+            success=False,
+            query=request.query,
+            results=[],
+            count=0,
+            error=str(e),
+        )

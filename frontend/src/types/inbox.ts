@@ -2,9 +2,9 @@ export interface InboxItem {
   id: string
   job_id: string | null
   type: 'duplicate' | 'low_confidence' | 'failed' | 'needs_review'
-  entry_data: string
+  entry_data: Record<string, any>
   suggested_library: string | null
-  suggested_metadata: string | null
+  suggested_metadata: Record<string, any> | null
   confidence: number | null
   error_message: string | null
   reviewed: boolean

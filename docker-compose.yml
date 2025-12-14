@@ -44,7 +44,7 @@ services:
     user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     volumes:
       - ./backend:/app
-      - ./storage:/storage
+      - ${VIDEORAMA_LIBRARY_ROOT:-./storage}:/storage
     # Don't expose port directly when using nginx - accessed through nginx
     expose:
       - "8000"
@@ -55,6 +55,8 @@ services:
       - DATABASE_URL=postgresql://videorama:videorama@postgres:5432/videorama
       - STORAGE_BASE_PATH=/storage
       - DEBUG=True
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,7 +78,26 @@ services:
     user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
     volumes:
       - ./backend:/app
-      - ./storage:/storage
+      - ${VIDEORAMA_LIBRARY_ROOT:-./storage}:/storage
+    environment:
+      - DATABASE_URL=postgresql://videorama:videorama@postgres:5432/videorama
+      - STORAGE_BASE_PATH=/storage
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+
+  # Celery Beat (periodic tasks scheduler)
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: videorama-celery-beat
+    command: celery -A app.tasks beat --loglevel=info
+    user: "${VIDEORAMA_UID:-1000}:${VIDEORAMA_GID:-1000}"
+    volumes:
+      - ./backend:/app
     environment:
       - DATABASE_URL=postgresql://videorama:videorama@postgres:5432/videorama
       - STORAGE_BASE_PATH=/storage

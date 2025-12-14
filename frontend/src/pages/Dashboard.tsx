@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { Library, Film, Inbox as InboxIcon, TrendingUp } from 'lucide-react'
 import Card from '@/components/Card'
+import JobsPanel from '@/components/JobsPanel'
 import { useLibraries } from '@/hooks/useLibraries'
 import { useEntries } from '@/hooks/useEntries'
 import { useInboxItems } from '@/hooks/useInbox'
@@ -10,6 +12,7 @@ export default function Dashboard() {
   const { data: entries } = useEntries({ limit: 10 })
   const { data: inboxItems } = useInboxItems({ reviewed: false })
   const { data: jobs } = useJobs({ status: 'running' })
+  const [showJobsPanel, setShowJobsPanel] = useState(false)
 
   const stats = [
     {
@@ -56,7 +59,12 @@ export default function Dashboard() {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat) => (
-          <Card key={stat.label} padding="medium">
+          <Card
+            key={stat.label}
+            padding="medium"
+            className={stat.label === 'Active Jobs' ? 'cursor-pointer hover:shadow-lg transition-shadow' : ''}
+            onClick={stat.label === 'Active Jobs' ? () => setShowJobsPanel(true) : undefined}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
@@ -145,6 +153,9 @@ export default function Dashboard() {
           )}
         </Card>
       </div>
+
+      {/* Jobs Panel */}
+      <JobsPanel isOpen={showJobsPanel} onClose={() => setShowJobsPanel(false)} />
     </div>
   )
 }
