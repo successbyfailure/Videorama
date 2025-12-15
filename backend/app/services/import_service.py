@@ -443,8 +443,13 @@ class ImportService:
             Enriched metadata from APIs (iTunes, TMDb, or MusicBrainz)
         """
         # Determine if we should call APIs based on library type
-        platform = metadata.get("platform", "").lower()
-        extractor = metadata.get("extractor", "").lower()
+        # VHS returns 'extractor' or 'ie_key', not 'platform'
+        platform = (
+            metadata.get("platform")
+            or metadata.get("extractor")
+            or metadata.get("ie_key")
+            or ""
+        ).lower()
 
         # Music libraries: Call iTunes/MusicBrainz
         if library_id in ["musica", "music"] or (library_name and "music" in library_name.lower()):
@@ -688,20 +693,14 @@ class ImportService:
         enriched: Dict,
         user_metadata: Dict,
     ):
-        """Create properties for entry from all sources with specific source tracking"""
-        # Properties from LLM classification
-        properties = classification.get("properties", {})
-        for key, value in properties.items():
-            if value:  # Only add non-empty properties
-                prop = EntryProperty(
-                    entry_uuid=entry_uuid,
-                    key=key,
-                    value=str(value),
-                    source="llm",
-                )
-                self.db.add(prop)
+        """Create properties for entry from all sources with specific source tracking
 
-        # Properties from external APIs (with specific source tracking)
+        Priority order:
+        1. External APIs (most authoritative for music/movies)
+        2. LLM classification (fills in gaps)
+        3. User metadata (always overwrites)
+        """
+        # Properties from external APIs FIRST (with specific source tracking)
         for source_name, source_data in enriched.items():
             # source_name is "itunes", "tmdb", or "musicbrainz"
             api_source = f"api:{source_name}"  # e.g., "api:itunes"
@@ -725,6 +724,34 @@ class ImportService:
                             source=api_source,  # Specific API source
                         )
                         self.db.add(prop)
+
+        # Flush API properties to database before adding LLM properties
+        self.db.flush()
+
+        # Properties from LLM classification (fills in gaps where API didn't provide data)
+        properties = classification.get("properties", {})
+        for key, value in properties.items():
+            if value:  # Only add non-empty properties
+                # Check if property already exists (from API)
+                existing = (
+                    self.db.query(EntryProperty)
+                    .filter(
+                        EntryProperty.entry_uuid == entry_uuid,
+                        EntryProperty.key == key,
+                    )
+                    .first()
+                )
+                if not existing:
+                    prop = EntryProperty(
+                        entry_uuid=entry_uuid,
+                        key=key,
+                        value=str(value),
+                        source="llm",
+                    )
+                    self.db.add(prop)
+
+        # Flush LLM properties to database before adding user metadata
+        self.db.flush()
 
         # Properties from user metadata
         for key, value in user_metadata.items():
