@@ -4,6 +4,7 @@
 
 const DEFAULT_SETTINGS = {
   baseUrl: 'http://localhost',
+  incognitoBaseUrl: 'http://localhost',
   libraryId: '',
   format: 'video_max',
   autoMode: true,

@@ -11,6 +11,7 @@ const progressMessage = document.getElementById('progressMessage');
 
 let settings = {
   baseUrl: '',
+  incognitoBaseUrl: '',
   libraryId: '',
   format: 'video_max',
   autoMode: true,
@@ -28,6 +29,7 @@ function setStatus(message, type = 'info') {
 async function loadSettings() {
   const defaults = {
     baseUrl: '',
+    incognitoBaseUrl: '',
     libraryId: '',
     format: 'video_max',
     autoMode: true,
@@ -172,7 +174,11 @@ async function handleImport() {
   setStatus('Enviando import...', 'info');
   importBtn.disabled = true;
 
-  const baseUrl = normalizeBaseUrl(settings.baseUrl || '');
+  const baseUrl = normalizeBaseUrl(
+    chrome.extension?.inIncognitoContext
+      ? settings.incognitoBaseUrl || settings.baseUrl || ''
+      : settings.baseUrl || ''
+  );
   const url = importUrlInput.value.trim();
 
   if (!baseUrl) {

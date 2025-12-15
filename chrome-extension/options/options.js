@@ -1,4 +1,5 @@
 const baseUrlInput = document.getElementById('baseUrl');
+const incognitoBaseUrlInput = document.getElementById('incognitoBaseUrl');
 const libraryInput = document.getElementById('libraryId');
 const formatSelect = document.getElementById('format');
 const autoModeCheckbox = document.getElementById('autoMode');
@@ -13,6 +14,7 @@ function setStatus(message) {
 async function loadSettings() {
   const defaults = {
     baseUrl: '',
+    incognitoBaseUrl: '',
     libraryId: '',
     format: 'video_max',
     autoMode: true,
@@ -20,6 +22,7 @@ async function loadSettings() {
   };
   const stored = await chrome.storage.sync.get(defaults);
   baseUrlInput.value = stored.baseUrl || '';
+  incognitoBaseUrlInput.value = stored.incognitoBaseUrl || '';
   libraryInput.value = stored.libraryId || '';
   formatSelect.value = stored.format || 'video_max';
   autoModeCheckbox.checked = stored.autoMode ?? true;
@@ -31,6 +34,7 @@ async function loadSettings() {
 async function saveSettings() {
   await chrome.storage.sync.set({
     baseUrl: baseUrlInput.value.trim(),
+    incognitoBaseUrl: incognitoBaseUrlInput.value.trim(),
     libraryId: libraryInput.value.trim(),
     format: formatSelect.value,
     autoMode: autoModeCheckbox.checked,
