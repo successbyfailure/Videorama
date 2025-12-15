@@ -139,6 +139,22 @@ function renderRecentImports() {
     urlEl.className = 'recent-url';
     urlEl.textContent = item.url;
 
+    if (item.progress !== undefined) {
+      const inlineProgress = document.createElement('div');
+      inlineProgress.className = 'progress';
+      const head = document.createElement('div');
+      head.className = 'progress-head';
+      head.innerHTML = `<span>Descargando…</span><span>${Math.round((item.progress || 0) * 100)}%</span>`;
+      const bar = document.createElement('div');
+      bar.className = 'progress-bar';
+      const inner = document.createElement('div');
+      inner.style.width = `${Math.round((item.progress || 0) * 100)}%`;
+      bar.appendChild(inner);
+      inlineProgress.appendChild(head);
+      inlineProgress.appendChild(bar);
+      li.appendChild(inlineProgress);
+    }
+
     const meta = document.createElement('div');
     meta.className = 'recent-meta';
     const statusText = item.status || 'pendiente';
@@ -168,10 +184,12 @@ function startPolling(jobId, baseUrl) {
       progressBarInner.style.width = `${pct}%`;
       progressMessage.textContent = job.message || job.status || '';
 
+      updateRecentStatus(jobId, job.status || 'en progreso', job.progress || 0);
+
       if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
         stopPolling();
         progressMessage.textContent = job.status === 'completed' ? 'Completado' : (job.error || job.status);
-        updateRecentStatus(jobId, job.status === 'completed' ? 'importado' : 'error');
+        updateRecentStatus(jobId, job.status === 'completed' ? 'importado' : 'error', job.progress || 1);
       }
     } catch (err) {
       stopPolling();
@@ -187,9 +205,9 @@ function stopPolling() {
   }
 }
 
-async function updateRecentStatus(jobId, status) {
+async function updateRecentStatus(jobId, status, progress = null) {
   recentImports = recentImports.map((item) =>
-    item.job_id === jobId ? { ...item, status } : item
+    item.job_id === jobId ? { ...item, status, progress } : item
   );
   await saveRecentImports();
   renderRecentImports();
@@ -246,6 +264,7 @@ async function handleImport() {
         : 'en progreso',
       job_id: data.job_id,
       timestamp: Date.now(),
+      progress: 0,
     });
     await saveRecentImports();
     renderRecentImports();
