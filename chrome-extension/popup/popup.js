@@ -8,6 +8,7 @@ const progressCard = document.getElementById('progress');
 const progressValue = document.getElementById('progressValue');
 const progressBarInner = document.getElementById('progressBarInner');
 const progressMessage = document.getElementById('progressMessage');
+const progressName = document.getElementById('progressName');
 
 let settings = {
   baseUrl: '',
@@ -188,6 +189,7 @@ function startPolling(jobId, baseUrl) {
   progressValue.textContent = '0%';
   progressBarInner.style.width = '0%';
   progressMessage.textContent = '';
+  progressName.textContent = truncate(importUrlInput.value);
 
   pollInterval = setInterval(async () => {
     try {
@@ -198,6 +200,9 @@ function startPolling(jobId, baseUrl) {
       progressValue.textContent = `${pct}%`;
       progressBarInner.style.width = `${pct}%`;
       progressMessage.textContent = job.message || job.status || '';
+      if (job.metadata?.url) {
+        progressName.textContent = truncate(job.metadata.url);
+      }
 
       updateRecentStatus(jobId, job.status || 'en progreso', job.progress || 0);
 
@@ -336,6 +341,11 @@ async function handleImport() {
   } finally {
     importBtn.disabled = false;
   }
+}
+
+function truncate(str = '', max = 45) {
+  if (!str) return '';
+  return str.length > max ? `${str.slice(0, max - 3)}...` : str;
 }
 
 openOptionsBtn.addEventListener('click', () => {
