@@ -7,6 +7,9 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
+    <button id="openOptions" type="button" class="icon-btn" title="Opciones">
+      ⚙️
+    </button>
     <div class="container">
       <header class="brand">
         <img src="../icons/icon-32.png" alt="Videorama" class="logo" />
@@ -22,13 +25,24 @@
         <small class="help">Detecta el video de la pestaña si es posible</small>
       </label>
 
-      <div class="hint">
-        Configura API base, librería y formato en el menú de Opciones.
-      </div>
+      <label class="field">
+        <span>Librería</span>
+        <select id="librarySelect"></select>
+      </label>
 
       <div class="actions">
-        <button id="openOptions" type="button" class="ghost">Opciones</button>
         <button id="importBtn" type="button" class="primary">Importar</button>
+      </div>
+
+      <div id="progress" class="progress" hidden>
+        <div class="progress-head">
+          <span>Procesando importación…</span>
+          <span id="progressValue">0%</span>
+        </div>
+        <div class="progress-bar">
+          <div id="progressBarInner"></div>
+        </div>
+        <div id="progressMessage" class="progress-message"></div>
       </div>
 
       <div class="section">

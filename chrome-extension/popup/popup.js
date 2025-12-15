@@ -3,15 +3,22 @@ const statusEl = document.getElementById('status');
 const importBtn = document.getElementById('importBtn');
 const openOptionsBtn = document.getElementById('openOptions');
 const recentList = document.getElementById('recentList');
+const librarySelect = document.getElementById('librarySelect');
+const progressCard = document.getElementById('progress');
+const progressValue = document.getElementById('progressValue');
+const progressBarInner = document.getElementById('progressBarInner');
+const progressMessage = document.getElementById('progressMessage');
 
 let settings = {
   baseUrl: '',
   libraryId: '',
   format: 'video_max',
   autoMode: true,
+  defaultLibraryMode: 'auto',
 };
 
 let recentImports = [];
+let pollInterval = null;
 
 function setStatus(message, type = 'info') {
   statusEl.textContent = message;
@@ -24,8 +31,10 @@ async function loadSettings() {
     libraryId: '',
     format: 'video_max',
     autoMode: true,
+    defaultLibraryMode: 'auto',
   };
   settings = await chrome.storage.sync.get(defaults);
+  hydrateLibrarySelect();
 }
 
 async function detectPageInfo() {
@@ -52,6 +61,20 @@ async function detectPageInfo() {
 
 function normalizeBaseUrl(url) {
   return url.replace(/\/$/, '');
+}
+
+function hydrateLibrarySelect() {
+  if (!librarySelect) return;
+  librarySelect.innerHTML = '';
+  const defaultMode = settings.defaultLibraryMode || 'auto';
+
+  const autoOption = new Option('Auto (LLM)', '', defaultMode === 'auto', defaultMode === 'auto');
+  librarySelect.appendChild(autoOption);
+
+  const configuredId = (settings.libraryId || '').trim();
+  const label = configuredId ? `Librería: ${configuredId}` : 'Librería no configurada';
+  const libOption = new Option(label, configuredId, defaultMode === 'library', defaultMode === 'library');
+  librarySelect.appendChild(libOption);
 }
 
 async function loadRecentImports() {
@@ -100,6 +123,51 @@ function renderRecentImports() {
   }
 }
 
+function startPolling(jobId, baseUrl) {
+  stopPolling();
+  if (!jobId) return;
+  progressCard.hidden = false;
+  progressValue.textContent = '0%';
+  progressBarInner.style.width = '0%';
+  progressMessage.textContent = '';
+
+  pollInterval = setInterval(async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/v1/jobs/${jobId}`);
+      if (!res.ok) throw new Error('Error obteniendo el job');
+      const job = await res.json();
+      const pct = Math.round((job.progress || 0) * 100);
+      progressValue.textContent = `${pct}%`;
+      progressBarInner.style.width = `${pct}%`;
+      progressMessage.textContent = job.message || job.status || '';
+
+      if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+        stopPolling();
+        progressMessage.textContent = job.status === 'completed' ? 'Completado' : (job.error || job.status);
+        updateRecentStatus(jobId, job.status === 'completed' ? 'importado' : 'error');
+      }
+    } catch (err) {
+      stopPolling();
+      progressMessage.textContent = `Error al consultar el job`;
+    }
+  }, 2000);
+}
+
+function stopPolling() {
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+}
+
+async function updateRecentStatus(jobId, status) {
+  recentImports = recentImports.map((item) =>
+    item.job_id === jobId ? { ...item, status } : item
+  );
+  await saveRecentImports();
+  renderRecentImports();
+}
+
 async function handleImport() {
   setStatus('Enviando import...', 'info');
   importBtn.disabled = true;
@@ -121,7 +189,7 @@ async function handleImport() {
 
   const payload = {
     url,
-    library_id: (settings.libraryId || '').trim() || null,
+    library_id: (librarySelect.value || '').trim() || null,
     format: settings.format || 'video_max',
     auto_mode: settings.autoMode ?? true,
     imported_by: 'chrome-extension',
@@ -154,6 +222,10 @@ async function handleImport() {
     });
     await saveRecentImports();
     renderRecentImports();
+
+    if (data.job_id) {
+      startPolling(data.job_id, baseUrl);
+    }
 
     setStatus(
       data.entry_uuid

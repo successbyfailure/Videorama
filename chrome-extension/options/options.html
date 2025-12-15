@@ -16,6 +16,18 @@
         <input id="baseUrl" type="text" placeholder="https://videorama.local" />
       </label>
 
+      <div class="field">
+        <span>Modo por defecto del selector de librería</span>
+        <label class="radio">
+          <input type="radio" name="libraryMode" value="auto" checked />
+          Auto (LLM decide)
+        </label>
+        <label class="radio">
+          <input type="radio" name="libraryMode" value="library" />
+          Usar ID por defecto
+        </label>
+      </div>
+
       <label class="field">
         <span>Library ID por defecto</span>
         <input id="libraryId" type="text" placeholder="videos" />

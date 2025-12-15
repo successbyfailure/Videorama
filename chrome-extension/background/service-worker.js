@@ -7,6 +7,7 @@ const DEFAULT_SETTINGS = {
   libraryId: '',
   format: 'video_max',
   autoMode: true,
+  defaultLibraryMode: 'auto',
 };
 
 chrome.runtime.onInstalled.addListener(async () => {

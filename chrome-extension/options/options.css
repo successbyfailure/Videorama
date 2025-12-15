@@ -78,3 +78,11 @@ button.primary {
   color: #a5b4fc;
   font-size: 13px;
 }
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e2e8f0;
+  font-size: 14px;
+}
