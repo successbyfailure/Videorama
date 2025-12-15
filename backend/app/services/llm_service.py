@@ -55,6 +55,9 @@ Metadata: {json.dumps(metadata or {}, indent=2)}
 Examples:
 - "queen_bohemian_rhapsody_official.mp4" → "Bohemian Rhapsody"
 - "The.Matrix.1999.1080p.BluRay.mp4" → "The Matrix"
+
+Return your response as JSON in this exact format:
+{{"title": "The Clean Title Here"}}
 """
 
         try:
@@ -63,7 +66,8 @@ Examples:
                 model=settings.OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=100,  # Reduced - we want concise titles only
+                max_tokens=100,
+                response_format={"type": "json_object"},  # Force JSON response
                 extra_body={
                     "enable_thinking": False,  # Disable reasoning for Qwen3
                     "thinking_budget": 0,       # No thinking tokens
@@ -71,26 +75,20 @@ Examples:
             )
 
             msg = response.choices[0].message
+            content = msg.content.strip() if msg.content else ""
 
-            # Extract title from response
-            # For reasoning models that ignore enable_thinking, extract from multi-line content
-            title = ""
-
-            if msg.content:
-                content = msg.content.strip()
-                # If multi-line (reasoning leaked through), extract last non-empty line
+            # Parse JSON response
+            try:
+                result = json.loads(content)
+                title = result.get("title", "").strip()
+            except json.JSONDecodeError:
+                logger.warning(f"LLM returned invalid JSON, falling back to raw content")
+                # Fallback: try to extract title from malformed response
                 if '\n' in content:
-                    logger.warning(f"LLM returned multi-line content despite enable_thinking=False")
                     lines = [line.strip() for line in content.split('\n') if line.strip()]
                     title = lines[-1] if lines else content
                 else:
                     title = content
-            elif msg.reasoning_content:
-                # Fallback: extract from reasoning_content if content is empty
-                logger.warning(f"LLM returned reasoning_content instead of content")
-                reasoning = msg.reasoning_content.strip()
-                lines = [line.strip() for line in reasoning.split('\n') if line.strip()]
-                title = lines[-1] if lines else reasoning
 
             # Ensure title is not too long (max 500 chars as per schema)
             if len(title) > 500:
