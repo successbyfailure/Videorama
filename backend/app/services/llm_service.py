@@ -63,21 +63,34 @@ Examples:
                 model=settings.OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=300,  # Increased for reasoning models
+                max_tokens=100,  # Reduced - we want concise titles only
+                extra_body={
+                    "enable_thinking": False,  # Disable reasoning for Qwen3
+                    "thinking_budget": 0,       # No thinking tokens
+                },
             )
 
             msg = response.choices[0].message
 
-            # For reasoning models, extract only the final answer
+            # Extract title from response
+            # For reasoning models that ignore enable_thinking, extract from multi-line content
+            title = ""
+
             if msg.content:
-                title = msg.content.strip()
+                content = msg.content.strip()
+                # If multi-line (reasoning leaked through), extract last non-empty line
+                if '\n' in content:
+                    logger.warning(f"LLM returned multi-line content despite enable_thinking=False")
+                    lines = [line.strip() for line in content.split('\n') if line.strip()]
+                    title = lines[-1] if lines else content
+                else:
+                    title = content
             elif msg.reasoning_content:
-                # Reasoning content contains the full thought process
-                # Extract only the last non-empty line as the final answer
-                lines = [line.strip() for line in msg.reasoning_content.strip().split('\n') if line.strip()]
-                title = lines[-1] if lines else ""
-            else:
-                title = ""
+                # Fallback: extract from reasoning_content if content is empty
+                logger.warning(f"LLM returned reasoning_content instead of content")
+                reasoning = msg.reasoning_content.strip()
+                lines = [line.strip() for line in reasoning.split('\n') if line.strip()]
+                title = lines[-1] if lines else reasoning
 
             # Ensure title is not too long (max 500 chars as per schema)
             if len(title) > 500:
