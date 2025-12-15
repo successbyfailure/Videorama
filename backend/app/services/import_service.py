@@ -271,6 +271,7 @@ class ImportService:
                 user_metadata=user_metadata,
                 imported_by=imported_by,
                 job_id=job.id,
+                thumbnail_url=probe_snapshot.get("thumbnail"),  # Add thumbnail from probe
             )
 
             # Complete job
@@ -449,6 +450,7 @@ class ImportService:
         user_metadata: Optional[Dict],
         imported_by: Optional[str],
         job_id: str,
+        thumbnail_url: Optional[str] = None,
     ) -> Entry:
         """Create entry from import data"""
         if not library.default_path:
@@ -477,6 +479,7 @@ class ImportService:
             title=title,
             original_url=original_url,
             subfolder=subfolder,
+            thumbnail_url=thumbnail_url,  # Save thumbnail from probe
             platform=classification.get("properties", {}).get("platform"),
             import_source="web",  # or from parameter
             imported_by=imported_by,
