@@ -2,9 +2,13 @@ export interface Entry {
   uuid: string
   library_id: string
   title: string
+  description: string | null
+  duration: number | null
+  thumbnail_url: string | null
   subfolder: string | null
   original_url: string | null
   platform: string | null
+  uploader: string | null
   import_source: string | null
   imported_by: string | null
   view_count: number
@@ -12,11 +16,13 @@ export interface Entry {
   rating: number | null
   added_at: number
   updated_at: number | null
+  last_viewed_at: number | null
   import_job_id: string | null
   files?: EntryFile[]
   properties?: Record<string, any>
   auto_tags?: EntryAutoTag[]
   user_tags?: EntryUserTag[]
+  relations?: any[]
 }
 
 export interface EntryFile {
@@ -28,10 +34,13 @@ export interface EntryFile {
   format: string | null
   size: number
   duration: number | null
+  bitrate: number | null
+  resolution: string | null
   width: number | null
   height: number | null
   is_available: boolean
-  created_at: number
+  last_verified_at: number | null
+  created_at: number | null
 }
 
 export interface EntryAutoTag {
