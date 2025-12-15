@@ -77,7 +77,13 @@ async function detectPageInfo() {
 }
 
 function normalizeBaseUrl(url) {
-  return url.replace(/\/$/, '');
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    return parsed.origin;
+  } catch (e) {
+    return url.replace(/\/$/, '');
+  }
 }
 
 function hydrateLibrarySelect() {
