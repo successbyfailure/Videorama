@@ -339,7 +339,7 @@ export default function PlaylistForm({
                 value={tagsInput}
                 onChange={(e) => setTagsInput(e.target.value)}
                 placeholder="comedy, 2023, action (comma-separated)"
-                helperText="Entries must have all these tags"
+                helperText="Media files must have all these tags"
               />
             </div>
 
@@ -350,7 +350,7 @@ export default function PlaylistForm({
                 value={tagsAnyInput}
                 onChange={(e) => setTagsAnyInput(e.target.value)}
                 placeholder="thriller, horror, sci-fi (comma-separated)"
-                helperText="Entries must have at least one of these tags"
+                helperText="Media files must have at least one of these tags"
               />
             </div>
 
@@ -495,7 +495,7 @@ export default function PlaylistForm({
                 })
               }
               placeholder="50"
-              helperText="Maximum number of entries to include"
+              helperText="Maximum number of media files to include"
             />
           </div>
         )}

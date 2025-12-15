@@ -68,7 +68,7 @@ export default function Entries() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-            Media Entries
+            Media Files
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
             Browse and manage your media collection
@@ -76,7 +76,7 @@ export default function Entries() {
         </div>
         <Button>
           <Plus size={20} className="mr-2" />
-          Add Entry
+          Add Media File
         </Button>
       </div>
 
@@ -125,9 +125,9 @@ export default function Entries() {
         </div>
       </Card>
 
-      {/* Entries Grid */}
+      {/* Media Files Grid */}
       {isLoading ? (
-        <div className="text-center py-12">Loading entries...</div>
+        <div className="text-center py-12">Loading media files...</div>
       ) : entries && entries.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {entries.map((entry) => (
@@ -234,14 +234,14 @@ export default function Entries() {
           <div className="text-center py-12">
             <Eye size={48} className="mx-auto text-gray-400 mb-4" />
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-              No entries found
+              No media files found
             </h3>
             <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Try adjusting your filters or add your first entry
+              Try adjusting your filters or add your first media file
             </p>
             <Button>
               <Plus size={20} className="mr-2" />
-              Add Entry
+              Add Media File
             </Button>
           </div>
         </Card>

@@ -283,7 +283,7 @@ export default function Tags() {
             <p className="text-gray-600 dark:text-gray-400 mb-6">
               {searchQuery
                 ? 'Try a different search term'
-                : 'Create tags to organize your media entries'}
+                : 'Create tags to organize your media files'}
             </p>
             {!searchQuery && (
               <Button onClick={handleCreate}>

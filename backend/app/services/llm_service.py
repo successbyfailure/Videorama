@@ -7,8 +7,11 @@ from typing import Dict, Any, Optional, List
 import json
 import openai
 import logging
+from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..models import Setting
+from ..models.setting import DEFAULT_PROMPTS
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +19,10 @@ logger = logging.getLogger(__name__)
 class LLMService:
     """Service for LLM-powered classification and extraction"""
 
-    def __init__(self):
+    def __init__(self, db: Optional[Session] = None):
         """Initialize LLM client"""
+        self.db = db  # Optional DB session for loading prompts
+
         if settings.OPENAI_API_KEY:
             self.client = openai.OpenAI(
                 api_key=settings.OPENAI_API_KEY,
@@ -29,6 +34,38 @@ class LLMService:
             self.client = None
             self.enabled = False
             logger.warning("LLM Service disabled - No API key configured")
+
+    def _get_prompt(self, key: str) -> str:
+        """
+        Get prompt from database or fallback to default
+
+        Args:
+            key: Setting key (e.g., "llm_title_prompt")
+
+        Returns:
+            Prompt text
+        """
+        if self.db:
+            try:
+                setting = self.db.query(Setting).filter(Setting.key == key).first()
+                if setting:
+                    return setting.value
+            except Exception as e:
+                logger.warning(f"Failed to load prompt from DB: {e}")
+
+        # Fallback to default
+        if key in DEFAULT_PROMPTS:
+            return DEFAULT_PROMPTS[key]["value"]
+
+        # Final fallback to env variable
+        if key == "llm_title_prompt":
+            return settings.LLM_TITLE_PROMPT
+        elif key == "llm_classification_prompt":
+            return settings.LLM_CLASSIFICATION_PROMPT
+        elif key == "llm_enhancement_prompt":
+            return settings.LLM_ENHANCEMENT_PROMPT
+
+        return ""
 
     async def extract_title(
         self, filename: str, metadata: Optional[Dict] = None
@@ -47,7 +84,7 @@ class LLMService:
             # Fallback: simple cleanup
             return filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").strip()
 
-        prompt = f"""{settings.LLM_TITLE_PROMPT}
+        prompt = f"""{self._get_prompt("llm_title_prompt")}
 
 Filename: {filename}
 Metadata: {json.dumps(metadata or {}, indent=2)}
@@ -105,50 +142,45 @@ Return your response as JSON in this exact format:
             logger.info(f"Using fallback title: {fallback}")
             return fallback
 
-    async def classify_media(
+    async def select_library(
         self,
         title: str,
         filename: str,
         metadata: Dict[str, Any],
         enriched_data: Optional[Dict] = None,
         libraries: List[Dict] = None,
-        context: Optional[Dict] = None,
     ) -> Dict[str, Any]:
         """
-        Classify media item and suggest organization
+        Select the most appropriate library for a media item
 
         Args:
             title: Extracted title
             filename: Original filename
             metadata: Import metadata
             enriched_data: Data from external APIs
-            libraries: Available libraries
-            context: Additional context (existing tags, folder structure)
+            libraries: Available libraries with their descriptions
 
         Returns:
-            Classification result with confidence score
+            Library selection result with confidence score
         """
         if not self.enabled:
             return {
                 "confidence": 0.0,
-                "library": None,
-                "subfolder": None,
-                "tags": [],
-                "properties": {},
+                "library_id": None,
                 "error": "LLM not configured",
             }
 
-        # Build context for LLM
+        # Build libraries info for LLM
         libraries_info = "\n".join(
-            [f"- {lib['id']}: {lib['name']} ({lib.get('description', '')})" for lib in (libraries or [])]
+            [
+                f"- ID: {lib['id']}\n  Name: {lib['name']}\n  Description: {lib.get('description', 'No description')}\n  Template: {lib.get('path_template', 'N/A')}"
+                for lib in (libraries or [])
+            ]
         )
 
-        existing_tags = context.get("existing_tags", []) if context else []
-        existing_structure = context.get("folder_structure", []) if context else []
+        prompt = f"""{self._get_prompt("llm_library_selection_prompt")}
 
-        prompt = f"""{settings.LLM_CLASSIFY_PROMPT}
-
-**Item Information:**
+**Media Information:**
 Title: {title}
 Filename: {filename}
 Import Metadata: {json.dumps(metadata, indent=2)}
@@ -159,21 +191,141 @@ Import Metadata: {json.dumps(metadata, indent=2)}
 **Available Libraries:**
 {libraries_info}
 
+**Task:**
+Select the most appropriate library for this media file based on:
+- Content type and genre
+- Media format
+- Library purpose and existing content
+
+**Output Format (JSON):**
+{{
+  "library_id": "selected_library_id",
+  "confidence": 0.85,
+  "reasoning": "Brief explanation of why this library was chosen"
+}}
+
+Return ONLY valid JSON, no additional text.
+"""
+
+        try:
+            logger.debug(f"Selecting library for: {title}")
+            logger.debug(f"Available libraries: {[lib['id'] for lib in (libraries or [])]}")
+
+            response = self.client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=500,
+                response_format={"type": "json_object"},
+            )
+
+            msg = response.choices[0].message
+            content = msg.content.strip() if msg.content else ""
+
+            logger.debug(f"LLM library selection response: {content[:200]}")
+
+            # Parse JSON response
+            result = json.loads(content)
+
+            # Validate confidence
+            result["confidence"] = float(result.get("confidence", 0.5))
+            result["confidence"] = max(0.0, min(1.0, result["confidence"]))
+
+            logger.info(
+                f"LLM selected library: {result.get('library_id')}, Confidence: {result['confidence']}"
+            )
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"LLM JSON decode error: {e}")
+            logger.error(f"Response content: {content if 'content' in locals() else 'N/A'}")
+            return {
+                "confidence": 0.0,
+                "library_id": None,
+                "error": "Failed to parse LLM response",
+            }
+
+        except Exception as e:
+            logger.error(f"LLM library selection error: {type(e).__name__}: {e}")
+            return {
+                "confidence": 0.0,
+                "library_id": None,
+                "error": str(e),
+            }
+
+    async def classify_media(
+        self,
+        title: str,
+        filename: str,
+        metadata: Dict[str, Any],
+        enriched_data: Optional[Dict] = None,
+        library_id: str = None,
+        library_name: str = None,
+        library_template: str = None,
+        existing_folders: List[str] = None,
+        context: Optional[Dict] = None,
+    ) -> Dict[str, Any]:
+        """
+        Classify media item within a selected library (organize subfolder, tags, properties)
+
+        Args:
+            title: Extracted title
+            filename: Original filename
+            metadata: Import metadata
+            enriched_data: Data from external APIs
+            library_id: Target library ID (already selected)
+            library_name: Target library name
+            library_template: Target library path template
+            existing_folders: List of existing folders in this library
+            context: Additional context (existing tags)
+
+        Returns:
+            Classification result with subfolder, tags, properties, and confidence
+        """
+        if not self.enabled:
+            return {
+                "confidence": 0.0,
+                "subfolder": None,
+                "tags": [],
+                "properties": {},
+                "error": "LLM not configured",
+            }
+
+        # Build context for LLM
+        existing_tags = context.get("existing_tags", []) if context else []
+        folders_list = "\n".join([f"  - {folder}" for folder in (existing_folders or [])[:30]])
+
+        prompt = f"""{self._get_prompt("llm_classification_prompt")}
+
+**Media Information:**
+Title: {title}
+Filename: {filename}
+Import Metadata: {json.dumps(metadata, indent=2)}
+
+**Enriched Data (from external APIs):**
+{json.dumps(enriched_data or {}, indent=2)}
+
+**Target Library:**
+- ID: {library_id}
+- Name: {library_name}
+- Path Template: {library_template or 'Not specified'}
+
+**Existing Folders in Library (for consistency):**
+{folders_list if folders_list else '  (No existing folders)'}
+
 **Context:**
 Existing tags in system: {', '.join(existing_tags[:50])}
-Existing folder structure examples: {', '.join(existing_structure[:20])}
 
 **Task:**
-1. Determine the most appropriate library
-2. Suggest a subfolder path (following existing patterns if applicable)
-3. Generate relevant tags (use existing tags when possible)
-4. Extract properties (artist, album, director, year, etc.)
-5. Provide a confidence score (0.0 to 1.0)
+Organize this media file within the library:
+1. Suggest a subfolder path (follow existing folder patterns for consistency)
+2. Generate relevant tags (use existing tags when possible)
+3. Extract properties (artist, album, director, year, genre, etc.)
+4. Provide a confidence score (0.0 to 1.0)
 
 **Output Format (JSON):**
 {{
   "confidence": 0.85,
-  "library": "library_id",
   "subfolder": "Genre/Artist/Album",
   "tags": ["tag1", "tag2", "tag3"],
   "properties": {{
@@ -188,36 +340,32 @@ Return ONLY valid JSON, no additional text.
 """
 
         try:
-            logger.debug(f"Classifying media: {title}")
-            logger.debug(f"Available libraries: {[lib['id'] for lib in (libraries or [])]}")
+            logger.debug(f"Classifying media: {title} in library: {library_id}")
+            logger.debug(f"Existing folders count: {len(existing_folders or [])}")
 
             response = self.client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=2000,  # Increased for reasoning models
+                max_tokens=2000,
+                response_format={"type": "json_object"},
             )
 
             msg = response.choices[0].message
-            # Use reasoning_content as fallback for reasoning models
-            content = (msg.content or msg.reasoning_content or "").strip()
+            content = msg.content.strip() if msg.content else ""
 
-            logger.debug(f"LLM raw response (first 500 chars): {content[:500]}")
+            logger.debug(f"LLM classification response: {content[:300]}")
 
-            # Extract JSON from response
-            # Sometimes LLM wraps JSON in markdown code blocks
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
-
+            # Parse JSON response
             result = json.loads(content)
 
             # Validate confidence
             result["confidence"] = float(result.get("confidence", 0.5))
             result["confidence"] = max(0.0, min(1.0, result["confidence"]))
 
-            logger.info(f"LLM classification result - Library: {result.get('library')}, Confidence: {result['confidence']}")
+            logger.info(
+                f"LLM classification - Subfolder: {result.get('subfolder')}, Confidence: {result['confidence']}"
+            )
             return result
 
         except json.JSONDecodeError as e:
@@ -225,7 +373,6 @@ Return ONLY valid JSON, no additional text.
             logger.error(f"Response content: {content if 'content' in locals() else 'N/A'}")
             return {
                 "confidence": 0.0,
-                "library": None,
                 "subfolder": None,
                 "tags": [],
                 "properties": {},
@@ -236,7 +383,6 @@ Return ONLY valid JSON, no additional text.
             logger.error(f"LLM classification error: {type(e).__name__}: {e}")
             return {
                 "confidence": 0.0,
-                "library": None,
                 "subfolder": None,
                 "tags": [],
                 "properties": {},
@@ -259,7 +405,7 @@ Return ONLY valid JSON, no additional text.
         if not self.enabled:
             return entry_data
 
-        prompt = f"""{settings.LLM_ENHANCE_PROMPT}
+        prompt = f"""{self._get_prompt("llm_enhancement_prompt")}
 
 Current Data:
 {json.dumps(entry_data, indent=2)}

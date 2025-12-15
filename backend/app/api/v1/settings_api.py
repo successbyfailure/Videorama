@@ -62,7 +62,7 @@ class SettingsUpdateSchema(BaseModel):
     telegram_bot_token: Optional[str] = None
 
 
-@router.get("/settings", response_model=SettingsSchema)
+@router.get("/app-settings", response_model=SettingsSchema)
 async def get_settings(db: Session = Depends(get_db)):
     """Get current application settings from the database"""
     record = SettingsService.get_settings(db)
@@ -85,7 +85,7 @@ async def get_settings(db: Session = Depends(get_db)):
     )
 
 
-@router.put("/settings", response_model=SettingsSchema)
+@router.put("/app-settings", response_model=SettingsSchema)
 async def update_settings(
     updates: SettingsUpdateSchema, db: Session = Depends(get_db)
 ):

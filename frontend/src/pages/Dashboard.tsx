@@ -23,7 +23,7 @@ export default function Dashboard() {
       bgColor: 'bg-blue-100',
     },
     {
-      label: 'Total Entries',
+      label: 'Total Media Files',
       value: entries?.length || 0,
       icon: Film,
       color: 'text-green-600',

@@ -25,7 +25,7 @@ class ImportService:
     def __init__(self, db: Session):
         """Initialize import service"""
         self.db = db
-        self.llm = LLMService()
+        self.llm = LLMService(db)  # Pass DB session for prompt loading
         self.vhs = VHSService()
         self.job_service = JobService()
 
@@ -120,21 +120,63 @@ class ImportService:
                 )
                 enriched_local = await self._enrich_from_apis(title_local, file_metadata)
 
-                # Classify
-                self.job_service.update_job_status(
-                    self.db, job.id, "running", 0.55, "Classifying with AI"
-                )
-                libraries_ctx = self._get_libraries_for_context()
-                context = self._get_classification_context()
+                # AI Task 1: Select Library (if not manually specified)
+                selected_library_id = library_id
+                library_confidence = 1.0
+                library_reasoning = "Manually specified"
 
-                classification_local = await self.llm.classify_media(
-                    title=title_local,
-                    filename=file_metadata.get("filename", ""),
-                    metadata=file_metadata,
-                    enriched_data=enriched_local,
-                    libraries=libraries_ctx,
-                    context=context,
-                )
+                if not library_id:
+                    self.job_service.update_job_status(
+                        self.db, job.id, "running", 0.50, "AI: Selecting library"
+                    )
+                    libraries_ctx = self._get_libraries_for_context()
+                    library_selection = await self.llm.select_library(
+                        title=title_local,
+                        filename=file_metadata.get("filename", ""),
+                        metadata=file_metadata,
+                        enriched_data=enriched_local,
+                        libraries=libraries_ctx,
+                    )
+                    selected_library_id = library_selection.get("library_id")
+                    library_confidence = library_selection.get("confidence", 0.0)
+                    library_reasoning = library_selection.get("reasoning", "")
+
+                # AI Task 2: Classify File (organize within library)
+                classification_local = {
+                    "confidence": library_confidence,
+                    "library": selected_library_id,
+                    "subfolder": None,
+                    "tags": [],
+                    "properties": {},
+                }
+
+                if selected_library_id:
+                    self.job_service.update_job_status(
+                        self.db, job.id, "running", 0.60, "AI: Classifying file"
+                    )
+
+                    # Get library details and existing folders
+                    library_obj = self.db.query(Library).filter(Library.id == selected_library_id).first()
+                    if library_obj:
+                        existing_folders = self._get_existing_folders(selected_library_id)
+                        context = self._get_classification_context()
+
+                        file_classification = await self.llm.classify_media(
+                            title=title_local,
+                            filename=file_metadata.get("filename", ""),
+                            metadata=file_metadata,
+                            enriched_data=enriched_local,
+                            library_id=library_obj.id,
+                            library_name=library_obj.name,
+                            library_template=library_obj.path_template,
+                            existing_folders=existing_folders,
+                            context=context,
+                        )
+
+                        # Merge library selection with file classification
+                        classification_local.update(file_classification)
+                        classification_local["library"] = selected_library_id
+                        classification_local["library_reasoning"] = library_reasoning
 
                 return title_local, enriched_local, classification_local
 
@@ -420,22 +462,46 @@ class ImportService:
             {
                 "id": lib.id,
                 "name": lib.name,
-                "description": f"Auto-organize: {lib.auto_organize}",
+                "description": lib.description or "No description",
+                "path_template": lib.path_template,
             }
             for lib in libraries
         ]
 
+    def _get_existing_folders(self, library_id: str) -> List[str]:
+        """
+        Get list of existing subfolders in a library for classification consistency
+
+        Args:
+            library_id: Library ID to get folders from
+
+        Returns:
+            List of unique subfolder paths found in entries
+        """
+        entries = (
+            self.db.query(Entry)
+            .filter(Entry.library_id == library_id)
+            .filter(Entry.subfolder.isnot(None))
+            .limit(100)
+            .all()
+        )
+
+        # Extract unique subfolders
+        folders = set()
+        for entry in entries:
+            if entry.subfolder:
+                folders.add(entry.subfolder)
+
+        return sorted(list(folders))
+
     def _get_classification_context(self) -> Dict:
-        """Get context for classification (existing tags, folder structure)"""
+        """Get context for classification (existing tags)"""
         # Get sample of existing tags
         tags = self.db.query(Tag).limit(100).all()
         existing_tags = [tag.name for tag in tags]
 
-        # TODO: Get sample folder structures from existing entries
-
         return {
             "existing_tags": existing_tags,
-            "folder_structure": [],
         }
 
     async def _create_entry_from_import(

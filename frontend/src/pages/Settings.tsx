@@ -4,14 +4,22 @@ import Button from '@/components/Button'
 import Input from '@/components/Input'
 import Toggle from '@/components/Toggle'
 import { useSettings, useUpdateSettings } from '@/hooks/useSettings'
-import { Settings as SettingsIcon, Save, AlertCircle, CheckCircle } from 'lucide-react'
+import { usePromptSettings, useUpdatePromptSetting, useResetPromptSetting } from '@/hooks/usePromptSettings'
+import { Settings as SettingsIcon, Save, AlertCircle, CheckCircle, FileText, RotateCcw } from 'lucide-react'
 
 export default function Settings() {
   const { data: settings, isLoading, error } = useSettings()
   const updateSettings = useUpdateSettings()
 
+  // Prompt settings hooks
+  const { data: prompts, isLoading: promptsLoading } = usePromptSettings('llm')
+  const updatePrompt = useUpdatePromptSetting()
+  const resetPrompt = useResetPromptSetting()
+
   const [formData, setFormData] = useState<Record<string, any>>({})
+  const [promptEdits, setPromptEdits] = useState<Record<string, string>>({})
   const [showSuccess, setShowSuccess] = useState(false)
+  const [promptSuccess, setPromptSuccess] = useState(false)
 
   const handleChange = (field: string, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -28,7 +36,40 @@ export default function Settings() {
     }
   }
 
+  const handlePromptChange = (key: string, value: string) => {
+    setPromptEdits((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const handlePromptSave = async (key: string) => {
+    try {
+      await updatePrompt.mutateAsync({ key, updates: { value: promptEdits[key] } })
+      setPromptEdits((prev) => {
+        const { [key]: _, ...rest } = prev
+        return rest
+      })
+      setPromptSuccess(true)
+      setTimeout(() => setPromptSuccess(false), 3000)
+    } catch (err) {
+      console.error('Failed to update prompt:', err)
+    }
+  }
+
+  const handlePromptReset = async (key: string) => {
+    try {
+      await resetPrompt.mutateAsync(key)
+      setPromptEdits((prev) => {
+        const { [key]: _, ...rest } = prev
+        return rest
+      })
+      setPromptSuccess(true)
+      setTimeout(() => setPromptSuccess(false), 3000)
+    } catch (err) {
+      console.error('Failed to reset prompt:', err)
+    }
+  }
+
   const hasChanges = Object.keys(formData).length > 0
+  const hasPromptChanges = (key: string) => key in promptEdits
 
   if (isLoading) {
     return (
@@ -199,6 +240,106 @@ export default function Settings() {
             helperText="Model to use for classification and metadata extraction"
           />
         </div>
+      </Card>
+
+      {/* LLM Prompts Configuration */}
+      <Card padding="medium">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <FileText className="w-6 h-6 text-primary-600" />
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                LLM Prompts
+              </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Customize prompts used for AI-powered classification and metadata extraction
+              </p>
+            </div>
+          </div>
+          {promptSuccess && (
+            <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+              <CheckCircle className="w-5 h-5" />
+              <span>Prompt updated!</span>
+            </div>
+          )}
+        </div>
+
+        {promptsLoading ? (
+          <div className="flex items-center justify-center h-32">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {prompts?.map((prompt) => {
+              const currentValue = hasPromptChanges(prompt.key)
+                ? promptEdits[prompt.key]
+                : prompt.value
+              const isModified = hasPromptChanges(prompt.key)
+
+              return (
+                <div key={prompt.key} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {prompt.description || prompt.key}
+                    </label>
+                    <div className="flex gap-2">
+                      {isModified && (
+                        <>
+                          <Button
+                            size="small"
+                            variant="ghost"
+                            onClick={() => {
+                              const { [prompt.key]: _, ...rest } = promptEdits
+                              setPromptEdits(rest)
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="small"
+                            onClick={() => handlePromptSave(prompt.key)}
+                            isLoading={updatePrompt.isPending}
+                          >
+                            <Save className="w-3 h-3 mr-1" />
+                            Save
+                          </Button>
+                        </>
+                      )}
+                      <Button
+                        size="small"
+                        variant="secondary"
+                        onClick={() => handlePromptReset(prompt.key)}
+                        isLoading={resetPrompt.isPending}
+                        title="Reset to default"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                  <textarea
+                    value={currentValue}
+                    onChange={(e) => handlePromptChange(prompt.key, e.target.value)}
+                    rows={6}
+                    className={`
+                      w-full px-4 py-2 rounded-lg border font-mono text-sm
+                      bg-white dark:bg-gray-800
+                      border-gray-300 dark:border-gray-700
+                      text-gray-900 dark:text-white
+                      focus:ring-2 focus:ring-primary-500 focus:border-transparent
+                      ${isModified ? 'ring-2 ring-orange-400' : ''}
+                    `}
+                  />
+                  {isModified && (
+                    <p className="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      Prompt has unsaved changes
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </Card>
 
       {/* External APIs */}

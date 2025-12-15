@@ -13,7 +13,7 @@ import Logo from '@/assets/LogoVideorama.png'
 const navItems = [
   { to: '/', icon: Home, label: 'Dashboard' },
   { to: '/libraries', icon: Library, label: 'Libraries' },
-  { to: '/entries', icon: Film, label: 'Entries' },
+  { to: '/entries', icon: Film, label: 'Media Files' },
   { to: '/import', icon: Download, label: 'Import' },
   { to: '/inbox', icon: Inbox, label: 'Inbox' },
   { to: '/playlists', icon: ListVideo, label: 'Playlists' },

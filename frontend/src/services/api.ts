@@ -283,12 +283,50 @@ export interface SettingsUpdate {
 
 export const settingsApi = {
   get: async () => {
-    const { data } = await api.get<Settings>('/settings')
+    const { data } = await api.get<Settings>('/app-settings')
     return data
   },
 
   update: async (updates: SettingsUpdate) => {
-    const { data } = await api.put<Settings>('/settings', updates)
+    const { data } = await api.put<Settings>('/app-settings', updates)
+    return data
+  },
+}
+
+// ========== Prompts (LLM Settings) ==========
+
+export interface PromptSetting {
+  key: string
+  value: string
+  category: string | null
+  description: string | null
+  is_secret: boolean
+}
+
+export interface PromptSettingUpdate {
+  value: string
+}
+
+export const promptsApi = {
+  list: async (category?: string) => {
+    const { data } = await api.get<PromptSetting[]>('/settings', {
+      params: category ? { category } : undefined,
+    })
+    return data
+  },
+
+  get: async (key: string) => {
+    const { data } = await api.get<PromptSetting>(`/settings/${key}`)
+    return data
+  },
+
+  update: async (key: string, updates: PromptSettingUpdate) => {
+    const { data } = await api.patch<PromptSetting>(`/settings/${key}`, updates)
+    return data
+  },
+
+  reset: async (key: string) => {
+    const { data } = await api.post<PromptSetting>(`/settings/${key}/reset`)
     return data
   },
 }

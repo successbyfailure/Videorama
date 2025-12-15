@@ -134,7 +134,8 @@ class TelegramBotService:
         self.app.add_handler(CommandHandler("help", self.on_help))
         self.app.add_handler(CommandHandler("search", self.on_search))
         self.app.add_handler(MessageHandler(filters.Regex(r"^https?://"), self.on_url))
-        self.app.add_handler(MessageHandler(filters.Document.ALL | filters.Video.ALL | filters.Audio.ALL, self.on_file))
+        attachment_filter = filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO
+        self.app.add_handler(MessageHandler(attachment_filter, self.on_file))
         self.app.add_handler(CallbackQueryHandler(self.on_callback))
 
     async def on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
