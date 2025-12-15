@@ -11,7 +11,7 @@ const progressMessage = document.getElementById('progressMessage');
 
 let settings = {
   baseUrl: '',
-  incognitoBaseUrl: '',
+  incognitoLibraryId: '',
   libraryId: '',
   format: 'video_max',
   autoMode: true,
@@ -29,7 +29,7 @@ function setStatus(message, type = 'info') {
 async function loadSettings() {
   const defaults = {
     baseUrl: '',
-    incognitoBaseUrl: '',
+    incognitoLibraryId: '',
     libraryId: '',
     format: 'video_max',
     autoMode: true,
@@ -69,14 +69,39 @@ function hydrateLibrarySelect() {
   if (!librarySelect) return;
   librarySelect.innerHTML = '';
   const defaultMode = settings.defaultLibraryMode || 'auto';
+  const isIncognito = chrome.extension?.inIncognitoContext;
+  const preferredLibrary = isIncognito
+    ? (settings.incognitoLibraryId || '').trim()
+    : (settings.libraryId || '').trim();
 
-  const autoOption = new Option('Auto (LLM)', '', defaultMode === 'auto', defaultMode === 'auto');
-  librarySelect.appendChild(autoOption);
+  // Always include Auto
+  librarySelect.appendChild(new Option('Auto (LLM)', ''));
 
-  const configuredId = (settings.libraryId || '').trim();
-  const label = configuredId ? `Librería: ${configuredId}` : 'Librería no configurada';
-  const libOption = new Option(label, configuredId, defaultMode === 'library', defaultMode === 'library');
-  librarySelect.appendChild(libOption);
+  // Fetch libraries from Videorama
+  const baseUrl = normalizeBaseUrl(settings.baseUrl || '');
+  if (!baseUrl) {
+    // fallback to configured IDs if baseUrl missing
+    if (preferredLibrary) {
+      librarySelect.appendChild(new Option(`Librería: ${preferredLibrary}`, preferredLibrary));
+    }
+    librarySelect.value = defaultMode === 'auto' ? '' : preferredLibrary;
+    return;
+  }
+
+  fetch(`${baseUrl}/api/v1/libraries`)
+    .then((res) => res.ok ? res.json() : [])
+    .then((libs) => {
+      libs.forEach((lib) => {
+        librarySelect.appendChild(new Option(`${lib.icon || ''} ${lib.name}`, lib.id));
+      });
+      librarySelect.value = defaultMode === 'auto' ? '' : preferredLibrary || '';
+    })
+    .catch(() => {
+      if (preferredLibrary) {
+        librarySelect.appendChild(new Option(`Librería: ${preferredLibrary}`, preferredLibrary));
+      }
+      librarySelect.value = defaultMode === 'auto' ? '' : preferredLibrary;
+    });
 }
 
 async function loadRecentImports() {
@@ -174,11 +199,7 @@ async function handleImport() {
   setStatus('Enviando import...', 'info');
   importBtn.disabled = true;
 
-  const baseUrl = normalizeBaseUrl(
-    chrome.extension?.inIncognitoContext
-      ? settings.incognitoBaseUrl || settings.baseUrl || ''
-      : settings.baseUrl || ''
-  );
+  const baseUrl = normalizeBaseUrl(settings.baseUrl || '');
   const url = importUrlInput.value.trim();
 
   if (!baseUrl) {

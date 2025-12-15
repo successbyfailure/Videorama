@@ -1,6 +1,6 @@
 const baseUrlInput = document.getElementById('baseUrl');
-const incognitoBaseUrlInput = document.getElementById('incognitoBaseUrl');
 const libraryInput = document.getElementById('libraryId');
+const incognitoLibraryInput = document.getElementById('incognitoLibraryId');
 const formatSelect = document.getElementById('format');
 const autoModeCheckbox = document.getElementById('autoMode');
 const statusEl = document.getElementById('status');
@@ -14,16 +14,16 @@ function setStatus(message) {
 async function loadSettings() {
   const defaults = {
     baseUrl: '',
-    incognitoBaseUrl: '',
     libraryId: '',
+    incognitoLibraryId: '',
     format: 'video_max',
     autoMode: true,
     defaultLibraryMode: 'auto',
   };
   const stored = await chrome.storage.sync.get(defaults);
   baseUrlInput.value = stored.baseUrl || '';
-  incognitoBaseUrlInput.value = stored.incognitoBaseUrl || '';
   libraryInput.value = stored.libraryId || '';
+  incognitoLibraryInput.value = stored.incognitoLibraryId || '';
   formatSelect.value = stored.format || 'video_max';
   autoModeCheckbox.checked = stored.autoMode ?? true;
    (libraryModeRadios || []).forEach((radio) => {
@@ -34,8 +34,8 @@ async function loadSettings() {
 async function saveSettings() {
   await chrome.storage.sync.set({
     baseUrl: baseUrlInput.value.trim(),
-    incognitoBaseUrl: incognitoBaseUrlInput.value.trim(),
     libraryId: libraryInput.value.trim(),
+    incognitoLibraryId: incognitoLibraryInput.value.trim(),
     format: formatSelect.value,
     autoMode: autoModeCheckbox.checked,
     defaultLibraryMode: Array.from(libraryModeRadios).find((r) => r.checked)?.value || 'auto',
