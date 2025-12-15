@@ -111,6 +111,22 @@ services:
     env_file:
       - .env
 
+  # Telegram Bot (optional)
+  telegram-bot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python -m app.telegram_bot
+    container_name: videorama-telegram-bot
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://videorama:videorama@postgres:5432/videorama
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    depends_on:
+      - backend
+      - postgres
+
   # Frontend (React)
   frontend:
     # Option 1: Use pre-built image from GitHub Container Registry
@@ -137,7 +153,7 @@ services:
     image: nginx:alpine
     container_name: videorama-nginx
     ports:
-      - "80:80"
+      - "11080:80"
       # For HTTPS in production, uncomment and add SSL certificates:
       # - "443:443"
     volumes:

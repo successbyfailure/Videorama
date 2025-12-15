@@ -44,6 +44,7 @@ class Settings(BaseSettings):
 
     # Telegram Bot
     TELEGRAM_BOT_TOKEN: Optional[str] = None
+    TELEGRAM_ADMIN_IDS: Optional[str] = None  # comma-separated user ids
 
     # Security
     SECRET_KEY: str = "change-this-secret-key-in-production"

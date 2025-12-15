@@ -11,6 +11,8 @@ from .playlist import Playlist, PlaylistEntry
 from .inbox import InboxItem
 from .job import Job, ReindexJob
 from .app_settings import AppSettings
+from .setting import Setting
+from .telegram import TelegramContact, TelegramInteraction, TelegramSetting
 
 __all__ = [
     "Library",
@@ -27,4 +29,8 @@ __all__ = [
     "Job",
     "ReindexJob",
     "AppSettings",
+    "Setting",
+    "TelegramContact",
+    "TelegramInteraction",
+    "TelegramSetting",
 ]
