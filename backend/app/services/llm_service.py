@@ -67,8 +67,22 @@ Examples:
             )
 
             msg = response.choices[0].message
-            # Use reasoning_content as fallback for reasoning models (qwen3, o1, etc)
-            title = (msg.content or msg.reasoning_content or "").strip()
+
+            # For reasoning models, extract only the final answer
+            if msg.content:
+                title = msg.content.strip()
+            elif msg.reasoning_content:
+                # Reasoning content contains the full thought process
+                # Extract only the last non-empty line as the final answer
+                lines = [line.strip() for line in msg.reasoning_content.strip().split('\n') if line.strip()]
+                title = lines[-1] if lines else ""
+            else:
+                title = ""
+
+            # Ensure title is not too long (max 500 chars as per schema)
+            if len(title) > 500:
+                logger.warning(f"LLM returned title too long ({len(title)} chars), truncating")
+                title = title[:500]
 
             logger.info(f"LLM extracted title: {title}")
             return title if title else None

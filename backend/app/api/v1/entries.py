@@ -70,7 +70,7 @@ def list_entries(
     for entry in entries:
         entry_dict = {
             "uuid": entry.uuid,
-            "title": entry.title,
+            "title": (entry.title or "")[:500],  # Truncate to max 500 chars
             "description": entry.description,
             "duration": entry.duration,
             "thumbnail_url": entry.thumbnail_url,
@@ -121,6 +121,10 @@ def get_entry(entry_uuid: str, db: Session = Depends(get_db)):
 
     # Build full response
     entry_dict = EntryResponse.model_validate(entry).model_dump()
+
+    # Truncate title to prevent validation errors
+    if entry_dict.get("title"):
+        entry_dict["title"] = entry_dict["title"][:500]
 
     entry_dict["files"] = [
         {
