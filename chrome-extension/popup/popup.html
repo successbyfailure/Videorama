@@ -17,43 +17,23 @@
       </header>
 
       <label class="field">
-        <span>API base URL</span>
-        <input id="baseUrl" type="text" placeholder="https://videorama.local" />
-      </label>
-
-      <label class="field">
         <span>URL a importar</span>
         <input id="importUrl" type="text" placeholder="https://..." />
         <small class="help">Detecta el video de la pestaña si es posible</small>
       </label>
 
-      <div class="row">
-        <label class="field flex-1">
-          <span>Library ID (opcional)</span>
-          <input id="libraryId" type="text" placeholder="videos" />
-        </label>
-        <label class="field flex-1">
-          <span>Formato</span>
-          <select id="format">
-            <option value="video_max">Video - máxima calidad</option>
-            <option value="video_1080">Video - 1080p</option>
-            <option value="video_med">Video - 720p</option>
-            <option value="video_low">Video - 480p</option>
-            <option value="audio_max">Audio - máxima calidad</option>
-            <option value="audio_med">Audio - media</option>
-            <option value="audio_low">Audio - baja</option>
-          </select>
-        </label>
+      <div class="hint">
+        Configura API base, librería y formato en el menú de Opciones.
       </div>
-
-      <label class="checkbox">
-        <input id="autoMode" type="checkbox" checked />
-        <span>Auto-import si la confianza es alta</span>
-      </label>
 
       <div class="actions">
         <button id="openOptions" type="button" class="ghost">Opciones</button>
         <button id="importBtn" type="button" class="primary">Importar</button>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Últimas 5 importaciones</div>
+        <ul id="recentList" class="recent-list"></ul>
       </div>
 
       <div id="status" class="status" aria-live="polite"></div>

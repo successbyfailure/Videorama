@@ -1,11 +1,17 @@
-const baseUrlInput = document.getElementById('baseUrl');
 const importUrlInput = document.getElementById('importUrl');
-const libraryInput = document.getElementById('libraryId');
-const formatSelect = document.getElementById('format');
-const autoModeCheckbox = document.getElementById('autoMode');
 const statusEl = document.getElementById('status');
 const importBtn = document.getElementById('importBtn');
 const openOptionsBtn = document.getElementById('openOptions');
+const recentList = document.getElementById('recentList');
+
+let settings = {
+  baseUrl: '',
+  libraryId: '',
+  format: 'video_max',
+  autoMode: true,
+};
+
+let recentImports = [];
 
 function setStatus(message, type = 'info') {
   statusEl.textContent = message;
@@ -19,20 +25,7 @@ async function loadSettings() {
     format: 'video_max',
     autoMode: true,
   };
-  const stored = await chrome.storage.sync.get(defaults);
-  baseUrlInput.value = stored.baseUrl || '';
-  libraryInput.value = stored.libraryId || '';
-  formatSelect.value = stored.format || 'video_max';
-  autoModeCheckbox.checked = stored.autoMode ?? true;
-}
-
-async function saveSettings() {
-  await chrome.storage.sync.set({
-    baseUrl: baseUrlInput.value.trim(),
-    libraryId: libraryInput.value.trim(),
-    format: formatSelect.value,
-    autoMode: autoModeCheckbox.checked,
-  });
+  settings = await chrome.storage.sync.get(defaults);
 }
 
 async function detectPageInfo() {
@@ -61,11 +54,57 @@ function normalizeBaseUrl(url) {
   return url.replace(/\/$/, '');
 }
 
+async function loadRecentImports() {
+  try {
+    const stored = await chrome.storage.session.get({ recentImports: [] });
+    recentImports = stored.recentImports || [];
+    renderRecentImports();
+  } catch (err) {
+    recentImports = [];
+  }
+}
+
+async function saveRecentImports() {
+  recentImports = recentImports.slice(0, 5);
+  await chrome.storage.session.set({ recentImports });
+}
+
+function renderRecentImports() {
+  if (!recentList) return;
+  recentList.innerHTML = '';
+
+  if (!recentImports.length) {
+    const li = document.createElement('li');
+    li.className = 'recent-item';
+    li.textContent = 'Sin importaciones en esta sesión.';
+    recentList.appendChild(li);
+    return;
+  }
+
+  for (const item of recentImports) {
+    const li = document.createElement('li');
+    li.className = 'recent-item';
+
+    const urlEl = document.createElement('div');
+    urlEl.className = 'recent-url';
+    urlEl.textContent = item.url;
+
+    const meta = document.createElement('div');
+    meta.className = 'recent-meta';
+    const statusText = item.status || 'pendiente';
+    meta.innerHTML = `<span class="badge">${statusText}</span><span>${new Date(item.timestamp).toLocaleTimeString()}</span>`;
+
+    li.appendChild(meta);
+    li.appendChild(urlEl);
+    recentList.appendChild(li);
+  }
+}
+
 async function handleImport() {
   setStatus('Enviando import...', 'info');
   importBtn.disabled = true;
 
-  const baseUrl = normalizeBaseUrl(baseUrlInput.value.trim());
+  const baseUrl = normalizeBaseUrl(settings.baseUrl || '');
   const url = importUrlInput.value.trim();
 
   if (!baseUrl) {
@@ -82,9 +121,9 @@ async function handleImport() {
 
   const payload = {
     url,
-    library_id: libraryInput.value.trim() || null,
-    format: formatSelect.value,
-    auto_mode: autoModeCheckbox.checked,
+    library_id: (settings.libraryId || '').trim() || null,
+    format: settings.format || 'video_max',
+    auto_mode: settings.autoMode ?? true,
     imported_by: 'chrome-extension',
   };
 
@@ -102,6 +141,20 @@ async function handleImport() {
     }
 
     const data = await res.json();
+    // Log to session history (keep last 5)
+    recentImports.unshift({
+      url,
+      status: data.entry_uuid
+        ? 'importado'
+        : data.inbox_id
+        ? 'inbox'
+        : 'en progreso',
+      job_id: data.job_id,
+      timestamp: Date.now(),
+    });
+    await saveRecentImports();
+    renderRecentImports();
+
     setStatus(
       data.entry_uuid
         ? 'Import completado y agregado a la librería.'
@@ -110,8 +163,6 @@ async function handleImport() {
         : 'Import iniciado, revisa los jobs en Videorama.',
       'success'
     );
-
-    await saveSettings();
   } catch (error) {
     setStatus(`Error al importar: ${error.message}`, 'error');
   } finally {
@@ -127,5 +178,6 @@ importBtn.addEventListener('click', handleImport);
 
 (async function init() {
   await loadSettings();
+  await loadRecentImports();
   await detectPageInfo();
 })();
