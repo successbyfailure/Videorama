@@ -21,6 +21,7 @@ let settings = {
 
 let recentImports = [];
 let pollInterval = null;
+let lastPageUrl = '';
 
 function formatBytes(bytes) {
   if (!bytes || isNaN(bytes)) return '';
@@ -52,6 +53,7 @@ async function detectPageInfo() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const tabUrl = tab?.url || '';
+    lastPageUrl = tabUrl;
 
     let detected = { pageUrl: tabUrl, videoUrl: null, pageTitle: tab?.title || '' };
 
@@ -64,7 +66,11 @@ async function detectPageInfo() {
       }
     }
 
-    importUrlInput.value = detected.videoUrl || detected.pageUrl || '';
+    let chosenUrl = detected.videoUrl || detected.pageUrl || '';
+    if (chosenUrl.startsWith('blob:')) {
+      chosenUrl = detected.pageUrl || tabUrl;
+    }
+    importUrlInput.value = chosenUrl;
   } catch (error) {
     setStatus(`No se pudo detectar la URL: ${error.message}`, 'error');
   }
@@ -271,7 +277,13 @@ async function handleImport() {
   importBtn.disabled = true;
 
   const baseUrl = normalizeBaseUrl(settings.baseUrl || '');
-  const url = importUrlInput.value.trim();
+  let url = importUrlInput.value.trim();
+
+  if (url.startsWith('blob:')) {
+    // Fallback a la URL de la pestaña si el video usa blob:
+    url = lastPageUrl || '';
+    importUrlInput.value = url;
+  }
 
   if (!baseUrl) {
     setStatus('Configura la API base URL en Opciones.', 'error');
