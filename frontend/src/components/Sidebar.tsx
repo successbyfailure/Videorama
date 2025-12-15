@@ -8,6 +8,7 @@ import {
   ListVideo,
   Settings,
 } from 'lucide-react'
+import Logo from '@/assets/LogoVideorama.png'
 
 const navItems = [
   { to: '/', icon: Home, label: 'Dashboard' },
@@ -25,10 +26,19 @@ export default function Sidebar() {
       <div className="flex flex-col h-full">
         {/* Logo */}
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-            Videorama
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">v2.0.0</p>
+          <div className="flex items-center gap-3">
+            <img
+              src={Logo}
+              alt="Videorama logo"
+              className="w-12 h-12 rounded-lg shadow-sm ring-1 ring-gray-200 dark:ring-gray-700 bg-white"
+            />
+            <div>
+              <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
+                Videorama
+              </h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400">v2.0.0</p>
+            </div>
+          </div>
         </div>
 
         {/* Navigation */}

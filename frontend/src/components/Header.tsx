@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Bell, Search, User } from 'lucide-react'
 import { useJobs } from '@/hooks/useJobs'
 import JobsPanel from './JobsPanel'
+import Logo from '@/assets/LogoVideorama.png'
 
 export default function Header() {
   const { data: jobs } = useJobs({ status: 'running' })
@@ -11,7 +12,24 @@ export default function Header() {
   return (
     <>
       <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between px-6 py-4">
+        <div className="flex items-center justify-between px-6 py-4 gap-4">
+          {/* Brand */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <img
+              src={Logo}
+              alt="Videorama logo"
+              className="w-10 h-10 rounded-lg shadow-sm ring-1 ring-gray-200 dark:ring-gray-700 bg-white"
+            />
+            <div className="leading-tight">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                Videorama
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Media Library Manager
+              </p>
+            </div>
+          </div>
+
           {/* Search */}
           <div className="flex-1 max-w-xl">
             <div className="relative">
@@ -28,7 +46,7 @@ export default function Header() {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-4 ml-6">
+          <div className="flex items-center gap-4 ml-4">
             {/* Job notifications */}
             {runningJobsCount > 0 && (
               <button
@@ -41,18 +59,18 @@ export default function Header() {
               </button>
             )}
 
-          {/* Notifications */}
-          <button className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
-            <Bell size={20} />
-          </button>
+            {/* Notifications */}
+            <button className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
+              <Bell size={20} />
+            </button>
 
-          {/* User menu */}
-          <button className="flex items-center gap-2 p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
-            <User size={20} />
-          </button>
+            {/* User menu */}
+            <button className="flex items-center gap-2 p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
+              <User size={20} />
+            </button>
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
 
     {/* Jobs Panel */}
     <JobsPanel isOpen={showJobsPanel} onClose={() => setShowJobsPanel(false)} />

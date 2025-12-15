@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Opciones · Videorama</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>Videorama · Opciones</h1>
+      <p class="muted">Configura la conexión al backend y los valores por defecto.</p>
+
+      <label class="field">
+        <span>API base URL</span>
+        <input id="baseUrl" type="text" placeholder="https://videorama.local" />
+      </label>
+
+      <label class="field">
+        <span>Library ID por defecto</span>
+        <input id="libraryId" type="text" placeholder="videos" />
+      </label>
+
+      <label class="field">
+        <span>Formato</span>
+        <select id="format">
+          <option value="video_max">Video - máxima calidad</option>
+          <option value="video_1080">Video - 1080p</option>
+          <option value="video_med">Video - 720p</option>
+          <option value="video_low">Video - 480p</option>
+          <option value="audio_max">Audio - máxima calidad</option>
+          <option value="audio_med">Audio - media</option>
+          <option value="audio_low">Audio - baja</option>
+        </select>
+      </label>
+
+      <label class="checkbox">
+        <input id="autoMode" type="checkbox" checked />
+        <span>Auto-import si la confianza es alta</span>
+      </label>
+
+      <div class="actions">
+        <button id="saveBtn" type="button" class="primary">Guardar</button>
+        <span id="status" class="status" aria-live="polite"></span>
+      </div>
+    </div>
+
+    <script src="options.js"></script>
+  </body>
+</html>
