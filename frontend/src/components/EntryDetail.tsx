@@ -312,25 +312,58 @@ export default function EntryDetail({
             )}
 
             {/* Properties */}
-            {entry.properties && Object.keys(entry.properties).length > 0 && (
+            {entry.properties && entry.properties.length > 0 && (
               <div className="space-y-2">
                 <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
                   Properties
                 </h3>
                 <div className="grid grid-cols-2 gap-3">
-                  {Object.entries(entry.properties).map(([key, value]) => (
-                    <div
-                      key={key}
-                      className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
-                    >
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        {key}
-                      </p>
-                      <p className="text-sm text-gray-900 dark:text-white">
-                        {String(value)}
-                      </p>
-                    </div>
-                  ))}
+                  {entry.properties.map((prop: any) => {
+                    // Determine badge color and label based on source
+                    let badgeColor = 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                    let badgeLabel = 'Unknown'
+
+                    if (prop.source === 'llm') {
+                      badgeColor = 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+                      badgeLabel = 'AI'
+                    } else if (prop.source?.startsWith('api:itunes')) {
+                      badgeColor = 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                      badgeLabel = 'iTunes'
+                    } else if (prop.source?.startsWith('api:tmdb')) {
+                      badgeColor = 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                      badgeLabel = 'TMDb'
+                    } else if (prop.source?.startsWith('api:musicbrainz')) {
+                      badgeColor = 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                      badgeLabel = 'MusicBrainz'
+                    } else if (prop.source === 'user') {
+                      badgeColor = 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                      badgeLabel = 'Manual'
+                    } else if (prop.source === 'vhs') {
+                      badgeColor = 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+                      badgeLabel = 'Platform'
+                    }
+
+                    return (
+                      <div
+                        key={prop.key}
+                        className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {prop.key}
+                          </p>
+                          {prop.source && (
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${badgeColor}`}>
+                              {badgeLabel}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-900 dark:text-white">
+                          {String(prop.value)}
+                        </p>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}

@@ -100,7 +100,10 @@ def list_entries(
                 }
                 for f in entry.files
             ],
-            "properties": {prop.key: prop.value for prop in entry.properties},
+            "properties": [
+                {"key": prop.key, "value": prop.value, "source": prop.source}
+                for prop in entry.properties
+            ],
             "user_tags": [tag.tag.name for tag in entry.user_tags],
             "auto_tags": [],
             "relations": [],
@@ -161,7 +164,10 @@ def get_entry(entry_uuid: str, db: Session = Depends(get_db)):
         for f in entry.files
     ]
 
-    entry_dict["properties"] = {prop.key: prop.value for prop in entry.properties}
+    entry_dict["properties"] = [
+        {"key": prop.key, "value": prop.value, "source": prop.source}
+        for prop in entry.properties
+    ]
     entry_dict["user_tags"] = [tag.tag.name for tag in entry.user_tags]
     entry_dict["auto_tags"] = []
     entry_dict["relations"] = []

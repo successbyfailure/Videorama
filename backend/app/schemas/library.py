@@ -11,6 +11,7 @@ class LibraryBase(BaseModel):
     """Base library schema"""
 
     name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
     icon: str = Field(default="📁", max_length=10)
     default_path: str = Field(..., min_length=1)
     additional_paths: List[str] = Field(default_factory=list)
@@ -34,6 +35,7 @@ class LibraryUpdate(BaseModel):
     """Schema for updating a library (all fields optional)"""
 
     name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
     icon: Optional[str] = Field(None, max_length=10)
     default_path: Optional[str] = None
     additional_paths: Optional[List[str]] = None

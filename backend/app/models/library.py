@@ -20,6 +20,7 @@ class Library(Base):
 
     # Basic info
     name = Column(String, nullable=False)  # Display name
+    description = Column(Text, nullable=True)  # Library description/purpose
     icon = Column(String, default="📁")  # Emoji or icon identifier
 
     # Paths

@@ -86,150 +86,36 @@ class ImportService:
                 "metadata": file_metadata,
             }
 
-            # Step 2/3 in parallel: download file AND enrich/classify
+            # Step 2: Download file first
             self.job_service.update_job_status(
-                self.db, job.id, "running", 0.25, "Downloading file and enriching metadata"
+                self.db, job.id, "running", 0.25, "Downloading file"
             )
 
-            async def download_task():
-                self.job_service.update_job_status(
-                    self.db, job.id, "running", 0.3, "Downloading file"
-                )
+            try:
                 fmt = media_format or self.vhs.get_format_for_media_type(library_id or "video")
-                return await self._download_file(url, fmt)
-
-            async def classify_task():
-                # Extract title with LLM (or fallback)
-                self.job_service.update_job_status(
-                    self.db, job.id, "running", 0.35, "Extracting title"
-                )
-                title_local = await self.llm.extract_title(
-                    file_metadata.get("filename", ""),
-                    file_metadata,
-                )
-                if not title_local:
-                    title_local = (
-                        file_metadata.get("title")
-                        or file_metadata.get("filename")
-                        or url.split("/")[-1]
-                    )
-
-                # Enrich
-                self.job_service.update_job_status(
-                    self.db, job.id, "running", 0.45, "Enriching metadata"
-                )
-                enriched_local = await self._enrich_from_apis(title_local, file_metadata)
-
-                # AI Task 1: Select Library (if not manually specified)
-                selected_library_id = library_id
-                library_confidence = 1.0
-                library_reasoning = "Manually specified"
-
-                if not library_id:
-                    self.job_service.update_job_status(
-                        self.db, job.id, "running", 0.50, "AI: Selecting library"
-                    )
-                    libraries_ctx = self._get_libraries_for_context()
-                    library_selection = await self.llm.select_library(
-                        title=title_local,
-                        filename=file_metadata.get("filename", ""),
-                        metadata=file_metadata,
-                        enriched_data=enriched_local,
-                        libraries=libraries_ctx,
-                    )
-                    selected_library_id = library_selection.get("library_id")
-                    library_confidence = library_selection.get("confidence", 0.0)
-                    library_reasoning = library_selection.get("reasoning", "")
-
-                # AI Task 2: Classify File (organize within library)
-                classification_local = {
-                    "confidence": library_confidence,
-                    "library": selected_library_id,
-                    "subfolder": None,
-                    "tags": [],
-                    "properties": {},
-                }
-
-                if selected_library_id:
-                    self.job_service.update_job_status(
-                        self.db, job.id, "running", 0.60, "AI: Classifying file"
-                    )
-
-                    # Get library details and existing folders
-                    library_obj = self.db.query(Library).filter(Library.id == selected_library_id).first()
-                    if library_obj:
-                        existing_folders = self._get_existing_folders(selected_library_id)
-                        context = self._get_classification_context()
-
-                        file_classification = await self.llm.classify_media(
-                            title=title_local,
-                            filename=file_metadata.get("filename", ""),
-                            metadata=file_metadata,
-                            enriched_data=enriched_local,
-                            library_id=library_obj.id,
-                            library_name=library_obj.name,
-                            library_template=library_obj.path_template,
-                            existing_folders=existing_folders,
-                            context=context,
-                        )
-
-                        # Merge library selection with file classification
-                        classification_local.update(file_classification)
-                        classification_local["library"] = selected_library_id
-                        classification_local["library_reasoning"] = library_reasoning
-
-                return title_local, enriched_local, classification_local
-
-            download_result, classify_result = await asyncio.gather(
-                download_task(), classify_task(), return_exceptions=True
-            )
-
-            # Handle classification result
-            if isinstance(classify_result, Exception):
-                title = file_metadata.get("title") or file_metadata.get("filename") or url.split("/")[-1]
-                enriched = {}
-                classification = {
-                    "confidence": 0.0,
-                    "library": None,
-                    "subfolder": None,
-                    "tags": [],
-                    "properties": {},
-                    "error": str(classify_result),
-                }
-            else:
-                title, enriched, classification = classify_result
-
-            # Handle download result
-            if isinstance(download_result, Exception):
-                error_msg = f"Download failed: {download_result}"
+                downloaded_file = await self._download_file(url, fmt)
+            except Exception as e:
+                error_msg = f"Download failed: {e}"
                 self.job_service.update_job_status(
                     self.db, job.id, "failed", error=error_msg
                 )
+                # Get title from probe data for inbox
+                title = file_metadata.get("title") or file_metadata.get("filename") or url.split("/")[-1]
                 return await self._send_to_inbox(
                     job_id=job.id,
                     entry_data={
                         "title": title,
                         "original_url": url,
                         "metadata": file_metadata,
-                        "enriched": enriched,
                         "probe": probe_snapshot,
                     },
-                    suggested_library=classification.get("library"),
-                    suggested_metadata=classification,
-                    confidence=classification.get("confidence", 0.0),
                     inbox_type="failed",
                     error_message=error_msg,
                 )
-            else:
-                downloaded_file = download_result
 
-            # Step 5: Decide if auto-import or send to inbox
-            target_library = library_id or classification.get("library")
-            confidence = classification.get("confidence", 0.0)
-
-            # Calculate hash and check duplicates (we have the file now)
+            # Step 3: Check for duplicates EARLY (before AI tasks to save tokens)
             self.job_service.update_job_status(
-                self.db, job.id, "running", 0.65, "Checking for duplicates"
+                self.db, job.id, "running", 0.30, "Checking for duplicates"
             )
             content_hash = calculate_file_hash(downloaded_file)
             duplicate = self.db.query(EntryFile).filter(
@@ -237,10 +123,14 @@ class ImportService:
             ).first()
 
             if duplicate:
+                # Clean up downloaded file
                 try:
                     Path(downloaded_file).unlink()
                 except Exception:
                     pass
+
+                # Get title from probe for inbox display
+                title = file_metadata.get("title") or file_metadata.get("filename") or url.split("/")[-1]
 
                 return await self._send_to_inbox(
                     job_id=job.id,
@@ -251,6 +141,95 @@ class ImportService:
                     },
                     inbox_type="duplicate",
                 )
+
+            # Step 4: AI Task 1 - Extract title
+            self.job_service.update_job_status(
+                self.db, job.id, "running", 0.35, "AI: Extracting title"
+            )
+            title = await self.llm.extract_title(
+                file_metadata.get("filename", ""),
+                file_metadata,
+            )
+            if not title:
+                title = (
+                    file_metadata.get("title")
+                    or file_metadata.get("filename")
+                    or url.split("/")[-1]
+                )
+
+            # Step 5: AI Task 2 - Select Library (if not manually specified)
+            selected_library_id = library_id
+            library_confidence = 1.0
+            library_reasoning = "Manually specified"
+
+            if not library_id:
+                self.job_service.update_job_status(
+                    self.db, job.id, "running", 0.45, "AI: Selecting library"
+                )
+                libraries_ctx = self._get_libraries_for_context()
+                library_selection = await self.llm.select_library(
+                    title=title,
+                    filename=file_metadata.get("filename", ""),
+                    metadata=file_metadata,
+                    enriched_data={},  # No enrichment yet
+                    libraries=libraries_ctx,
+                )
+                selected_library_id = library_selection.get("library_id")
+                library_confidence = library_selection.get("confidence", 0.0)
+                library_reasoning = library_selection.get("reasoning", "")
+
+            # Step 6: Enrich from external APIs (AFTER library selection)
+            enriched = {}
+            if selected_library_id:
+                self.job_service.update_job_status(
+                    self.db, job.id, "running", 0.55, "Enriching from external APIs"
+                )
+                library_obj = self.db.query(Library).filter(Library.id == selected_library_id).first()
+                if library_obj:
+                    # Conditional API calls based on library type
+                    enriched = await self._enrich_from_apis(
+                        title, file_metadata, library_id=library_obj.id, library_name=library_obj.name
+                    )
+
+            # Step 7: AI Task 3 - Classify File (organize within library)
+            classification = {
+                "confidence": library_confidence,
+                "library": selected_library_id,
+                "subfolder": None,
+                "tags": [],
+                "properties": {},
+                "library_reasoning": library_reasoning,
+            }
+
+            if selected_library_id:
+                self.job_service.update_job_status(
+                    self.db, job.id, "running", 0.65, "AI: Classifying file"
+                )
+
+                library_obj = self.db.query(Library).filter(Library.id == selected_library_id).first()
+                if library_obj:
+                    existing_folders = self._get_existing_folders(selected_library_id)
+                    context = self._get_classification_context()
+
+                    file_classification = await self.llm.classify_media(
+                        title=title,
+                        filename=file_metadata.get("filename", ""),
+                        metadata=file_metadata,
+                        enriched_data=enriched,
+                        library_id=library_obj.id,
+                        library_name=library_obj.name,
+                        library_template=library_obj.path_template,
+                        existing_folders=existing_folders,
+                        context=context,
+                    )
+
+                    # Merge library selection with file classification
+                    classification.update(file_classification)
+                    classification["library"] = selected_library_id
+
+            # Step 8: Decide if auto-import or send to inbox
+            target_library = library_id or classification.get("library")
+            confidence = classification.get("confidence", 0.0)
 
             if not target_library:
                 # Send to inbox - no library could be determined
@@ -444,16 +423,51 @@ class ImportService:
 
         raise Exception(f"Failed to download file from VHS after {attempt} attempts: {last_err}")
 
-    async def _enrich_from_apis(self, title: str, metadata: Dict) -> Dict[str, Any]:
-        """Enrich metadata from external APIs"""
-        # Determine media type
-        media_type = "music" if "music" in metadata.get("platform", "").lower() else "movie"
+    async def _enrich_from_apis(
+        self,
+        title: str,
+        metadata: Dict,
+        library_id: Optional[str] = None,
+        library_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Enrich metadata from external APIs - CONDITIONALLY based on library type and platform
 
-        # Extract artist/year if available
-        artist = metadata.get("uploader")
-        year = None
+        Args:
+            title: Cleaned title
+            metadata: VHS metadata
+            library_id: Selected library ID
+            library_name: Selected library name
 
-        return await enrich_metadata(title, media_type, artist, year)
+        Returns:
+            Enriched metadata from APIs (iTunes, TMDb, or MusicBrainz)
+        """
+        # Determine if we should call APIs based on library type
+        platform = metadata.get("platform", "").lower()
+        extractor = metadata.get("extractor", "").lower()
+
+        # Music libraries: Call iTunes/MusicBrainz
+        if library_id in ["musica", "music"] or (library_name and "music" in library_name.lower()):
+            # Only call APIs for platforms with poor metadata
+            if platform in ["youtube", "soundcloud", "bandcamp"]:
+                artist = metadata.get("uploader") or metadata.get("channel")
+                year = None
+                return await enrich_metadata(title, "music", artist, year)
+            else:
+                # Platform already has good metadata, skip API
+                return {}
+
+        # Video/Movie libraries: Call TMDb
+        elif library_id in ["videos", "movies", "videoclips"] or (library_name and any(x in library_name.lower() for x in ["video", "movie", "film"])):
+            # Skip for platforms that already provide excellent metadata
+            if platform not in ["youtube", "vimeo", "twitch"]:
+                return await enrich_metadata(title, "movie", None, None)
+            else:
+                # YouTube/Vimeo have good metadata already
+                return {}
+
+        # Unknown library type - skip APIs to save quota
+        return {}
 
     def _get_libraries_for_context(self) -> List[Dict]:
         """Get libraries for LLM context"""
@@ -674,7 +688,7 @@ class ImportService:
         enriched: Dict,
         user_metadata: Dict,
     ):
-        """Create properties for entry from all sources"""
+        """Create properties for entry from all sources with specific source tracking"""
         # Properties from LLM classification
         properties = classification.get("properties", {})
         for key, value in properties.items():
@@ -687,8 +701,11 @@ class ImportService:
                 )
                 self.db.add(prop)
 
-        # Properties from external APIs
+        # Properties from external APIs (with specific source tracking)
         for source_name, source_data in enriched.items():
+            # source_name is "itunes", "tmdb", or "musicbrainz"
+            api_source = f"api:{source_name}"  # e.g., "api:itunes"
+
             for key, value in source_data.items():
                 if key != "tags" and value:  # Skip tags field and empty values
                     # Check if property already exists
@@ -705,7 +722,7 @@ class ImportService:
                             entry_uuid=entry_uuid,
                             key=key,
                             value=str(value),
-                            source="external_api",
+                            source=api_source,  # Specific API source
                         )
                         self.db.add(prop)
 

@@ -34,6 +34,17 @@ class EntryFileResponse(EntryFileBase):
         from_attributes = True
 
 
+class EntryPropertyResponse(BaseModel):
+    """Response schema for entry properties with source tracking"""
+
+    key: str
+    value: str
+    source: Optional[str] = None  # 'llm', 'api:itunes', 'api:tmdb', 'user', etc.
+
+    class Config:
+        from_attributes = True
+
+
 class EntryBase(BaseModel):
     """Base schema for entries"""
 
@@ -87,7 +98,7 @@ class EntryResponse(EntryBase):
 
     # Related data (populated separately)
     files: List[EntryFileResponse] = Field(default_factory=list)
-    properties: Dict[str, str] = Field(default_factory=dict)
+    properties: List[EntryPropertyResponse] = Field(default_factory=list)  # Changed to list with source
     auto_tags: List[str] = Field(default_factory=list)
     user_tags: List[str] = Field(default_factory=list)
     relations: List[Dict] = Field(default_factory=list)
