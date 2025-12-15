@@ -11,8 +11,8 @@ psycopg2-binary==2.9.9
 alembic==1.13.1
 
 # Pydantic
-pydantic==2.5.3
-pydantic-settings==2.1.0
+pydantic==2.12.5
+pydantic-settings==2.12.0
 
 # HTTP Client
 httpx==0.26.0
@@ -38,3 +38,6 @@ redis==5.0.1
 # Utils
 python-dotenv==1.0.0
 python-dateutil==2.8.2
+
+# MCP Server
+mcp==1.24.0

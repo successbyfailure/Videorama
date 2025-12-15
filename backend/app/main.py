@@ -68,6 +68,7 @@ async def health_check():
 
 # API v1 routes
 from .api.v1 import libraries, entries, import_endpoints, inbox, jobs, playlists, vhs, settings_api, tags
+from .api.v1 import settings as settings_router  # Renamed to avoid conflict with config.settings
 
 app.include_router(libraries.router, prefix="/api/v1", tags=["libraries"])
 app.include_router(entries.router, prefix="/api/v1", tags=["entries"])
@@ -76,9 +77,15 @@ app.include_router(inbox.router, prefix="/api/v1", tags=["inbox"])
 app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
 app.include_router(playlists.router, prefix="/api/v1", tags=["playlists"])
 app.include_router(vhs.router, prefix="/api/v1", tags=["vhs"])
-app.include_router(settings_api.router, prefix="/api/v1", tags=["settings"])
+app.include_router(settings_api.router, prefix="/api/v1", tags=["settings_old"])  # Legacy
+app.include_router(settings_router.router, prefix="/api/v1", tags=["settings"])  # New settings with prompts
 app.include_router(tags.router, prefix="/api/v1", tags=["tags"])
 
+# MCP server (optional)
+if settings.MCP_ENABLED:
+    from .services.mcp_service import create_mcp_app
+
+    app.mount("/api/v1/mcp", create_mcp_app())
 
 @app.get("/")
 async def root():

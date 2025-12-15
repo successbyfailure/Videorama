@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-4o"
 
+    # MCP
+    MCP_ENABLED: bool = False
+    MCP_TIMEOUT: int = 30
+    MCP_READ_ONLY: bool = False
+
     # External APIs
     TMDB_API_KEY: Optional[str] = None
     SPOTIFY_CLIENT_ID: Optional[str] = None
