@@ -119,28 +119,52 @@ def get_entry(entry_uuid: str, db: Session = Depends(get_db)):
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
 
-    # Build full response
-    entry_dict = EntryResponse.model_validate(entry).model_dump()
-
-    # Truncate title to prevent validation errors
-    if entry_dict.get("title"):
-        entry_dict["title"] = entry_dict["title"][:500]
+    # Build full response manually (same as list_entries)
+    entry_dict = {
+        "uuid": entry.uuid,
+        "title": (entry.title or "")[:500],  # Truncate to max 500 chars
+        "description": entry.description,
+        "duration": entry.duration,
+        "thumbnail_url": entry.thumbnail_url,
+        "library_id": entry.library_id,
+        "subfolder": entry.subfolder,
+        "platform": entry.platform,
+        "uploader": entry.uploader,
+        "import_source": entry.import_source,
+        "original_url": entry.original_url,
+        "imported_by": entry.imported_by,
+        "view_count": entry.view_count or 0,
+        "favorite": entry.favorite or False,
+        "rating": entry.rating,
+        "added_at": entry.added_at,
+        "updated_at": entry.updated_at,
+        "last_viewed_at": entry.last_viewed_at,
+        "import_job_id": entry.import_job_id,
+    }
 
     entry_dict["files"] = [
         {
             "id": f.id,
+            "entry_uuid": f.entry_uuid,
             "file_type": f.file_type,
             "format": f.format,
             "size": f.size,
             "duration": f.duration,
+            "bitrate": f.bitrate,
+            "resolution": f.resolution,
             "file_path": f.file_path,
             "content_hash": f.content_hash,
+            "is_available": f.is_available,
+            "last_verified_at": f.last_verified_at,
+            "created_at": f.created_at,
         }
         for f in entry.files
     ]
 
     entry_dict["properties"] = {prop.key: prop.value for prop in entry.properties}
     entry_dict["user_tags"] = [tag.tag.name for tag in entry.user_tags]
+    entry_dict["auto_tags"] = []
+    entry_dict["relations"] = []
 
     return EntryResponse(**entry_dict)
 
