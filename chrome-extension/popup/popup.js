@@ -21,6 +21,14 @@ let settings = {
 let recentImports = [];
 let pollInterval = null;
 
+function formatBytes(bytes) {
+  if (!bytes || isNaN(bytes)) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const value = bytes / Math.pow(1024, i);
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[i]}`;
+}
+
 function setStatus(message, type = 'info') {
   statusEl.textContent = message;
   statusEl.className = `status ${type}`;
@@ -139,6 +147,13 @@ function renderRecentImports() {
     urlEl.className = 'recent-url';
     urlEl.textContent = item.url;
 
+    if (item.title || item.sizeLabel) {
+      const details = document.createElement('div');
+      details.className = 'recent-meta';
+      details.innerHTML = `<span>${item.title || 'Título desconocido'}</span><span>${item.sizeLabel || ''}</span>`;
+      li.appendChild(details);
+    }
+
     if (item.progress !== undefined) {
       const inlineProgress = document.createElement('div');
       inlineProgress.className = 'progress';
@@ -189,7 +204,13 @@ function startPolling(jobId, baseUrl) {
       if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
         stopPolling();
         progressMessage.textContent = job.status === 'completed' ? 'Completado' : (job.error || job.status);
-        updateRecentStatus(jobId, job.status === 'completed' ? 'importado' : 'error', job.progress || 1);
+        if (job.status === 'completed') {
+          fetchEntrySummary(baseUrl, job.result).then((summary) => {
+            updateRecentStatus(jobId, 'importado', job.progress || 1, summary);
+          });
+        } else {
+          updateRecentStatus(jobId, 'error', job.progress || 1);
+        }
       }
     } catch (err) {
       stopPolling();
@@ -205,12 +226,39 @@ function stopPolling() {
   }
 }
 
-async function updateRecentStatus(jobId, status, progress = null) {
+async function updateRecentStatus(jobId, status, progress = null, summary = {}) {
   recentImports = recentImports.map((item) =>
-    item.job_id === jobId ? { ...item, status, progress } : item
+    item.job_id === jobId
+      ? {
+          ...item,
+          status,
+          progress,
+          title: summary.title || item.title,
+          sizeLabel: summary.sizeLabel || item.sizeLabel,
+        }
+      : item
   );
   await saveRecentImports();
   renderRecentImports();
+}
+
+async function fetchEntrySummary(baseUrl, result = {}) {
+  try {
+    const uuid = result?.entry_uuid || result?.result?.entry_uuid;
+    if (!uuid || !baseUrl) return {};
+    const res = await fetch(`${baseUrl}/api/v1/entries/${uuid}`);
+    if (!res.ok) return {};
+    const entry = await res.json();
+    const totalSize = Array.isArray(entry.files)
+      ? entry.files.reduce((sum, f) => sum + (f.size || 0), 0)
+      : entry.size || 0;
+    return {
+      title: entry.title,
+      sizeLabel: formatBytes(totalSize),
+    };
+  } catch {
+    return {};
+  }
 }
 
 async function handleImport() {
@@ -265,6 +313,8 @@ async function handleImport() {
       job_id: data.job_id,
       timestamp: Date.now(),
       progress: 0,
+      title: data.entry_title || '',
+      sizeLabel: data.entry_size ? formatBytes(data.entry_size) : '',
     });
     await saveRecentImports();
     renderRecentImports();
