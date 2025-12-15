@@ -5,11 +5,16 @@ import Input from '@/components/Input'
 import Toggle from '@/components/Toggle'
 import { useSettings, useUpdateSettings } from '@/hooks/useSettings'
 import { usePromptSettings, useUpdatePromptSetting, useResetPromptSetting } from '@/hooks/usePromptSettings'
-import { Settings as SettingsIcon, Save, AlertCircle, CheckCircle, FileText, RotateCcw } from 'lucide-react'
+import { useTelegramContacts, useAllowTelegramContact, useTelegramSettings, useUpdateTelegramSettings } from '@/hooks/useTelegram'
+import { Settings as SettingsIcon, Save, AlertCircle, CheckCircle, FileText, RotateCcw, Shield, Ban } from 'lucide-react'
 
 export default function Settings() {
   const { data: settings, isLoading, error } = useSettings()
   const updateSettings = useUpdateSettings()
+  const { data: tgSettings } = useTelegramSettings()
+  const updateTgSettings = useUpdateTelegramSettings()
+  const { data: contacts } = useTelegramContacts(50)
+  const allowContact = useAllowTelegramContact()
 
   // Prompt settings hooks
   const { data: prompts, isLoading: promptsLoading } = usePromptSettings('llm')
@@ -20,6 +25,7 @@ export default function Settings() {
   const [promptEdits, setPromptEdits] = useState<Record<string, string>>({})
   const [showSuccess, setShowSuccess] = useState(false)
   const [promptSuccess, setPromptSuccess] = useState(false)
+  const [tgForm, setTgForm] = useState<Record<string, any>>({})
 
   const handleChange = (field: string, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -33,6 +39,15 @@ export default function Settings() {
       setTimeout(() => setShowSuccess(false), 3000)
     } catch (err) {
       console.error('Failed to update settings:', err)
+    }
+  }
+
+  const handleSaveTelegram = async () => {
+    try {
+      await updateTgSettings.mutateAsync(tgForm)
+      setTgForm({})
+    } catch (err) {
+      console.error('Failed to update telegram settings:', err)
     }
   }
 
@@ -69,6 +84,7 @@ export default function Settings() {
   }
 
   const hasChanges = Object.keys(formData).length > 0
+  const hasTelegramChanges = Object.keys(tgForm).length > 0
   const hasPromptChanges = (key: string) => key in promptEdits
 
   if (isLoading) {
@@ -392,6 +408,77 @@ export default function Settings() {
             placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
             helperText="Token for Telegram bot integration"
           />
+
+          <Input
+            label="Admin IDs (comma-separated)"
+            value={tgForm.admin_ids ?? tgSettings?.admin_ids ?? ''}
+            onChange={(e) => setTgForm((prev) => ({ ...prev, admin_ids: e.target.value }))}
+            placeholder="123456,789012"
+            helperText="User IDs with admin privileges for the bot"
+          />
+
+          <div className="flex justify-end">
+            <Button
+              onClick={handleSaveTelegram}
+              disabled={!hasTelegramChanges}
+              isLoading={updateTgSettings.isPending}
+              size="small"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              Save Telegram Settings
+            </Button>
+          </div>
+
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Shield className="w-5 h-5 text-primary-600" />
+              <h3 className="font-semibold text-gray-900 dark:text-white">Recent Contacts</h3>
+            </div>
+            {contacts && contacts.length > 0 ? (
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {contacts.map((c) => (
+                  <div
+                    key={c.user_id}
+                    className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700"
+                  >
+                    <div className="flex flex-col">
+                      <span className="font-medium text-gray-900 dark:text-white">
+                        {c.username ? `@${c.username}` : c.first_name || c.user_id}
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {c.role} · id: {c.user_id}
+                      </span>
+                    </div>
+                    <Button
+                      size="small"
+                      variant={c.allowed ? 'secondary' : 'danger'}
+                      onClick={() =>
+                        allowContact.mutate({ userId: c.user_id, allowed: !c.allowed })
+                      }
+                      disabled={allowContact.isPending}
+                      className="flex items-center gap-2"
+                    >
+                      {c.allowed ? (
+                        <>
+                          <Ban className="w-4 h-4" />
+                          Block
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-4 h-4" />
+                          Allow
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                No recent contacts yet.
+              </p>
+            )}
+          </div>
         </div>
       </Card>
 

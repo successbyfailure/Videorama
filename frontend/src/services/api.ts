@@ -263,6 +263,7 @@ export interface Settings {
   spotify_client_id: string | null
   spotify_client_secret: string | null
   telegram_bot_token: string | null
+  telegram_admin_ids?: string | null
 }
 
 export interface SettingsUpdate {
@@ -279,6 +280,7 @@ export interface SettingsUpdate {
   spotify_client_id?: string
   spotify_client_secret?: string
   telegram_bot_token?: string
+  telegram_admin_ids?: string
 }
 
 export const settingsApi = {
@@ -289,6 +291,47 @@ export const settingsApi = {
 
   update: async (updates: SettingsUpdate) => {
     const { data } = await api.put<Settings>('/app-settings', updates)
+    return data
+  },
+}
+
+// ========== Telegram Admin ==========
+
+export interface TelegramContact {
+  user_id: number
+  username?: string
+  first_name?: string
+  last_name?: string
+  role: string
+  allowed: boolean
+  last_interaction_at?: number
+}
+
+export interface TelegramSettings {
+  [key: string]: string | null
+}
+
+export const telegramApi = {
+  listContacts: async (limit: number = 50) => {
+    const { data } = await api.get<TelegramContact[]>('/telegram/contacts', {
+      params: { limit },
+    })
+    return data
+  },
+  allowContact: async (userId: number, allowed: boolean) => {
+    const { data } = await api.post<{ user_id: number; allowed: boolean }>(
+      `/telegram/contacts/${userId}/allow`,
+      null,
+      { params: { allowed } }
+    )
+    return data
+  },
+  getSettings: async () => {
+    const { data } = await api.get<TelegramSettings>('/telegram/settings')
+    return data
+  },
+  updateSettings: async (payload: TelegramSettings) => {
+    const { data } = await api.put<TelegramSettings>('/telegram/settings', payload)
     return data
   },
 }

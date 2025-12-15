@@ -19,7 +19,7 @@ from telegram.ext import (
 
 from ..config import settings
 from ..database import SessionLocal
-from ..models import TelegramContact, TelegramInteraction, Library
+from ..models import TelegramContact, TelegramInteraction, Library, TelegramSetting
 from .import_service import ImportService
 from .vhs_service import VHSService
 
@@ -41,18 +41,19 @@ class TelegramBotService:
         self.app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
         self.vhs = VHSService()
         self._register_handlers()
+        self.admin_ids_cache = self._load_admin_ids()
 
     # --------------------
     # Access control
     # --------------------
     @staticmethod
-    def _ensure_contact(update: Update):
+    def _ensure_contact(update: Update, admin_ids: set[int]):
         db = SessionLocal()
         try:
             user = update.effective_user
             contact = db.query(TelegramContact).filter(TelegramContact.user_id == user.id).first()
             if not contact:
-                role = "admin" if db.query(TelegramContact).count() == 0 else "user"
+                role = "admin" if user.id in admin_ids or db.query(TelegramContact).count() == 0 else "user"
                 contact = TelegramContact(
                     user_id=user.id,
                     username=user.username,
@@ -66,6 +67,9 @@ class TelegramBotService:
                 db.commit()
             else:
                 contact.last_interaction_at = time.time()
+                if user.id in admin_ids and contact.role != "admin":
+                    contact.role = "admin"
+                    contact.allowed = True
                 db.commit()
             return contact
         finally:
@@ -79,6 +83,22 @@ class TelegramBotService:
             return bool(contact.allowed) if contact else True
         finally:
             db.close()
+
+    def _load_admin_ids(self) -> set[int]:
+        # Load from DB setting admin_ids or fallback env TELEGRAM_ADMIN_IDS
+        ids: set[int] = set()
+        db = SessionLocal()
+        try:
+            row = db.query(TelegramSetting).filter(TelegramSetting.key == "admin_ids").first()
+            raw = row.value if row else settings.TELEGRAM_ADMIN_IDS
+            if raw:
+                for part in raw.split(","):
+                    part = part.strip()
+                    if part.isdigit():
+                        ids.add(int(part))
+        finally:
+            db.close()
+        return ids
 
     @staticmethod
     def _log_interaction(update: Update, message_type: str, content: str = ""):
@@ -139,7 +159,7 @@ class TelegramBotService:
         self.app.add_handler(CallbackQueryHandler(self.on_callback))
 
     async def on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        contact = self._ensure_contact(update)
+        contact = self._ensure_contact(update, self.admin_ids_cache)
         self._log_interaction(update, "command", "/start")
         await update.message.reply_text(
             f"Hola {contact.first_name or contact.username or 'usuario'}.\n"
